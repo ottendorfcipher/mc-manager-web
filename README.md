@@ -1,4 +1,4 @@
-# MC Server Manager — Web Edition
+# redstoneCipher — Web Edition
 
 A PWA for managing your GCP Minecraft server. Built with Rust (Axum), React (TypeScript), and SQLite.
 
@@ -19,7 +19,7 @@ openssl rand -hex 32   # use this as JWT_SECRET
 **Google OAuth setup (one-time, free):**
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) → APIs & Services → Credentials
 2. Create → OAuth 2.0 Client ID → Web application
-3. Add `http://localhost:8787/auth/callback` as an authorized redirect URI
+3. Add `https://example.com/auth/callback` as an authorized redirect URI (for production) or `http://localhost:8787/auth/callback` (for local dev)
 4. Copy Client ID and Client Secret into `.env`
 
 ### 2. Migrate existing data
@@ -43,7 +43,7 @@ Open http://localhost:5173 — API calls are proxied to :8787.
 ```bash
 cd frontend && npm run build   # outputs to backend/dist/
 cd backend  && cargo build --release
-./target/release/mc-manager-server
+./target/release/redstonecipher-server
 ```
 Open http://localhost:8787
 

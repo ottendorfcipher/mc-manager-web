@@ -13,7 +13,7 @@ export function LoginPage() {
 
         <div>
           <h1 className="text-xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">
-            MC Server Manager
+            redstoneCipher
           </h1>
           <p className="mt-1 text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
             Sign in to manage your Minecraft server

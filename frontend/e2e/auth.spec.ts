@@ -10,7 +10,7 @@ test.describe("Authentication", () => {
     await page.route("/api/me", (r) => r.fulfill({ status: 401, body: JSON.stringify({ error: "Not authenticated" }) }));
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByText("MC Server Manager")).toBeVisible();
+    await expect(page.getByText("redstoneCipher")).toBeVisible();
     await expect(page.getByText("Continue with Google")).toBeVisible();
   });
 

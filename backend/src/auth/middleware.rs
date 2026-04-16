@@ -9,7 +9,7 @@ use crate::{
     state::AppState,
 };
 
-pub const JWT_COOKIE: &str = "mc_session";
+pub const JWT_COOKIE: &str = "rc_session";
 pub const JWT_EXPIRY_SECS: i64 = 8 * 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
