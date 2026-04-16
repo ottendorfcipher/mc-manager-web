@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-[#F7F5F2] dark:bg-[#13151A] text-[#1C1E27] dark:text-[#EAECF0] font-sans antialiased; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-[#5B9BF0]; }
+}
+
+@layer components {
+  .card { @apply bg-white dark:bg-[#222530] rounded-xl border border-[#D9D5D0] dark:border-[#363944] p-4; }
+  .btn-primary { @apply bg-[#5B9BF0] hover:bg-[#4080D8] text-white font-semibold rounded-lg px-4 py-2 transition-colors disabled:opacity-50; }
+  .btn-secondary { @apply bg-[#F0EDE9] dark:bg-[#2A2D38] hover:bg-[#E5E1DC] dark:hover:bg-[#363944] text-[#1C1E27] dark:text-[#EAECF0] font-medium rounded-lg px-4 py-2 transition-colors; }
+  .btn-danger { @apply border border-[#F87171] text-[#F87171] hover:bg-[#F87171] hover:text-white rounded-lg px-3 py-1.5 text-sm transition-colors; }
+  .nav-item { @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#DBD8D3] dark:hover:bg-[#2F323D] transition-colors cursor-pointer; }
+  .nav-item-active { @apply bg-[#5B9BF0] text-white hover:bg-[#4080D8]; }
+}
