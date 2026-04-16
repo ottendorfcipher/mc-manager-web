@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# migrate.sh — One-shot migration from the Python app's ~/.mc-manager/ to SQLite.
+# migrate.sh - One-shot migration from the Python app's ~/.mc-manager/ to SQLite.
 # Safe to run multiple times (idempotent via ON CONFLICT DO NOTHING).
 set -euo pipefail
 
 USERS_JSON="$HOME/.mc-manager/users.json"
 PREFS_JSON="$HOME/.mc-manager/prefs.json"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/Desktop/minecraft server/backups}"
-DB_PATH="${DATABASE_URL:-$HOME/Desktop/mc-manager-web/mc-manager.db}"
+DB_PATH="${DATABASE_URL:-/Users/user/Desktop/mc-manager-web/mc-manager.db}"
 DB_PATH="${DB_PATH#sqlite://}"
 
 if ! command -v sqlite3 &>/dev/null; then
@@ -16,17 +16,17 @@ fi
 
 echo "Migrating to SQLite at: $DB_PATH"
 
-# ── Users ──────────────────────────────────────────────────────────────────────
+# -- Users ----------------------------------------------------------------------
 if [[ -f "$USERS_JSON" ]]; then
-  echo "  Importing users from $USERS_JSON…"
-  python3 - <<PYEOF
+  echo "  Importing users from $USERS_JSON..."
+  python3 - "$USERS_JSON" "$DB_PATH" <<'PYEOF'
 import json, sqlite3, sys
 
-with open("$USERS_JSON") as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 
 users = data.get("users", {})
-db = sqlite3.connect("$DB_PATH")
+db = sqlite3.connect(sys.argv[2])
 db.execute("PRAGMA foreign_keys = ON")
 
 for email, rec in users.items():
@@ -55,16 +55,16 @@ print(f"  Imported {len(users)} user(s)")
 PYEOF
 fi
 
-# ── Preferences ────────────────────────────────────────────────────────────────
+# -- Preferences ----------------------------------------------------------------
 if [[ -f "$PREFS_JSON" ]]; then
-  echo "  Importing preferences from $PREFS_JSON…"
-  python3 - <<PYEOF
-import json, sqlite3
+  echo "  Importing preferences from $PREFS_JSON..."
+  python3 - "$PREFS_JSON" "$DB_PATH" <<'PYEOF'
+import json, sqlite3, sys
 
-with open("$PREFS_JSON") as f:
+with open(sys.argv[1]) as f:
     prefs = json.load(f)
 
-db = sqlite3.connect("$DB_PATH")
+db = sqlite3.connect(sys.argv[2])
 for key, value in prefs.items():
     db.execute(
         "INSERT INTO preferences (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -76,14 +76,14 @@ print(f"  Imported {len(prefs)} preference(s)")
 PYEOF
 fi
 
-# ── Backup metadata ────────────────────────────────────────────────────────────
+# -- Backup metadata ------------------------------------------------------------
 if [[ -d "$BACKUP_DIR" ]]; then
   echo "  Scanning backup directory: $BACKUP_DIR"
-  python3 - <<PYEOF
-import os, sqlite3, glob
+  python3 - "$BACKUP_DIR" "$DB_PATH" <<'PYEOF'
+import os, sqlite3, glob, sys
 
-backup_dir = "$BACKUP_DIR"
-db = sqlite3.connect("$DB_PATH")
+backup_dir = sys.argv[1]
+db = sqlite3.connect(sys.argv[2])
 count = 0
 
 for path in sorted(glob.glob(os.path.join(backup_dir, "mc-world-*.tar.gz"))):
