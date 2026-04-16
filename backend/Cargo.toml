@@ -1,11 +1,11 @@
 [package]
-name = "mc-manager-server"
+name = "redstonecipher-server"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
 
 [[bin]]
-name = "mc-manager-server"
+name = "redstonecipher-server"
 path = "src/main.rs"
 
 [dependencies]

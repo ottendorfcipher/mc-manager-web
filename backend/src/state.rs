@@ -15,7 +15,7 @@ impl AppState {
             pool,
             config,
             http: reqwest::Client::builder()
-                .user_agent("mc-manager-server/0.1")
+                .user_agent("redstonecipher-server/0.1")
                 .build()
                 .expect("reqwest client build failed"),
         }

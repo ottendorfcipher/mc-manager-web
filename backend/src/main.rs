@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("MC Manager listening on http://{addr}");
+    tracing::info!("redstoneCipher listening on http://{addr}");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

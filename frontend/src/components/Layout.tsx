@@ -29,7 +29,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2 px-4 py-5 border-b border-[#D9D5D0] dark:border-[#363944]">
           <Pickaxe className="w-5 h-5 text-[#5B9BF0]" aria-hidden />
           <span className="font-bold text-[#1C1E27] dark:text-[#EAECF0] text-sm">
-            MC Manager
+            redstoneCipher
           </span>
         </div>
 

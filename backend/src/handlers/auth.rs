@@ -18,8 +18,8 @@ use crate::{
     state::AppState,
 };
 
-const PKCE_COOKIE:  &str = "mc_pkce_verifier";
-const STATE_COOKIE: &str = "mc_oauth_state";
+const PKCE_COOKIE:  &str = "rc_pkce_verifier";
+const STATE_COOKIE: &str = "rc_oauth_state";
 
 /// GET /auth/login  — redirect the browser to Google's consent screen
 pub async fn login(State(state): State<AppState>) -> impl IntoResponse {

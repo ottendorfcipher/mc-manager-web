@@ -35,7 +35,7 @@ impl Config {
             google_client_secret: require_env("GOOGLE_CLIENT_SECRET"),
             redirect_uri: env_or(
                 "REDIRECT_URI",
-                "http://localhost:8787/auth/callback",
+                "https://redstonecipher.com/auth/callback",
             ),
             backup_dir: PathBuf::from(env_or(
                 "BACKUP_DIR",
