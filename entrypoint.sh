@@ -3,25 +3,19 @@
 #
 # Boot sequence:
 #   1. Create writable runtime directories
-#   2. Start tailscaled (userspace WireGuard daemon)
+#   2. Start tailscaled (userspace WireGuard; used for outbound SSH to MC VM)
 #   3. Restore the SQLite database from GCS via Litestream
 #   4. Start the Rust server under Litestream (port 8080 opens → Cloud Run
 #      startup TCP probe passes immediately)
-#   5. In parallel: connect to the tailnet and configure tailscale serve so
-#      the portal becomes available at https://${TS_HOSTNAME}.${TS_TAILNET}/
+#   5. Join the tailnet in the background (for outbound `gcloud compute ssh
+#      --tunnel-through-iap` to the Minecraft VM in example-project)
 #
-# Why async Tailscale?
-#   Cloud Run gives the container 60 s to listen on PORT before marking it
-#   failed.  tailscale up can take 10–30 s (key validation, WireGuard handshake).
-#   By starting the server immediately and wiring Tailscale in the background
-#   we satisfy the probe without a race.  During the brief window before
-#   tailscale serve is configured the app is still protected: the
-#   tailscale_guard middleware returns 403 for any non-Tailscale source IP.
+# Access control is handled by Google OAuth (JWT cookies), NOT by Tailscale
+# IP checking.  Tailscale is only needed for the outbound IAP tunnel.
 #
 # Required env vars:
 #   TS_AUTHKEY   — reusable+ephemeral auth key (Secret Manager → ts_authkey)
 #   TS_HOSTNAME  — MagicDNS label (default: redstonecipher-web)
-#   TS_TAILNET   — tailnet domain  e.g. tail4bc774.ts.net
 #   LITESTREAM_GCS_BUCKET
 
 # Keep pipefail but drop errexit — we handle errors explicitly so the
@@ -80,7 +74,7 @@ else
     echo "[entrypoint] No GCS replica — starting with fresh database"
 fi
 
-# ── 4. Wire Tailscale in background ───────────────────────────────────────────────
+# ── 4. Join tailnet in background (outbound SSH only) ───────────────────────────────
 for i in $(seq 1 20); do [ -S "${TS_SOCKET}" ] && break; sleep 0.5; done
 (
     tailscale --socket="${TS_SOCKET}" up \
@@ -88,9 +82,8 @@ for i in $(seq 1 20); do [ -S "${TS_SOCKET}" ] && break; sleep 0.5; done
         --hostname="${TS_HOSTNAME}" \
         --accept-routes=false \
         --accept-dns=false \
-    && tailscale --socket="${TS_SOCKET}" serve --bg http://localhost:8080 \
-    && echo "[entrypoint] Tailscale ready: https://${TS_HOSTNAME}.${TS_TAILNET:-<tailnet>}/" \
-    || echo "[entrypoint] WARNING: Tailscale setup failed — tailnet access unavailable" >&2
+    && echo "[entrypoint] Tailscale connected (outbound SSH ready)" \
+    || echo "[entrypoint] WARNING: Tailscale failed — MC VM SSH will not work" >&2
 ) &
 
 # ── 5. Run server under Litestream ────────────────────────────────────────────────────
