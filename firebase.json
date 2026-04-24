@@ -8,7 +8,7 @@
     ],
     "rewrites": [
       {
-        "source": "/auth/**",
+        "source": "**",
         "run": {
           "serviceId": "redstonecipher-web",
           "region": "us-central1"
