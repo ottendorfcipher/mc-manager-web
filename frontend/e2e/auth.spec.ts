@@ -10,7 +10,7 @@ test.describe("Authentication", () => {
     await page.route("/api/me", (r) => r.fulfill({ status: 401, body: JSON.stringify({ error: "Not authenticated" }) }));
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByText("redstoneCipher")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "redstoneCipher" })).toBeVisible();
     await expect(page.getByText("Continue with Google")).toBeVisible();
   });
 
@@ -51,12 +51,14 @@ test.describe("Authentication", () => {
   });
 
   test("sidebar shows all nav items for global admin", async ({ page }) => {
+    // Register the catch-all first so the specific /api/me route takes
+    // precedence (Playwright uses last-registered-wins for overlapping routes).
+    await page.route("/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
     await page.route("/api/me", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ email: "admin@example.com", role: "global_admin", display_name: "Nicholas", avatar_url: null,
           permissions: { can_manage_users: true, can_control_server: true, can_write_config: true, can_restore_backup: true, can_manage_admins: true } }) })
     );
-    await page.route("/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
     await page.goto("/");
     for (const label of ["Dashboard", "Server", "Team", "Backups", "Configure"]) {
       await expect(page.getByRole("link", { name: label })).toBeVisible();

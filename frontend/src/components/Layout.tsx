@@ -2,21 +2,23 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
-  Sun, Moon, Monitor, LogOut, Pickaxe,
+  Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck,
 } from "lucide-react";
 import { useAuthStore, useThemeStore } from "@/store/auth";
 
 const NAV = [
-  { to: "/",          icon: Activity, label: "Dashboard",    shortcut: "" },
-  { to: "/server",    icon: Server,   label: "Server",       shortcut: "⌘S" },
-  { to: "/team",      icon: Users,    label: "Team",         shortcut: "⌘T" },
-  { to: "/backups",   icon: HardDrive,label: "Backups",      shortcut: "⌘B" },
-  { to: "/configure", icon: Settings, label: "Configure",    shortcut: "⌘," },
-];
+  { to: "/",                    icon: Activity,    label: "Dashboard",   perm: "nav.dashboard" },
+  { to: "/server",              icon: Server,      label: "Server",      perm: "nav.server" },
+  { to: "/team",                icon: Users,       label: "Team",        perm: "nav.team" },
+  { to: "/backups",             icon: HardDrive,   label: "Backups",     perm: "nav.backups" },
+  { to: "/configure",           icon: Settings,    label: "Configure",   perm: "nav.configure" },
+  { to: "/admin/permissions",   icon: ShieldCheck, label: "Permissions", perm: "nav.admin" },
+] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuthStore();
+  const { user, hasPerm } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
+  const nav = NAV.filter((n) => hasPerm(n.perm));
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -38,7 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <p className="text-[10px] uppercase tracking-wider text-[#9B9EA6] px-3 py-1.5 font-semibold">
             Navigation
           </p>
-          {NAV.map(({ to, icon: Icon, label }) => (
+          {nav.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}

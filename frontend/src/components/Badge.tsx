@@ -1,4 +1,3 @@
-import React from "react";
 import { ROLE_COLORS, ROLE_LABELS, type Role } from "@/types";
 
 interface RoleBadgeProps { role: Role }

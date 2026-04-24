@@ -66,7 +66,7 @@ pub async fn exchange_code(
     verifier: &str,
     http: &reqwest::Client,
 ) -> anyhow::Result<GoogleUser> {
-    let token_res: TokenResponse = http
+    let response = http
         .post(GOOGLE_TOKEN_URL)
         .form(&[
             ("code",          code),
@@ -78,9 +78,23 @@ pub async fn exchange_code(
         ])
         .send()
         .await
-        .context("Token request failed")?
-        .error_for_status()
-        .context("Token endpoint returned error")?
+        .context("Token request failed")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        // Capture Google's JSON error body so operators can see the real cause
+        // (redirect_uri_mismatch, invalid_grant, invalid_client, …).
+        let body = response.text().await.unwrap_or_default();
+        tracing::warn!(
+            status = %status,
+            redirect_uri = %cfg.redirect_uri,
+            body = %body,
+            "Google token endpoint rejected the exchange",
+        );
+        anyhow::bail!("Token endpoint returned {status}: {body}");
+    }
+
+    let token_res: TokenResponse = response
         .json()
         .await
         .context("Token response parse failed")?;

@@ -1,0 +1,80 @@
+substitutions:
+  # Overridden automatically by GitHub trigger with $COMMIT_SHA.
+  # Defaults to 'latest' for manual  gcloud builds submit  invocations.
+  _DEPLOY_TAG: 'latest'
+
+steps:
+  # ── Step 1: Build the Docker image ─────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: build
+    args:
+      - build
+      - --tag
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:$_DEPLOY_TAG"
+      - --tag
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:latest"
+      - --cache-from
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:latest"
+      - .
+
+  # ── Step 2: Push to Artifact Registry ──────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: push
+    waitFor: ["build"]
+    args:
+      - push
+      - "--all-tags"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web"
+
+  # ── Step 3: Deploy to Cloud Run ─────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: deploy
+    waitFor: ["push"]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - redstonecipher-web
+      # Use the commit-sha tag when available (trigger builds); fall back to
+      # 'latest' for manual gcloud builds submit invocations.
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:$_DEPLOY_TAG
+      - --region=us-central1
+      - --platform=managed
+      - --service-account=redstonecipher-sa@$PROJECT_ID.iam.gserviceaccount.com
+      # min-instances=1: the Tailscale daemon must stay running so the container
+      # is reachable via MagicDNS without a cold start on every visit.
+      - --min-instances=1
+      - --max-instances=2
+      - --memory=512Mi
+      - --cpu=1
+      - --timeout=300
+      - --concurrency=80
+      - --port=8080
+      # Keep allow-unauthenticated so GCP Pub/Sub push can reach /internal/budget-alert.
+      # All other routes are protected by the tailscale_guard middleware in the app.
+      - --allow-unauthenticated
+      # Non-secret environment variables
+      - --set-env-vars=HOST=0.0.0.0,DATABASE_URL=sqlite:///data/mc-manager.db,BACKUP_DIR=/data/backups,GCLOUD_BIN=/usr/bin/gcloud,CLOUDSDK_CONFIG=/tmp/gcloud-config,GCP_PROJECT=example-project,GCP_ZONE=us-central1-a,GCP_INSTANCE=mc-server-spot,TAILSCALE_IP=100.64.0.3
+      # GCS bucket for Litestream
+      - --set-env-vars=LITESTREAM_GCS_BUCKET=$PROJECT_ID-data
+      - --set-env-vars=TS_HOSTNAME=redstonecipher-web
+      - --set-env-vars=TS_TAILNET=tail4bc774.ts.net
+      - --set-env-vars=REDIRECT_URI=https://redstonecipher-web.tail4bc774.ts.net/auth/callback
+      # Secrets from Secret Manager (latest version, mounted as env vars)
+      - --set-secrets=JWT_SECRET=jwt_secret:latest
+      - --set-secrets=GOOGLE_CLIENT_ID=google_client_id:latest
+      - --set-secrets=GOOGLE_CLIENT_SECRET=google_client_secret:latest
+      - --set-secrets=BUDGET_WEBHOOK_TOKEN=budget_webhook_token:latest
+      # Tailscale ephemeral auth key (generate in Tailscale admin: reusable + ephemeral)
+      - --set-secrets=TS_AUTHKEY=ts_authkey:latest
+
+images:
+  - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:$_DEPLOY_TAG"
+  - "us-central1-docker.pkg.dev/$PROJECT_ID/app/redstonecipher-web:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # Use a machine with more RAM for the Rust + Node dual build
+  machineType: E2_HIGHCPU_8
+
+timeout: "1800s"

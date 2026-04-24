@@ -1,6 +1,7 @@
 # Rust
 backend/target/
 backend/.sqlx/
+backend/*.log
 
 # Node
 frontend/node_modules/
@@ -15,6 +16,18 @@ frontend/test-results/
 
 # Env
 .env
+.budget_webhook_token
 
 # OS
 .DS_Store
+
+# mkcert TLS material (local dev only)
+frontend/certs/
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Public stub (only .gitkeep should be committed)
+public/*
+!public/.gitkeep

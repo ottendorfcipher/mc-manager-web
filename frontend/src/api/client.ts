@@ -1,12 +1,12 @@
 /** Base API client. Cookies (JWT) are sent automatically via `credentials: include`. */
 
 export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -20,12 +20,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
 
-  if (res.status === 401) {
-    // Redirect to login — no need to bubble an error
-    window.location.href = "/auth/login";
-    return undefined as unknown as T;
-  }
-
+  // Bubble 401 the same way as any other error. The AuthGuard (React
+  // Router) is responsible for sending the user to /login; a hard
+  // `window.location` redirect here would race with SPA routing and break
+  // any feature that wants to handle auth expiry gracefully.
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error ?? "Unknown error");

@@ -3,6 +3,8 @@ pub mod players;
 pub mod prefs;
 pub mod backups;
 pub mod audit;
+pub mod kill_switch;
+pub mod permissions;
 
 use sqlx::{sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions}, ConnectOptions};
 use std::str::FromStr;

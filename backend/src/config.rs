@@ -12,6 +12,9 @@ pub struct Config {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub redirect_uri: String,
+    /// Shared secret for the Pub/Sub budget webhook. When `None` the webhook
+    /// endpoint returns 404, keeping the surface area small in dev.
+    pub budget_webhook_token: Option<String>,
     pub backup_dir: PathBuf,
     pub gcloud_bin: PathBuf,
     pub gcp_project: String,
@@ -37,6 +40,7 @@ impl Config {
                 "REDIRECT_URI",
                 "https://example.com/auth/callback",
             ),
+            budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN").ok().filter(|s| !s.is_empty()),
             backup_dir: PathBuf::from(env_or(
                 "BACKUP_DIR",
                 &format!(

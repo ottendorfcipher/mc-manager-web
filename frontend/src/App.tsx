@@ -3,12 +3,14 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Layout } from "@/components/Layout";
-import { DashboardPage }  from "@/features/dashboard/DashboardPage";
-import { ServerPage }     from "@/features/server-control/ServerPage";
-import { TeamPage }       from "@/features/team/TeamPage";
-import { BackupsPage }    from "@/features/backups/BackupsPage";
-import { ConfigurePage }  from "@/features/configure/ConfigurePage";
-import { LoginPage }      from "@/features/auth/LoginPage";
+import { KillSwitchBanner } from "@/components/KillSwitchBanner";
+import { DashboardPage }    from "@/features/dashboard/DashboardPage";
+import { ServerPage }       from "@/features/server-control/ServerPage";
+import { TeamPage }         from "@/features/team/TeamPage";
+import { BackupsPage }      from "@/features/backups/BackupsPage";
+import { ConfigurePage }    from "@/features/configure/ConfigurePage";
+import { LoginPage }        from "@/features/auth/LoginPage";
+import { PermissionsPage }  from "@/features/admin/PermissionsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -29,15 +31,21 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/*" element={
             <AuthGuard>
-              <Layout>
-                <Routes>
-                  <Route path="/"          element={<DashboardPage />} />
-                  <Route path="/server"    element={<ServerPage />} />
-                  <Route path="/team"      element={<TeamPage />} />
-                  <Route path="/backups"   element={<BackupsPage />} />
-                  <Route path="/configure" element={<ConfigurePage />} />
-                </Routes>
-              </Layout>
+              <div className="flex flex-col h-screen">
+                <KillSwitchBanner />
+                <div className="flex-1 min-h-0">
+                  <Layout>
+                    <Routes>
+                      <Route path="/"                    element={<DashboardPage />} />
+                      <Route path="/server"              element={<ServerPage />} />
+                      <Route path="/team"                element={<TeamPage />} />
+                      <Route path="/backups"             element={<BackupsPage />} />
+                      <Route path="/configure"           element={<ConfigurePage />} />
+                      <Route path="/admin/permissions"   element={<PermissionsPage />} />
+                    </Routes>
+                  </Layout>
+                </div>
+              </div>
             </AuthGuard>
           } />
         </Routes>
