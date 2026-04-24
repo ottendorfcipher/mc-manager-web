@@ -6,6 +6,15 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "rewrites": [
+      {
+        "source": "/auth/**",
+        "run": {
+          "serviceId": "redstonecipher-web",
+          "region": "us-central1"
+        }
+      }
+    ],
     "headers": [
       {
         "source": "**",
