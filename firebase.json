@@ -6,27 +6,13 @@
       "**/.*",
       "**/node_modules/**"
     ],
-    "rewrites": [
-      {
-        "source": "**",
-        "run": {
-          "serviceId": "redstonecipher-web",
-          "region": "us-central1"
-        }
-      }
-    ],
     "headers": [
       {
         "source": "**",
         "headers": [
           { "key": "X-Robots-Tag",      "value": "noindex, nofollow" },
           { "key": "X-Frame-Options",   "value": "DENY" },
-          { "key": "X-Content-Type-Options", "value": "nosniff" }
-        ]
-      },
-      {
-        "source": "*.html",
-        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
           { "key": "Cache-Control", "value": "no-store" }
         ]
       }
