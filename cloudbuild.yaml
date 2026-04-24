@@ -41,31 +41,31 @@ steps:
       - --region=us-central1
       - --platform=managed
       - --service-account=redstonecipher-sa@$PROJECT_ID.iam.gserviceaccount.com
-      # min-instances=1: the Tailscale daemon must stay running so the container
-      # is reachable via MagicDNS without a cold start on every visit.
+      # min-instances=1: Tailscale daemon must stay alive for outbound SSH.
       - --min-instances=1
-      - --max-instances=2
-      - --memory=512Mi
-      - --cpu=1
+      - --max-instances=1
+      - --memory=256Mi
+      - --cpu=0.5
       - --timeout=300
-      - --concurrency=80
+      # cpu<1 requires concurrency=1 on Cloud Run
+      - --concurrency=1
       - --port=8080
-      # Keep allow-unauthenticated so GCP Pub/Sub push can reach /internal/budget-alert.
-      # All other routes are protected by the tailscale_guard middleware in the app.
+      - --cpu-throttling
+      # Allow unauthenticated at the Cloud Run IAM level — the app handles
+      # auth via Google OAuth (JWT cookies). The budget webhook also needs
+      # unauthenticated access from GCP Pub/Sub.
       - --allow-unauthenticated
       # Non-secret environment variables
       - --set-env-vars=HOST=0.0.0.0,DATABASE_URL=sqlite:///data/mc-manager.db,BACKUP_DIR=/data/backups,GCLOUD_BIN=/usr/bin/gcloud,CLOUDSDK_CONFIG=/tmp/gcloud-config,GCP_PROJECT=example-project,GCP_ZONE=us-central1-a,GCP_INSTANCE=mc-server-spot,TAILSCALE_IP=100.64.0.3
-      # GCS bucket for Litestream
       - --set-env-vars=LITESTREAM_GCS_BUCKET=$PROJECT_ID-data
       - --set-env-vars=TS_HOSTNAME=redstonecipher-web
       - --set-env-vars=TS_TAILNET=tail4bc774.ts.net
-      - --set-env-vars=REDIRECT_URI=https://redstonecipher-web.tail4bc774.ts.net/auth/callback
-      # Secrets from Secret Manager (latest version, mounted as env vars)
+      - --set-env-vars=REDIRECT_URI=https://example.com/auth/callback
+      # Secrets from Secret Manager
       - --set-secrets=JWT_SECRET=jwt_secret:latest
       - --set-secrets=GOOGLE_CLIENT_ID=google_client_id:latest
       - --set-secrets=GOOGLE_CLIENT_SECRET=google_client_secret:latest
       - --set-secrets=BUDGET_WEBHOOK_TOKEN=budget_webhook_token:latest
-      # Tailscale ephemeral auth key (generate in Tailscale admin: reusable + ephemeral)
       - --set-secrets=TS_AUTHKEY=ts_authkey:latest
 
 images:
