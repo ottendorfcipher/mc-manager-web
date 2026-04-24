@@ -30,7 +30,7 @@ export function DashboardPage() {
 
   const metrics = useMetrics();
 
-  const vmStatus  = status?.vm.status ?? "…";
+  const vmStatus  = status?.vm?.status ?? "…";
   const mcService = status?.service    ?? "…";
 
   return (
@@ -76,7 +76,7 @@ export function DashboardPage() {
       )}
 
       {/* Tailscale address */}
-      {status?.vm.tailscale_ip && (
+      {status?.vm?.tailscale_ip && (
         <div className="card">
           <p className="text-xs text-[#9B9EA6] mb-1">Connect in Minecraft</p>
           <code className="text-[#5B9BF0] font-mono font-semibold">{status.vm.tailscale_ip}</code>

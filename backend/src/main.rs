@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod gcloud;
 mod handlers;
+mod middleware;
 mod minecraft;
 mod state;
 
@@ -81,12 +82,26 @@ fn build_router(state: AppState) -> Router {
         // Backups
         .route("/backups",                          get(handlers::backups::list).post(handlers::backups::create))
         .route("/backups/:id",                      get(handlers::backups::download).delete(handlers::backups::delete))
-        .route("/backups/:id/restore",              post(handlers::backups::restore));
+        .route("/backups/:id/restore",              post(handlers::backups::restore))
+        // Kill-switch
+        .route("/kill-switch",                      get(handlers::kill_switch::get)
+                                                        .post(handlers::kill_switch::engage)
+                                                        .delete(handlers::kill_switch::release))
+        // Permissions
+        .route("/permissions",                      get(handlers::permissions::list))
+        .route("/roles/:role/permissions",          get(handlers::permissions::get_role)
+                                                        .put(handlers::permissions::set_role));
+
+    let api = api.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::middleware::kill_switch_guard,
+    ));
 
     Router::new()
         .route("/auth/login",    get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
         .route("/auth/logout",   delete(handlers::auth::logout))
+        .route("/internal/budget-alert", post(handlers::budget::webhook))
         .nest("/api", api)
         // Serve compiled React frontend from ./dist
         .fallback_service(
@@ -100,6 +115,12 @@ fn build_router(state: AppState) -> Router {
                 .allow_headers(Any)
                 .allow_methods(Any),
         )
+        // Outermost layer: runs first. Blocks any request whose
+        // X-Forwarded-For header is not a Tailscale CGNAT IP.
+        // (set by `tailscale serve` in the container; absent in local dev)
+        .layer(axum::middleware::from_fn(
+            crate::middleware::tailscale_guard,
+        ))
         .with_state(state)
 }
 

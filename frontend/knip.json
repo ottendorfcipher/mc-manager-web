@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/main.tsx!", "e2e/**/*.spec.ts"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["src/types/**"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "workbox-window",
+    "@radix-ui/react-dialog",
+    "@radix-ui/react-dropdown-menu",
+    "@radix-ui/react-select",
+    "@radix-ui/react-switch",
+    "@radix-ui/react-toast",
+    "@radix-ui/react-tooltip",
+    "@tanstack/react-router",
+    "clsx",
+    "recharts",
+    "tailwind-merge"
+  ]
+}

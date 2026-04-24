@@ -1,7 +1,7 @@
 // These types mirror the Rust structs decorated with #[derive(TS)].
 // In a full setup ts-rs generates these automatically via `cargo test`.
 
-export type Role = "global_admin" | "admin" | "member" | "user";
+export type Role = "global_admin" | "admin" | "member" | "user" | "visitor";
 export type Gamemode = "survival" | "creative" | "adventure" | "spectator";
 
 export interface Permissions {
@@ -18,6 +18,25 @@ export interface MeResponse {
   display_name: string;
   avatar_url:   string | null;
   permissions:  Permissions;
+  /** Flat permission-key list (e.g. "server.vm.start", "nav.team"). */
+  permission_keys: string[];
+}
+
+export interface KillSwitchStatus {
+  disabled_at: string | null;
+  reason:      string | null;
+  source:      string | null;
+}
+
+export interface PermissionCatalogEntry {
+  key:         string;
+  category:    string;
+  description: string;
+}
+
+export interface RolePermissions {
+  role:        Role;
+  permissions: string[];
 }
 
 export interface User {
@@ -76,14 +95,16 @@ export interface BackupRun {
 
 export type RoleLevel = 1 | 2 | 3 | 4;
 
-export const ROLE_LEVELS: Record<Role, RoleLevel> = {
+export const ROLE_LEVELS: Record<Role, RoleLevel | 0> = {
+  visitor:      0,
   user:         1,
   member:       2,
   admin:        3,
   global_admin: 4,
-};
+} as const;
 
 export const ROLE_LABELS: Record<Role, string> = {
+  visitor:      "Visitor",
   user:         "User",
   member:       "Member",
   admin:        "Admin",
@@ -91,8 +112,11 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_COLORS: Record<Role, string> = {
+  visitor:      "#B8BCC8",
   user:         "#9B9EA6",
   member:       "#36B37E",
   admin:        "#5B9BF0",
   global_admin: "#FBBF24",
 };
+
+export const ALL_ROLES: Role[] = ["visitor", "user", "member", "admin", "global_admin"];

@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
     Json,
 };
 use axum_extra::extract::{cookie::{Cookie, SameSite}, CookieJar};
@@ -17,6 +17,25 @@ use crate::{
     error::{AppError, Result},
     state::AppState,
 };
+
+/// Recoverable sign-in failure codes surfaced to the SPA via `?error=`.
+/// Keep this list in sync with `frontend/src/features/auth/useLoginError.ts`.
+mod err_code {
+    pub const STATE_MISMATCH: &str = "state_mismatch";
+    pub const TOKEN_EXCHANGE: &str = "token_exchange";
+    pub const NOT_INVITED:    &str = "not_invited";
+    pub const OAUTH_DENIED:   &str = "oauth_denied";
+}
+
+/// Build a response that clears the PKCE / state cookies and sends the user
+/// back to the login page with a friendly error code. This keeps the SPA in
+/// control of copy and preserves NN/g heuristic #9 (help users recover).
+fn login_error(jar: CookieJar, code: &str) -> Response {
+    let jar = jar
+        .remove(Cookie::from(PKCE_COOKIE))
+        .remove(Cookie::from(STATE_COOKIE));
+    (jar, Redirect::to(&format!("/login?error={code}"))).into_response()
+}
 
 const PKCE_COOKIE:  &str = "rc_pkce_verifier";
 const STATE_COOKIE: &str = "rc_oauth_state";
@@ -35,63 +54,87 @@ pub async fn login(State(state): State<AppState>) -> impl IntoResponse {
 
 #[derive(Deserialize)]
 pub struct CallbackParams {
-    code:  String,
-    state: String,
+    code:  Option<String>,
+    state: Option<String>,
+    /// Google sends `error=access_denied` when the user dismisses consent.
+    error: Option<String>,
 }
 
-/// GET /auth/callback  — exchange code, issue JWT, redirect to frontend
+/// GET /auth/callback  — exchange code, issue JWT, redirect to frontend.
+/// Recoverable failures redirect to `/login?error=<code>` instead of 5xx so
+/// the SPA can render a human-readable banner.
 pub async fn callback(
     State(state): State<AppState>,
     jar: CookieJar,
     Query(params): Query<CallbackParams>,
-) -> Result<impl IntoResponse> {
-    // CSRF check
-    let stored_state = jar
-        .get(STATE_COOKIE)
-        .map(|c| c.value().to_owned())
-        .ok_or(AppError::Unauthenticated)?;
-
-    if stored_state != params.state {
-        return Err(AppError::Unauthenticated);
+) -> Response {
+    // The user clicked "Cancel" on Google's consent screen.
+    if params.error.is_some() {
+        return login_error(jar, err_code::OAUTH_DENIED);
     }
 
-    let verifier = jar
-        .get(PKCE_COOKIE)
-        .map(|c| c.value().to_owned())
-        .ok_or(AppError::Unauthenticated)?;
+    let (code, state_param) = match (params.code, params.state) {
+        (Some(c), Some(s)) => (c, s),
+        _ => return login_error(jar, err_code::STATE_MISMATCH),
+    };
+
+    // CSRF check
+    let stored_state = match jar.get(STATE_COOKIE).map(|c| c.value().to_owned()) {
+        Some(s) => s,
+        None => return login_error(jar, err_code::STATE_MISMATCH),
+    };
+    if stored_state != state_param {
+        return login_error(jar, err_code::STATE_MISMATCH);
+    }
+
+    let verifier = match jar.get(PKCE_COOKIE).map(|c| c.value().to_owned()) {
+        Some(v) => v,
+        None => return login_error(jar, err_code::STATE_MISMATCH),
+    };
 
     // Exchange code for Google user info
-    let guser = exchange_code(
-        &state.config,
-        &params.code,
-        &verifier,
-        &state.http,
-    )
-    .await
-    .map_err(|e| AppError::Internal(e))?;
+    let guser = match exchange_code(&state.config, &code, &verifier, &state.http).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!(error = %e, "Google token exchange failed");
+            return login_error(jar, err_code::TOKEN_EXCHANGE);
+        }
+    };
 
     // Authorise: must exist in DB (or be the permanent global admin)
-    let user = users::get(&state.pool, &guser.email).await?;
+    let user = match users::get(&state.pool, &guser.email).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!(error = %e, "DB lookup failed during callback");
+            return AppError::from(e).into_response();
+        }
+    };
     let role = match user {
         Some(ref u) => u.role.clone(),
         None if guser.email == GLOBAL_ADMIN => "global_admin".to_string(),
-        None => return Err(AppError::Forbidden(format!(
-            "{} is not authorised. Ask the admin to add you.",
-            guser.email
-        ))),
+        None => return login_error(jar, err_code::NOT_INVITED),
     };
 
     // Upsert Google identity (sub, avatar) and last_login
-    users::update_google_identity(
+    if let Err(e) = users::update_google_identity(
         &state.pool,
         &guser.email,
         &guser.sub,
         guser.picture.as_deref(),
     )
-    .await?;
+    .await
+    {
+        tracing::error!(error = %e, "Failed to update Google identity");
+        return AppError::from(e).into_response();
+    }
 
-    let token = issue_jwt(&guser.email, &role, &state.config.jwt_secret)
-        .map_err(|e| AppError::Internal(e))?;
+    let token = match issue_jwt(&guser.email, &role, &state.config.jwt_secret) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to issue JWT");
+            return AppError::Internal(e).into_response();
+        }
+    };
 
     let session_cookie = Cookie::build((JWT_COOKIE, token))
         .http_only(true)
@@ -105,7 +148,7 @@ pub async fn callback(
         .remove(Cookie::from(PKCE_COOKIE))
         .remove(Cookie::from(STATE_COOKIE));
 
-    Ok((jar, Redirect::to("/")))
+    (jar, Redirect::to("/")).into_response()
 }
 
 /// DELETE /auth/logout
@@ -122,6 +165,9 @@ pub struct MeResponse {
     pub display_name: String,
     pub avatar_url:   Option<String>,
     pub permissions:  Permissions,
+    /// Flat permission-key list (new model). The legacy boolean fields on
+    /// `permissions` are retained for one release so existing UI keeps working.
+    pub permission_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -143,6 +189,9 @@ pub async fn me(
         .await?
         .ok_or_else(|| AppError::NotFound("User record not found".into()))?;
 
+    let mut permission_keys: Vec<String> = actor.permissions.iter().cloned().collect();
+    permission_keys.sort();
+
     Ok(Json(MeResponse {
         email:        user.email,
         display_name: user.display_name,
@@ -154,6 +203,7 @@ pub async fn me(
             can_restore_backup: actor.can_restore_backup(),
             can_manage_admins:  actor.can_manage_admins(),
         },
+        permission_keys,
         role: user.role,
     }))
 }

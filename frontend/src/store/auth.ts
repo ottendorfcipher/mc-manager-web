@@ -1,18 +1,20 @@
 import { create } from "zustand";
-import { MeResponse } from "@/types";
+import type { MeResponse } from "@/types";
 
 interface AuthState {
   user:    MeResponse | null;
   loading: boolean;
   setUser: (user: MeResponse | null) => void;
   setLoading: (v: boolean) => void;
+  hasPerm: (key: string) => boolean;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user:    null,
   loading: true,
   setUser:    (user)    => set({ user }),
   setLoading: (loading) => set({ loading }),
+  hasPerm:    (key)     => (get().user?.permission_keys ?? []).includes(key),
 }));
 
 // ── Theme store ───────────────────────────────────────────────────────────────
