@@ -103,11 +103,6 @@ fn build_router(state: AppState) -> Router {
         .route("/auth/logout",   delete(handlers::auth::logout))
         .route("/internal/budget-alert", post(handlers::budget::webhook))
         .nest("/api", api)
-        // Serve compiled React frontend from ./dist
-        .fallback_service(
-            tower_http::services::ServeDir::new("dist")
-                .fallback(tower_http::services::ServeFile::new("dist/index.html")),
-        )
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()

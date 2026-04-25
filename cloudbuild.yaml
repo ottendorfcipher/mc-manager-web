@@ -5,6 +5,9 @@ substitutions:
 
 steps:
   # ── Step 1: Build the Docker image ─────────────────────────────────────
+  # Note: security scanning (cargo audit, clippy, npm audit, semgrep) is run
+  # locally via scripts/security-check.sh before pushing. Adding it to Cloud
+  # Build requires separate builder images (rust:1.88 + node:22 steps).
   - name: "gcr.io/cloud-builders/docker"
     id: build
     args:
@@ -41,14 +44,15 @@ steps:
       - --region=us-central1
       - --platform=managed
       - --service-account=redstonecipher-sa@$PROJECT_ID.iam.gserviceaccount.com
-      # min-instances=1: Tailscale daemon must stay alive for outbound SSH.
-      - --min-instances=1
-      - --max-instances=1
+      # min-instances=0: scale to zero when idle for cost savings.
+      # Tailscale connects on-demand when backend receives requests.
+      - --min-instances=0
+      - --max-instances=3
       - --memory=256Mi
-      - --cpu=0.5
-      - --timeout=300
-      # cpu<1 requires concurrency=1 on Cloud Run
-      - --concurrency=1
+      - --cpu=1
+      - --timeout=60
+      # Higher concurrency reduces cold start frequency
+      - --concurrency=80
       - --port=8080
       - --cpu-throttling
       # Allow unauthenticated at the Cloud Run IAM level — the app handles
