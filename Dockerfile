@@ -1,15 +1,4 @@
-# ─── Stage 1: Build React frontend ───────────────────────────────────────────
-FROM node:22-alpine AS frontend-build
-WORKDIR /app/frontend
-
-COPY frontend/package*.json ./
-RUN npm ci --ignore-scripts
-
-COPY frontend/ ./
-# vite.config.ts outputs to ../backend/dist
-RUN npm run build
-
-# ─── Stage 2: Build Rust backend ─────────────────────────────────────────────
+# ─── Stage 1: Build Rust backend ─────────────────────────────────────────────
 # 1.88 is the minimum required by transitive deps: time v0.3.47, icu v2.2.0
 FROM rust:1.88-slim AS backend-build
 WORKDIR /app/backend
@@ -20,9 +9,8 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN mkdir src && echo 'fn main(){}' > src/main.rs && cargo build --release 2>/dev/null; rm -rf src
 
-# Now copy the real source and migrations, plus the compiled frontend dist
+# Now copy the real source and migrations
 COPY backend/ ./
-COPY --from=frontend-build /app/backend/dist ./dist
 
 # Touch main.rs so cargo knows to relink
 RUN touch src/main.rs && cargo build --release
@@ -68,7 +56,6 @@ RUN curl -fsSL \
 WORKDIR /app
 
 COPY --from=backend-build /app/backend/target/release/redstonecipher-server ./
-COPY --from=backend-build /app/backend/dist ./dist
 
 COPY litestream.yml /etc/litestream.yml
 COPY entrypoint.sh ./
