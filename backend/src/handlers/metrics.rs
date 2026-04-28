@@ -4,7 +4,7 @@ use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::IntervalStream;
 use std::time::Duration;
 
-use crate::{auth::middleware::AuthUser, error::Result, gcloud::ssh, state::AppState};
+use crate::{auth::middleware::AuthUser, gcloud::ssh, state::AppState};
 
 /// GET /api/metrics  — SSE stream, one snapshot every 30 s
 pub async fn stream(

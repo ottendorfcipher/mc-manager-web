@@ -76,7 +76,7 @@ ENV HOST=0.0.0.0 \
     GCP_ZONE=us-central1-a \
     GCP_INSTANCE=mc-server-spot \
     TAILSCALE_IP=100.64.0.3 \
-    REDIRECT_URI=https://redstonecipher-web.CHANGE_ME.ts.net/auth/callback
+    REDIRECT_URI=https://example.com/auth/callback
 
 EXPOSE 8080
 

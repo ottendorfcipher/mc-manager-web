@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use axum::{extract::State, http::StatusCode, Json};
 
 use crate::{
-    auth::middleware::AuthUser,
+    auth::middleware::{require_perm, AuthUser},
     error::{AppError, Result},
     minecraft::properties,
     state::AppState,
@@ -10,8 +10,9 @@ use crate::{
 
 pub async fn get_all(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
 ) -> Result<Json<HashMap<String, String>>> {
+    require_perm(&actor, "config.read")?;
     Ok(Json(properties::get_all(&state.config).await?))
 }
 

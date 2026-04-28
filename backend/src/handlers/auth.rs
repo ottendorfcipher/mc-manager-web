@@ -138,7 +138,8 @@ pub async fn callback(
 
     let session_cookie = Cookie::build((JWT_COOKIE, token))
         .http_only(true)
-        .same_site(SameSite::Lax)   // Lax allows redirect after OAuth
+        .secure(true)              // Reject cookie over plain HTTP
+        .same_site(SameSite::Lax) // Lax allows redirect after OAuth
         .path("/")
         .max_age(time::Duration::hours(8))
         .build();

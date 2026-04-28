@@ -23,14 +23,12 @@ pub async fn list(
     Ok(Json(backups::list(&state.pool).await?))
 }
 
-/// POST /api/backups  — trigger a new backup (member+)
+/// POST /api/backups  — trigger a new backup (backups.create permission)
 pub async fn create(
     State(state): State<AppState>,
     actor: AuthUser,
 ) -> Result<(StatusCode, Json<backups::BackupRun>)> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "backups.create")?;
     let filename = backup::create(&state.config).await?;
     let path = state.config.backup_dir.join(&filename);
     let size = std::fs::metadata(&path)
@@ -60,9 +58,7 @@ pub async fn download(
     actor: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Response> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "backups.download")?;
     let run = backups::get(&state.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
@@ -87,9 +83,7 @@ pub async fn delete(
     actor: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode> {
-    if !actor.can_restore_backup() {
-        return Err(AppError::Forbidden("restore_backup required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "backups.delete")?;
     let run = backups::get(&state.pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;

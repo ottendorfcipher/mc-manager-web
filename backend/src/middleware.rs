@@ -1,5 +1,3 @@
-use std::net::IpAddr;
-
 use axum::{
     body::Body,
     extract::State,
@@ -42,7 +40,11 @@ pub async fn kill_switch_guard(
     let path = req.uri().path().to_owned();
 
     let is_read_only = matches!(method, Method::GET | Method::HEAD | Method::OPTIONS);
-    let is_exempt = path.starts_with("/auth/") || path == "/api/kill-switch";
+    // The middleware is applied to the /api sub-router (nested), so Axum
+    // strips the /api prefix before reaching this middleware.  The path here
+    // is therefore "/kill-switch", not "/api/kill-switch".
+    // /auth/* routes live on the outer router and never reach this middleware.
+    let is_exempt = path == "/kill-switch";
 
     if !is_read_only && !is_exempt {
         match kill_switch::status(&state.pool).await {
