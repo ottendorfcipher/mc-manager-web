@@ -1,11 +1,12 @@
-pub mod users;
-pub mod players;
-pub mod prefs;
-pub mod backups;
 pub mod audit;
+pub mod backups;
 pub mod kill_switch;
 pub mod permissions;
+pub mod players;
+pub mod prefs;
 pub mod roles;
+pub mod users;
+pub mod world_gamerules;
 
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
 use std::str::FromStr;

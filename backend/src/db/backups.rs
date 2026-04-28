@@ -6,18 +6,28 @@ use crate::error::Result;
 #[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
 #[ts(export)]
 pub struct BackupRun {
-    pub id: i64,
-    pub filename: String,
-    pub file_path: String,
-    pub size_bytes: i64,
-    pub created_by: String,
-    pub created_at: String,
-    pub notes: Option<String>,
+    pub id:               i64,
+    pub filename:         String,
+    pub file_path:        String,
+    pub size_bytes:       i64,
+    pub created_by:       String,
+    pub created_at:       String,
+    pub notes:            Option<String>,
+    /// 'local' | 'cloud' | 'both'
+    pub storage_location: String,
+    /// gs://bucket/backups/filename — None for local-only backups.
+    pub gcs_uri:            Option<String>,
+    /// 1 = stored under the 1-year lifecycle prefix, 0 = 30-day prefix.
+    pub extended_retention: bool,
 }
+
+const SELECT: &str =
+    "SELECT id, filename, file_path, size_bytes, created_by, created_at, notes,
+            storage_location, gcs_uri, extended_retention FROM backup_runs";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<BackupRun>> {
     Ok(sqlx::query_as::<_, BackupRun>(
-        "SELECT id, filename, file_path, size_bytes, created_by, created_at, notes FROM backup_runs ORDER BY created_at DESC"
+        &format!("{SELECT} ORDER BY created_at DESC")
     )
     .fetch_all(pool)
     .await?)
@@ -25,7 +35,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<BackupRun>> {
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<BackupRun>> {
     Ok(sqlx::query_as::<_, BackupRun>(
-        "SELECT id, filename, file_path, size_bytes, created_by, created_at, notes FROM backup_runs WHERE id = ?"
+        &format!("{SELECT} WHERE id = ?")
     )
     .bind(id)
     .fetch_optional(pool)
@@ -38,11 +48,21 @@ pub async fn insert(
     file_path: &str,
     size_bytes: i64,
     created_by: &str,
+    storage_location: &str,
+    gcs_uri: Option<&str>,
+    extended_retention: bool,
 ) -> Result<i64> {
     let result = sqlx::query(
-        "INSERT INTO backup_runs (filename, file_path, size_bytes, created_by) VALUES (?, ?, ?, ?)"
+        "INSERT INTO backup_runs (filename, file_path, size_bytes, created_by, storage_location, gcs_uri, extended_retention)
+         VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(filename).bind(file_path).bind(size_bytes).bind(created_by)
+    .bind(filename)
+    .bind(file_path)
+    .bind(size_bytes)
+    .bind(created_by)
+    .bind(storage_location)
+    .bind(gcs_uri)
+    .bind(extended_retention)
     .execute(pool)
     .await?;
     let id = result.last_insert_rowid();
@@ -85,7 +105,7 @@ pub async fn sync_from_dir(
             .await?;
         if existing.is_none() {
             let size = entry.metadata()?.len() as i64;
-            insert(pool, &filename, path.to_str().unwrap_or_default(), size, created_by).await?;
+            insert(pool, &filename, path.to_str().unwrap_or_default(), size, created_by, "local", None, false).await?;
             count += 1;
         }
     }
