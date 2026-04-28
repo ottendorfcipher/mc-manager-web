@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw } from "lucide-react";
+import { X, RefreshCw, UserMinus } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -11,9 +11,12 @@ const GAMEMODES: Gamemode[] = ["survival", "creative", "adventure", "spectator"]
 const GM_ICONS: Record<Gamemode, string> = { survival: "⚔️", creative: "✨", adventure: "🧭", spectator: "👁" };
 
 export function TeamPage() {
-  const { user: me } = useAuthStore();
+  const { user: me, hasPerm } = useAuthStore();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const canRemove    = hasPerm("users.remove");
+  const myLevel      = ROLE_LEVELS[me?.role ?? "visitor"] ?? 0;
+  const isGlobalAdmin = me?.role === "global_admin";
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
@@ -37,7 +40,7 @@ export function TeamPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Team</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-          See who’s on the team and manage your linked Minecraft accounts
+          See who's on the team and manage your linked Minecraft accounts
         </p>
       </div>
 
@@ -74,6 +77,9 @@ export function TeamPage() {
                 user={u}
                 mcPlayers={mcPlayers}
                 me={me?.email ?? ""}
+                myLevel={myLevel}
+                canRemove={canRemove}
+                isGlobalAdmin={isGlobalAdmin}
                 qc={qc}
               />
             ))}
@@ -87,13 +93,21 @@ function UserCard({
   user,
   mcPlayers,
   me,
+  myLevel,
+  canRemove,
+  isGlobalAdmin,
   qc,
 }: {
   user: User;
   mcPlayers: McPlayer[];
   me: string;
+  myLevel: number;
+  canRemove: boolean;
+  isGlobalAdmin: boolean;
   qc: ReturnType<typeof useQueryClient>;
 }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
   const { data: links = [] } = useQuery<PlayerLink[]>({
     queryKey: ["players", user.email],
     queryFn: () => api.get(`/users/${encodeURIComponent(user.email)}/players`),
@@ -116,23 +130,61 @@ function UserCard({
     onSuccess: () => qc.invalidateQueries({ queryKey: ["players", user.email] }),
   });
 
-  const isSelf   = user.email === me;
+  const removeMut = useMutation({
+    mutationFn: () => api.delete(`/users/${encodeURIComponent(user.email)}`),
+    onSuccess: () => {
+      setConfirmRemove(false);
+      qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+
+  const isSelf      = user.email === me;
+  const targetLevel = ROLE_LEVELS[user.role] ?? 0;
+  // Show remove button only when the actor has permission, isn't targeting
+  // themselves, and outranks the target (global_admin bypasses the level check).
+  const showRemove  = canRemove && !isSelf && (isGlobalAdmin || targetLevel < myLevel);
+
   const initials = user.display_name.slice(0, 2).toUpperCase();
   const avatarBg = ["#9B9EA6", "#36B37E", "#5B9BF0", "#FBBF24"][
     Math.max(0, (ROLE_LEVELS[user.role] ?? 0) - 1)
   ];
 
   return (
-    <div className="card flex gap-4">
-      {/* Avatar */}
-      <div
-        className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm"
-        style={{ backgroundColor: avatarBg }}
-      >
-        {user.avatar_url
-          ? <img src={user.avatar_url} className="w-11 h-11 rounded-full" alt="" />
-          : initials}
-      </div>
+    <>
+      {/* Remove confirmation dialog */}
+      {confirmRemove && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" role="alertdialog">
+          <div className="card max-w-sm w-full mx-4 space-y-4">
+            <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
+              Remove {user.display_name}?
+            </h2>
+            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+              This will revoke their access immediately. Their linked Minecraft accounts will also be unlinked. This cannot be undone.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmRemove(false)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={() => removeMut.mutate()}
+                disabled={removeMut.isPending}
+                className="btn-danger text-sm"
+              >
+                {removeMut.isPending ? "Removing…" : "Yes, Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="card flex gap-4">
+        {/* Avatar */}
+        <div
+          className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm"
+          style={{ backgroundColor: avatarBg }}
+        >
+          {user.avatar_url
+            ? <img src={user.avatar_url} className="w-11 h-11 rounded-full" alt="" />
+            : initials}
+        </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0 space-y-1">
@@ -192,6 +244,18 @@ function UserCard({
           )}
         </div>
       </div>
-    </div>
+
+      {/* Remove button */}
+      {showRemove && (
+        <button
+          onClick={() => setConfirmRemove(true)}
+          title={`Remove ${user.display_name} from the team`}
+          className="flex-shrink-0 self-start p-1.5 rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] text-[#9B9EA6] hover:text-[#F87171] transition-colors"
+        >
+          <UserMinus className="w-4 h-4" />
+        </button>
+      )}
+      </div>
+    </>
   );
 }
