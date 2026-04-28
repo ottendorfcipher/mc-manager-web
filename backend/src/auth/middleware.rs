@@ -6,7 +6,7 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{permissions, users::role_level},
+    db::permissions,
     error::AppError,
     state::AppState,
 };
@@ -28,17 +28,20 @@ pub struct Claims {
 /// Injects `AuthUser` into handlers that declare it as a parameter.
 /// Permissions are loaded from the DB on every request so admin-time changes
 /// take effect without needing users to sign out.
+/// `level` is loaded from the `roles` table so custom roles with arbitrary
+/// levels work seamlessly alongside the five system roles.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub email: String,
     pub role: String,
+    /// Numeric level loaded from the `roles` table (0 = lowest, 4 = global_admin).
+    pub level: u8,
     pub permissions: Arc<HashSet<String>>,
 }
 
 impl AuthUser {
-    pub fn level(&self) -> u8 {
-        role_level(&self.role)
-    }
+    /// Returns this user's role level.
+    pub fn level(&self) -> u8 { self.level }
 
     /// Check a permission key (e.g. "server.vm.start").
     pub fn has(&self, key: &str) -> bool {
@@ -80,9 +83,16 @@ impl FromRequestParts<AppState> for AuthUser {
             .await
             .map_err(|_| AppError::Unauthenticated)?;
 
+        // Load role level from the DB so custom roles with arbitrary levels
+        // work alongside the five built-in system roles.
+        let level = crate::db::roles::level_for(&state.pool, &claims.role)
+            .await
+            .min(255) as u8;
+
         Ok(AuthUser {
-            email: claims.sub,
-            role: claims.role,
+            email:       claims.sub,
+            role:        claims.role,
+            level,
             permissions: Arc::new(perms),
         })
     }

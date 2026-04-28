@@ -6,37 +6,50 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    auth::middleware::AuthUser,
-    db::{audit, players, users, users::role_level},
+    auth::middleware::{require_perm, AuthUser},
+    db::{audit, players, roles, users},
     error::{AppError, Result},
     minecraft::console,
     state::AppState,
 };
 
+/// GET /api/users — requires `users.view`.
+/// Any role can be granted this permission; it is seeded for all system roles
+/// so the Team page works for every authenticated user.
 pub async fn list(
     State(state): State<AppState>,
     actor: AuthUser,
 ) -> Result<Json<Vec<users::User>>> {
-    if !actor.can_manage_users() {
-        return Err(AppError::Forbidden("manage_users required".into()));
-    }
+    require_perm(&actor, "users.view")?;
     Ok(Json(users::list(&state.pool).await?))
 }
 
+/// POST /api/users — whitelist a new user (add their email to the system).
+///
+/// Requires `users.invite`.  The global admin grants this permission to other
+/// roles via the admin UI, enabling delegation of the whitelist.
+/// The invited user can then sign in with their Google account.
 pub async fn invite(
     State(state): State<AppState>,
     actor: AuthUser,
     Json(body): Json<users::CreateUser>,
 ) -> Result<(StatusCode, Json<users::User>)> {
-    if !actor.can_manage_users() {
-        return Err(AppError::Forbidden("manage_users required".into()));
+    require_perm(&actor, "users.invite")?;
+
+    // Validate the target role exists.
+    let target_role = roles::get(&state.pool, &body.role)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("Role '{}' does not exist", body.role)))?;
+
+    // Level gate: cannot invite to a role equal to or above your own.
+    if target_role.level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
+        return Err(AppError::Forbidden(format!(
+            "Cannot assign role '{}' (level {}) — your level is {}. \
+             You can only invite users to roles strictly below your own.",
+            target_role.name, target_role.level, actor.level()
+        )));
     }
-    let target_level = role_level(&body.role);
-    if target_level >= actor.level() && actor.email != users::GLOBAL_ADMIN {
-        return Err(AppError::Forbidden(
-            "Cannot assign a role equal to or above your own".into(),
-        ));
-    }
+
     let user = users::create(&state.pool, &actor.email, body).await?;
     audit::log(&state.pool, &actor.email, "invite_user", Some(&user.email), None).await?;
     Ok((StatusCode::CREATED, Json(user)))
@@ -61,12 +74,17 @@ pub async fn update(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("{email} not found")))?;
 
-    if role_level(&target.role) >= actor.level() && actor.email != users::GLOBAL_ADMIN {
+    // DB-backed level check: works for both system and custom roles.
+    let target_level = roles::level_for(&state.pool, &target.role).await;
+    if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
         return Err(AppError::Forbidden("Cannot modify a user with equal or higher role".into()));
     }
 
     if let Some(new_role) = &body.role {
-        if role_level(new_role) >= actor.level() && actor.email != users::GLOBAL_ADMIN {
+        let new_role_data = roles::get(&state.pool, new_role)
+            .await?
+            .ok_or_else(|| AppError::BadRequest(format!("Role '{new_role}' does not exist")))?;
+        if new_role_data.level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
             return Err(AppError::Forbidden("Cannot assign role equal to or above your own".into()));
         }
         users::update_role(&state.pool, &email, new_role).await?;
@@ -90,7 +108,8 @@ pub async fn remove(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("{email} not found")))?;
 
-    if role_level(&target.role) >= actor.level() && actor.email != users::GLOBAL_ADMIN {
+    let target_level = roles::level_for(&state.pool, &target.role).await;
+    if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
         return Err(AppError::Forbidden("Cannot remove a user with equal or higher role".into()));
     }
     users::remove(&state.pool, &email).await?;
