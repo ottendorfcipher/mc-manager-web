@@ -48,7 +48,7 @@ steps:
       # Tailscale connects on-demand when backend receives requests.
       - --min-instances=0
       - --max-instances=3
-      - --memory=256Mi
+      - --memory=1Gi
       - --cpu=1
       - --timeout=300
       # Higher concurrency reduces cold start frequency
