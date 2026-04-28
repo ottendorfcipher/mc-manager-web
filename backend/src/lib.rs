@@ -62,6 +62,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/server/announce",                  post(handlers::server::announce))
         .route("/server/save",                      post(handlers::server::save_world))
         // World settings
+        .route("/world/gamerules",                  get(handlers::server::get_gamerules))
         .route("/world/gamerule/:rule",             post(handlers::server::set_gamerule))
         .route("/world/time",                       post(handlers::server::set_time))
         .route("/world/weather",                    post(handlers::server::set_weather))

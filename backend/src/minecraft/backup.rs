@@ -2,13 +2,23 @@ use std::{path::Path, time::Duration};
 use chrono::Utc;
 use tokio::process::Command;
 
-use crate::{config::Config, error::{AppError, Result}, gcloud::ssh};
+use crate::{config::Config, error::{AppError, Result}, gcloud::{ssh, storage}};
 
 const REMOTE_MINECRAFT_DIR: &str = "/opt/minecraft";
 const WORLD_DIRS: &[&str] = &["world", "world_nether", "world_the_end", "server.properties"];
 
-/// Create a tar.gz backup, download it to local backup_dir, return filename.
-pub async fn create(cfg: &Config) -> Result<String> {
+/// Result type returned by `create`.
+pub struct BackupResult {
+    pub filename: String,
+    /// Set when the backup was also uploaded to GCS.
+    pub gcs_uri: Option<String>,
+    pub extended_retention: bool,
+}
+
+/// Create a tar.gz backup, download it to local backup_dir.
+/// `upload_to_cloud` triggers a GCS upload after the local SCP.
+/// `extended_retention` stores the archive under the 1-year lifecycle prefix.
+pub async fn create(cfg: &Config, upload_to_cloud: bool, extended_retention: bool) -> Result<BackupResult> {
     let ts = Utc::now().format("%Y%m%d-%H%M%S");
     let filename = format!("mc-world-{ts}.tar.gz");
     let remote_tmp = format!("/tmp/{filename}");
@@ -32,7 +42,14 @@ pub async fn create(cfg: &Config) -> Result<String> {
     // Clean up remote tmp
     let _ = ssh::run(cfg, &format!("rm -f {remote_tmp}")).await;
 
-    Ok(filename)
+    // Optionally upload to GCS
+    let gcs_uri = if upload_to_cloud {
+        Some(storage::upload_backup(cfg, &local_path, extended_retention).await?)
+    } else {
+        None
+    };
+
+    Ok(BackupResult { filename, gcs_uri, extended_retention })
 }
 
 /// Restore a previously downloaded backup archive.

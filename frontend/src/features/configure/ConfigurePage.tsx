@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Save, RefreshCw } from "lucide-react";
+import { Download, Save, RefreshCw, Upload } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 
@@ -51,9 +51,22 @@ const SCHEMA: { category: string; icon: string; settings: SettingDef[] }[] = [
   },
 ];
 
+/** Download a JS object as a named JSON file. */
+function downloadJson(obj: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function ConfigurePage() {
   const { user } = useAuthStore();
   const canWrite = user?.permissions.can_write_config ?? false;
+  const canRead  = user?.permission_keys?.includes("config.read") ?? false;
+  const importRef = useRef<HTMLInputElement>(null);
 
   const { data: props = {}, isLoading, refetch } = useQuery<Record<string, string>>({
     queryKey: ["properties"],
@@ -72,6 +85,38 @@ export function ConfigurePage() {
 
   function set(key: string, value: string) {
     setEdits((p) => ({ ...p, [key]: value }));
+  }
+
+  /** Export the current (merged) settings as a .json file. */
+  function handleExport() {
+    downloadJson(merged, "server-settings.json");
+  }
+
+  /** Read a .json file and merge its valid string-map entries into pending edits. */
+  function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target?.result as string);
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+          alert("Invalid config file: expected a JSON object.");
+          return;
+        }
+        const valid: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === "string") valid[k] = v;
+          else if (typeof v === "number" || typeof v === "boolean") valid[k] = String(v);
+        }
+        setEdits((prev) => ({ ...prev, ...valid }));
+      } catch {
+        alert("Could not parse the JSON file.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so the same file can be re-imported
+    e.target.value = "";
   }
 
   function renderSetting(s: SettingDef) {
@@ -133,10 +178,35 @@ export function ConfigurePage() {
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Configure</h1>
           <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">Edit server.properties — Save applies changes and restarts the game process</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => refetch()} className="btn-secondary flex items-center gap-1.5 text-sm" aria-label="Reload from server">
             <RefreshCw className="w-3.5 h-3.5" /> Reload
           </button>
+          {/* Export — available to anyone who can read config */}
+          {canRead && (
+            <button onClick={handleExport} className="btn-secondary flex items-center gap-1.5 text-sm" title="Download current settings as JSON">
+              <Download className="w-3.5 h-3.5" /> Export
+            </button>
+          )}
+          {/* Import — only for users who can write config */}
+          {canWrite && (
+            <>
+              <button
+                onClick={() => importRef.current?.click()}
+                className="btn-secondary flex items-center gap-1.5 text-sm"
+                title="Load settings from a JSON file"
+              >
+                <Upload className="w-3.5 h-3.5" /> Import
+              </button>
+              <input
+                ref={importRef}
+                type="file"
+                accept=".json,application/json"
+                className="sr-only"
+                onChange={handleImport}
+              />
+            </>
+          )}
           {canWrite && pending > 0 && (
             <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="btn-primary flex items-center gap-1.5 text-sm">
               <Save className="w-3.5 h-3.5" />

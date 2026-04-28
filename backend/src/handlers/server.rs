@@ -4,7 +4,7 @@ use ts_rs::TS;
 
 use crate::{
     auth::middleware::AuthUser,
-    db::audit,
+    db::{audit, world_gamerules},
     error::{AppError, Result},
     gcloud::{instance, ssh},
     minecraft::console::{self, WeatherKind},
@@ -93,6 +93,19 @@ pub async fn send_console(
 #[derive(Deserialize)]
 pub struct GameruleBody { pub value: String }
 
+/// GET /api/world/gamerules — return cached gamerule values from DB.
+pub async fn get_gamerules(
+    State(state): State<AppState>,
+    _: AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let entries = world_gamerules::get_all(&state.pool).await?;
+    let map: serde_json::Map<String, serde_json::Value> = entries
+        .into_iter()
+        .map(|e| (e.rule, serde_json::Value::String(e.value)))
+        .collect();
+    Ok(Json(serde_json::Value::Object(map)))
+}
+
 /// POST /api/world/gamerule/:rule
 pub async fn set_gamerule(
     State(state): State<AppState>,
@@ -104,6 +117,8 @@ pub async fn set_gamerule(
         return Err(AppError::Forbidden("control_server required".into()));
     }
     let applied = console::set_gamerule(&state.config, &rule, &body.value).await?;
+    // Persist so the UI can reflect the correct value on next load.
+    let _ = world_gamerules::upsert(&state.pool, &rule, &body.value, &actor.email).await;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }
 

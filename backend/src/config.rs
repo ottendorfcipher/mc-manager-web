@@ -21,6 +21,9 @@ pub struct Config {
     pub gcp_zone: String,
     pub gcp_instance: String,
     pub tailscale_ip: String,
+    /// Optional GCS bucket for cloud backup storage (e.g. "my-mc-backups").
+    /// If not set, cloud backup creation is disabled at runtime.
+    pub gcs_backup_bucket: Option<String>,
 }
 
 impl Config {
@@ -56,6 +59,7 @@ impl Config {
             gcp_zone: env_or("GCP_ZONE", "us-central1-a"),
             gcp_instance: env_or("GCP_INSTANCE", "mc-server-spot"),
             tailscale_ip: env_or("TAILSCALE_IP", "100.80.114.91"),
+            gcs_backup_bucket: std::env::var("GCS_BACKUP_BUCKET").ok().filter(|s| !s.is_empty()),
         }
     }
 }

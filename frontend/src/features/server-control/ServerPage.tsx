@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { ServerStatus } from "@/types";
 
 const GAMERULES = [
-  { key: "reducedDebugInfo",    label: "📍 Show Coordinates", desc: "Players see XYZ in F3 debug screen.", onVal: "false", offVal: "true", defaultOn: true },
+  { key: "reducedDebugInfo",    label: "📍 Show Coordinates", desc: "Players see XYZ in F3 debug screen.", onVal: "false", offVal: "true",  defaultOn: true },
   { key: "keepInventory",       label: "🎒 Keep Inventory",   desc: "Players keep items on death.",        onVal: "true",  offVal: "false", defaultOn: false },
   { key: "doFireTick",          label: "🔥 Fire Spreads",    desc: "Fire can spread to adjacent blocks.",  onVal: "true",  offVal: "false", defaultOn: true },
   { key: "mobGriefing",         label: "💥 Mob Griefing",    desc: "Creepers/Endermen destroy blocks.",    onVal: "true",  offVal: "false", defaultOn: true },
@@ -13,18 +13,27 @@ const GAMERULES = [
   { key: "announceAdvancements",label: "🏆 Advancements",   desc: "Chat announces player advancements.",  onVal: "true",  offVal: "false", defaultOn: true },
 ] as const;
 
+type GameruleKey = (typeof GAMERULES)[number]["key"];
+
 const TIME_PRESETS = [
   { label: "🌅 Sunrise", ticks: 0 },
-  { label: "☀️ Day",    ticks: 6000 },
-  { label: "🌇 Sunset", ticks: 12000 },
-  { label: "🌑 Night",  ticks: 18000 },
+  { label: "☀️ Day",     ticks: 6000 },
+  { label: "🏗️ Sunset",  ticks: 12000 },
+  { label: "🌑 Night",   ticks: 18000 },
 ];
 
 const WEATHER_PRESETS = [
-  { label: "☀️ Clear",   kind: "clear" },
-  { label: "🌧️ Rain",   kind: "rain" },
-  { label: "⛈️ Thunder", kind: "thunder" },
+  { label: "☀️ Clear",   kind: "clear",   gif: "/weather/sunny.gif",  poster: "/weather/sunny.png"  },
+  { label: "🌧️ Rain",   kind: "rain",    gif: "/weather/rainy.gif",  poster: "/weather/rainy.png"  },
+  { label: "⛈️ Thunder", kind: "thunder", gif: "/weather/stormy.gif", poster: "/weather/stormy.png" },
 ];
+
+/** Human-readable copy for each VM action while its request is in-flight. */
+const VM_PROGRESS: Record<string, string> = {
+  start: "Starting VM… This takes 1–2 minutes.",
+  stop:  "Stopping VM… All player sessions will end.",
+  reset: "Resetting VM… The OS is rebooting.",
+};
 
 function ActionButton({
   label, onClick, variant = "secondary", disabled,
@@ -37,14 +46,27 @@ function ActionButton({
   );
 }
 
+/** Default gamerule toggle state derived from the GAMERULES constant. */
+function defaultGrState(): Record<string, boolean> {
+  return Object.fromEntries(GAMERULES.map((r) => [r.key, r.defaultOn]));
+}
+
+/** Map a raw server value string ("true"/"false") to the toggle's `on` boolean. */
+function valueToOn(key: GameruleKey, raw: string): boolean {
+  const rule = GAMERULES.find((r) => r.key === key);
+  if (!rule) return false;
+  // Toggle is "on" when the server value equals onVal.
+  return raw === rule.onVal;
+}
+
 export function ServerPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const canControl = user?.permissions.can_control_server ?? false;
-  const [status, setStatus] = useState("");
-  const [grStates, setGrStates] = useState<Record<string, boolean>>(
-    Object.fromEntries(GAMERULES.map((r) => [r.key, r.defaultOn]))
-  );
+  const [statusMsg, setStatusMsg] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [grStates, setGrStates] = useState<Record<string, boolean>>(defaultGrState);
+  const [hoveredWeather, setHoveredWeather] = useState<string | null>(null);
 
   const { data: serverStatus } = useQuery<ServerStatus>({
     queryKey: ["server-status"],
@@ -52,35 +74,56 @@ export function ServerPage() {
     refetchInterval: 15_000,
   });
 
-  const vmMut = useMutation({
-    mutationFn: (action: string) => api.post(`/server/vm/${action}`),
-    onSuccess: (_, action) => { setStatus(`✓ VM ${action} sent`); qc.invalidateQueries({ queryKey: ["server-status"] }); },
-    onError: (e: Error) => setStatus(`✗ ${e.message}`),
-  });
+  // Hydrate gamerule toggles from DB-persisted values on mount.
+  useEffect(() => {
+    api.get<Record<string, string>>("/world/gamerules")
+      .then((data) => {
+        setGrStates((prev) => {
+          const next = { ...prev };
+          for (const rule of GAMERULES) {
+            if (data[rule.key] !== undefined) {
+              next[rule.key] = valueToOn(rule.key, data[rule.key]);
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => { /* fall back to hardcoded defaults */ });
+  }, []);
 
-  const svcMut = useMutation({
-    mutationFn: (action: string) => api.post(`/server/service/${action}`),
-    onSuccess: (_, action) => { setStatus(`✓ Service ${action} OK`); },
-    onError: (e: Error) => setStatus(`✗ ${e.message}`),
+  const vmMut = useMutation({
+    mutationFn: (action: string) => {
+      setPendingAction(action);
+      return api.post(`/server/vm/${action}`);
+    },
+    onSuccess: (_, action) => {
+      setStatusMsg(`✓ VM ${action} sent`);
+      setPendingAction(null);
+      qc.invalidateQueries({ queryKey: ["server-status"] });
+    },
+    onError: (e: Error) => {
+      setStatusMsg(`✗ ${e.message}`);
+      setPendingAction(null);
+    },
   });
 
   const grMut = useMutation({
     mutationFn: ({ rule, value }: { rule: string; value: string }) =>
       api.post(`/world/gamerule/${rule}`, { value }),
-    onSuccess: (_, { rule, value }) => setStatus(`✓ ${rule} → ${value}`),
-    onError: (e: Error) => setStatus(`✗ ${e.message}`),
+    onSuccess: (_, { rule, value }) => setStatusMsg(`✓ ${rule} → ${value}`),
+    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
   });
 
   const timeMut = useMutation({
     mutationFn: (ticks: number) => api.post("/world/time", { ticks }),
-    onSuccess: (_, t) => setStatus(`✓ Time set to ${t}`),
-    onError: (e: Error) => setStatus(`✗ ${e.message}`),
+    onSuccess: (_, t) => setStatusMsg(`✓ Time set to ${t}`),
+    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
   });
 
   const wxMut = useMutation({
     mutationFn: (kind: string) => api.post("/world/weather", { kind }),
-    onSuccess: (_, k) => setStatus(`✓ Weather: ${k}`),
-    onError: (e: Error) => setStatus(`✗ ${e.message}`),
+    onSuccess: (_, k) => setStatusMsg(`✓ Weather: ${k}`),
+    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
   });
 
   function toggleGr(key: string, rule: string, onVal: string, offVal: string) {
@@ -94,9 +137,13 @@ export function ServerPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Server Control</h1>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">Manage the VM, service, and world settings</p>
+          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">Manage the VM and world settings</p>
         </div>
-        {status && <span className="text-xs px-2 py-1 rounded bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0]">{status}</span>}
+        {statusMsg && (
+          <span className="text-xs px-2 py-1 rounded bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0]">
+            {statusMsg}
+          </span>
+        )}
       </div>
 
       {/* VM Status */}
@@ -105,29 +152,44 @@ export function ServerPage() {
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
           Stopping ends all player sessions but preserves the world. Force Reset reboots the OS — use only if the VM is unresponsive.
         </p>
-        <div className="flex gap-2 flex-wrap">
-          {canControl && <>
-            <ActionButton label="▶ Start VM"    onClick={() => vmMut.mutate("start")} variant="primary" />
-            <ActionButton label="■ Stop VM"     onClick={() => vmMut.mutate("stop")}  variant="danger" />
-            <ActionButton label="↺ Force Reset" onClick={() => vmMut.mutate("reset")} />
-          </>}
-          <span className="self-center text-xs text-[#9B9EA6]">
-            VM: {serverStatus?.vm.status ?? "…"} · Service: {serverStatus?.service ?? "…"}
+        <div className="flex gap-2 flex-wrap items-center">
+          {canControl && (
+            <>
+              <ActionButton
+                label="▶ Start VM"
+                onClick={() => vmMut.mutate("start")}
+                variant="primary"
+                disabled={vmMut.isPending}
+              />
+              <ActionButton
+                label="■ Stop VM"
+                onClick={() => vmMut.mutate("stop")}
+                variant="danger"
+                disabled={vmMut.isPending}
+              />
+              <ActionButton
+                label="↺ Force Reset"
+                onClick={() => vmMut.mutate("reset")}
+                disabled={vmMut.isPending}
+              />
+            </>
+          )}
+          <span className="text-xs text-[#9B9EA6]">
+            VM: {serverStatus?.vm.status ?? "…"}
           </span>
         </div>
-      </div>
 
-      {/* Minecraft service */}
-      <div className="card space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">Minecraft Game Process</p>
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-          Restart the Java process after changing settings — faster than rebooting the VM.
-        </p>
-        {canControl && (
-          <div className="flex gap-2 flex-wrap">
-            <ActionButton label="▶ Start Game"   onClick={() => svcMut.mutate("start")}   variant="primary" />
-            <ActionButton label="■ Stop Game"    onClick={() => svcMut.mutate("stop")}    variant="danger" />
-            <ActionButton label="↺ Restart Game" onClick={() => svcMut.mutate("restart")} />
+        {/* In-progress indicator */}
+        {vmMut.isPending && pendingAction && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-sm text-[#5B9BF0]">
+              <div className="w-3.5 h-3.5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              {VM_PROGRESS[pendingAction] ?? `VM ${pendingAction} in progress…`}
+            </div>
+            {/* Indeterminate progress bar */}
+            <div className="h-1 w-full rounded-full bg-[#E5E2DE] dark:bg-[#363944] overflow-hidden">
+              <div className="h-full w-1/3 rounded-full bg-[#5B9BF0] animate-[progress_1.4s_ease-in-out_infinite]" />
+            </div>
           </div>
         )}
       </div>
@@ -153,12 +215,27 @@ export function ServerPage() {
         {/* Weather */}
         <div>
           <p className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-2">🌤️ Weather</p>
-          <div className="grid grid-cols-3 gap-2">
-            {WEATHER_PRESETS.map(({ label, kind }) => (
-              <button key={label} disabled={!canControl}
+          <div className="grid grid-cols-3 gap-3">
+            {WEATHER_PRESETS.map(({ label, kind, gif, poster }) => (
+              <button
+                key={kind}
+                disabled={!canControl}
                 onClick={() => wxMut.mutate(kind)}
-                className="btn-secondary text-xs py-2 text-center">
-                {label}
+                onMouseEnter={() => setHoveredWeather(kind)}
+                onMouseLeave={() => setHoveredWeather(null)}
+                style={{
+                  backgroundImage: `url('${hoveredWeather === kind ? gif : poster}')`,
+                }}
+                className="relative h-28 rounded-xl overflow-hidden bg-cover bg-center
+                           border-2 border-transparent hover:border-[#5B9BF0]
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
+                           transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {/* gradient so text is legible over any background */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                <span className="absolute bottom-2.5 left-0 right-0 text-center text-white text-xs font-semibold drop-shadow-md">
+                  {label}
+                </span>
               </button>
             ))}
           </div>
