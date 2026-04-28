@@ -29,18 +29,18 @@ async function stub(page: Page, role: string, permission_keys: string[]) {
 }
 
 test.describe("Navigation permission filtering", () => {
-  test("global_admin sees every nav item including Permissions", async ({ page }) => {
+  test("global_admin sees every nav item including Admin", async ({ page }) => {
     await stub(page, "global_admin", [
       "nav.dashboard", "nav.server", "nav.team", "nav.backups", "nav.configure", "nav.admin",
       "killswitch.view",
     ]);
     await page.goto("/");
-    for (const label of ["Dashboard", "Server", "Team", "Backups", "Configure", "Permissions"]) {
+    for (const label of ["Dashboard", "Server", "Team", "Backups", "Configure", "Admin"]) {
       await expect(page.getByRole("link", { name: label })).toBeVisible();
     }
   });
 
-  test("member sees only everyday nav, not Permissions", async ({ page }) => {
+  test("member sees only everyday nav, not Admin", async ({ page }) => {
     await stub(page, "member", [
       "nav.dashboard", "nav.server", "nav.team", "nav.backups", "nav.configure",
       "killswitch.view",
@@ -49,14 +49,14 @@ test.describe("Navigation permission filtering", () => {
     for (const label of ["Dashboard", "Server", "Team", "Backups", "Configure"]) {
       await expect(page.getByRole("link", { name: label })).toBeVisible();
     }
-    await expect(page.getByRole("link", { name: "Permissions" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0);
   });
 
   test("visitor sees only Dashboard", async ({ page }) => {
     await stub(page, "visitor", ["nav.dashboard", "killswitch.view"]);
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
-    for (const hidden of ["Server", "Team", "Backups", "Configure", "Permissions"]) {
+    for (const hidden of ["Server", "Team", "Backups", "Configure", "Admin"]) {
       await expect(page.getByRole("link", { name: hidden })).toHaveCount(0);
     }
   });

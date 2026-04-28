@@ -10,7 +10,7 @@ import { TeamPage }         from "@/features/team/TeamPage";
 import { BackupsPage }      from "@/features/backups/BackupsPage";
 import { ConfigurePage }    from "@/features/configure/ConfigurePage";
 import { LoginPage }        from "@/features/auth/LoginPage";
-import { PermissionsPage }  from "@/features/admin/PermissionsPage";
+import { AdminPage }        from "@/features/admin/AdminPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -41,7 +41,8 @@ export default function App() {
                       <Route path="/team"                element={<TeamPage />} />
                       <Route path="/backups"             element={<BackupsPage />} />
                       <Route path="/configure"           element={<ConfigurePage />} />
-                      <Route path="/admin/permissions"   element={<PermissionsPage />} />
+                      <Route path="/admin"              element={<AdminPage />} />
+                      <Route path="/admin/permissions"   element={<AdminPage />} />
                     </Routes>
                   </Layout>
                 </div>

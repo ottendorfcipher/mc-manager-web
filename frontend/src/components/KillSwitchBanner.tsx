@@ -32,8 +32,12 @@ export function KillSwitchBanner() {
 
   const canToggle = hasPerm("killswitch.toggle");
   const release = async () => {
-    await api.delete("/kill-switch");
-    setState(null);
+    try {
+      await api.delete("/kill-switch");
+      setState({ disabled_at: null, reason: null, source: null });
+    } catch (e) {
+      console.error("Failed to release kill-switch:", e);
+    }
   };
 
   return (

@@ -44,10 +44,11 @@
 #   MC_INSTANCE   (default: mc-server-spot)
 #   TS_HOSTNAME   (default: redstonecipher-web)
 #
-# Tailscale — the portal is only accessible within your Tailscale network:
-#   TS_AUTHKEY   — generate at https://login.tailscale.com/admin/settings/keys
+# Tailscale — used for OUTBOUND SSH to the Minecraft VM only.
+# The portal itself is public at example.com, protected by Google OAuth.
+#   TS_AUTHKEY   — reusable+ephemeral key from https://login.tailscale.com/admin/settings/keys
 #                  Options: Reusable ✓  Ephemeral ✓  (desc: redstonecipher-web)
-#   TS_TAILNET   — your tailnet domain, e.g. tail1234.ts.net
+#   TS_TAILNET   — your tailnet domain (optional; only needed for legacy MagicDNS refs)
 #                  (run `tailscale status` on any enrolled device to find it)
 
 set -euo pipefail
@@ -68,8 +69,8 @@ FIREBASE_URL="https://${NEW_PROJECT}.web.app"
 
 TOPIC="redstonecipher-budget-alerts"
 SUB="redstonecipher-budget-push"
-BUDGET_NAME="redstonecipher-8usd-monthly"
-BUDGET_AMOUNT_USD=8
+BUDGET_NAME="redstonecipher-combined-budget"
+BUDGET_AMOUNT_USD=25
 
 say()  { printf "\n\033[1;34m==> %s\033[0m\n" "$*"; }
 ok()   { printf "    \033[0;32m✓ %s\033[0m\n" "$*"; }
@@ -92,7 +93,7 @@ prompt_secret GOOGLE_CLIENT_ID     "Google OAuth Client ID"
 prompt_secret GOOGLE_CLIENT_SECRET "Google OAuth Client Secret"
 prompt_secret BUDGET_WEBHOOK_TOKEN "Budget webhook token (openssl rand -hex 32)"
 prompt_secret TS_AUTHKEY           "Tailscale auth key (reusable+ephemeral, from admin console)"
-: "${TS_TAILNET:?TS_TAILNET is required (e.g. tail1234.ts.net). Run: tailscale status}"
+TS_TAILNET="${TS_TAILNET:-tail4bc774.ts.net}"  # optional; only used for legacy reference
 
 # ── 1. Create project ─────────────────────────────────────────────────────────
 say "Creating project ${NEW_PROJECT}"
@@ -293,7 +294,7 @@ gcloud run deploy "${SERVICE_NAME}" \
     --concurrency=80 \
     --port=8080 \
     --allow-unauthenticated \
-    --set-env-vars="HOST=0.0.0.0,DATABASE_URL=sqlite:///data/mc-manager.db,BACKUP_DIR=/data/backups,GCLOUD_BIN=/usr/bin/gcloud,CLOUDSDK_CONFIG=/tmp/gcloud-config,GCP_PROJECT=${MC_PROJECT},GCP_ZONE=${MC_ZONE},GCP_INSTANCE=${MC_INSTANCE},LITESTREAM_GCS_BUCKET=${BUCKET},TAILSCALE_IP=100.64.0.3,TS_HOSTNAME=redstonecipher-web,TS_TAILNET=${TS_TAILNET},REDIRECT_URI=https://redstonecipher-web.${TS_TAILNET}/auth/callback" \
+    --set-env-vars="HOST=0.0.0.0,DATABASE_URL=sqlite:///data/mc-manager.db,BACKUP_DIR=/data/backups,GCLOUD_BIN=/usr/bin/gcloud,CLOUDSDK_CONFIG=/tmp/gcloud-config,GCP_PROJECT=${MC_PROJECT},GCP_ZONE=${MC_ZONE},GCP_INSTANCE=${MC_INSTANCE},LITESTREAM_GCS_BUCKET=${BUCKET},TS_HOSTNAME=redstonecipher-web,REDIRECT_URI=https://example.com/auth/callback" \
     --set-secrets="JWT_SECRET=jwt_secret:latest,GOOGLE_CLIENT_ID=google_client_id:latest,GOOGLE_CLIENT_SECRET=google_client_secret:latest,BUDGET_WEBHOOK_TOKEN=budget_webhook_token:latest,TS_AUTHKEY=ts_authkey:latest" \
     --project="${NEW_PROJECT}"
 
@@ -303,36 +304,20 @@ CLOUD_RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" \
     --format='value(status.url)')
 ok "Cloud Run deployed at ${CLOUD_RUN_URL}"
 
-# ── 13. Firebase Hosting ──────────────────────────────────────────────────────
-say "Initializing Firebase Hosting"
+# ── 13. Firebase Hosting (fallback page only) ————————————————————————
+say "Deploying Firebase Hosting (static fallback page)"
 
 # Add Firebase to the GCP project (idempotent)
 firebase projects:addfirebase "${NEW_PROJECT}" 2>/dev/null || true
 
-# Substitute the private network URL into the splash page.
-# The placeholder __TS_APP_URL__ is replaced at deploy time so the target
-# URL is baked in but not committed to version control.
-# We work on a temp copy so the repo stays clean.
-TS_APP_URL="https://redstonecipher-web.${TS_TAILNET}/"
-TMP_INDEX="$(mktemp)"
-sed "s|__TS_APP_URL__|${TS_APP_URL}|g" public/index.html > "${TMP_INDEX}"
-cp "${TMP_INDEX}" public/index.html
-rm -f "${TMP_INDEX}"
-
 firebase use "${NEW_PROJECT}"
 firebase deploy --only hosting --project="${NEW_PROJECT}"
 
-# Restore the placeholder so the repo stays clean after running the script.
-sed -i.bak "s|${TS_APP_URL}|__TS_APP_URL__|g" public/index.html
-rm -f public/index.html.bak
-
-ok "Firebase Hosting deployed"
-warn "example.com custom domain — complete these steps in the Firebase Console:"
-warn "  Firebase Console → Hosting → Add custom domain → example.com"
-warn "  Add the two DNS TXT/A records Firebase shows you at your DNS registrar."
-warn "  Firebase will provision a free TLS cert automatically."
-warn "  Public visitors see the 'secure private network' page."
-warn "  Tailscale members are silently redirected to the private portal."
+ok "Firebase Hosting deployed (redirects to example.com)"
+warn "The primary domain example.com is served by Cloud Run via domain mapping."
+warn "Firebase Hosting is a fallback only (serves public/index.html which redirects to the main domain)."
+warn "To set up the Cloud Run domain mapping for a fresh project, run:"
+warn "  gcloud beta run domain-mappings create --service=${SERVICE_NAME} --domain=example.com --region=${REGION} --project=${NEW_PROJECT}"
 
 # ── 14. Pub/Sub topic + push subscription ─────────────────────────────────────
 say "Setting up Pub/Sub for budget alerts"
@@ -361,32 +346,46 @@ else
     ok "Subscription created"
 fi
 
-# ── 15. Cloud Billing budget at $8 ────────────────────────────────────────────
-say "Creating \$${BUDGET_AMOUNT_USD}/month budget"
+# ── 15. Cloud Billing budget ————————————————————————————————————
+say "Creating \$${BUDGET_AMOUNT_USD}/month budget (both projects via REST API)"
 
-EXISTING_BUDGET="$(gcloud billing budgets list \
-    --billing-account="${BILLING_ACCOUNT}" \
-    --filter="displayName=${BUDGET_NAME}" \
-    --format='value(name)' | head -n1 || true)"
+# Note: gcloud billing budgets does not support multi-project filters, so we
+# use the Billing Budgets REST API directly.
+MC_PROJECT_NUMBER=$(gcloud projects describe "${MC_PROJECT}" --format='value(projectNumber)')
+NEW_PROJECT_NUMBER=$(gcloud projects describe "${NEW_PROJECT}" --format='value(projectNumber)')
 
-BUDGET_ARGS=(
-    --billing-account="${BILLING_ACCOUNT}"
-    --display-name="${BUDGET_NAME}"
-    --budget-amount="${BUDGET_AMOUNT_USD}USD"
-    # 50 % ($4) — informational
-    --threshold-rule=percent=0.5
-    # 100 % ($8) — triggers kill-switch via Pub/Sub push to the app webhook
-    --threshold-rule=percent=1.0
-    --notifications-rule-pubsub-topic="projects/${NEW_PROJECT}/topics/${TOPIC}"
-    # Scope to the new project only
-    --filter-projects="projects/${NEW_PROJECT}"
-)
+EXISTING_BUDGET=$(curl -s \
+    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "x-goog-user-project: ${NEW_PROJECT}" \
+    "https://billingbudgets.googleapis.com/v1/billingAccounts/${BILLING_ACCOUNT}/budgets" \
+    | python3 -c "import sys,json; bs=json.load(sys.stdin).get('budgets',[]); \
+      print(next((b['name'] for b in bs if b.get('displayName')=='${BUDGET_NAME}'),''))" 2>/dev/null || true)
 
 if [[ -n "${EXISTING_BUDGET}" ]]; then
-    gcloud billing budgets update "${EXISTING_BUDGET}" "${BUDGET_ARGS[@]}"
-    ok "Budget updated"
+    warn "Budget '${BUDGET_NAME}' already exists (${EXISTING_BUDGET}) — skipping creation"
 else
-    gcloud billing budgets create "${BUDGET_ARGS[@]}"
+    curl -s -X POST \
+        -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+        -H "x-goog-user-project: ${NEW_PROJECT}" \
+        -H "Content-Type: application/json" \
+        "https://billingbudgets.googleapis.com/v1/billingAccounts/${BILLING_ACCOUNT}/budgets" \
+        -d "{
+          \"displayName\": \"${BUDGET_NAME}\",
+          \"budgetFilter\": {
+            \"projects\": [\"projects/${MC_PROJECT_NUMBER}\", \"projects/${NEW_PROJECT_NUMBER}\"],
+            \"calendarPeriod\": \"MONTH\"
+          },
+          \"amount\": { \"specifiedAmount\": { \"currencyCode\": \"USD\", \"units\": \"${BUDGET_AMOUNT_USD}\" } },
+          \"thresholdRules\": [
+            {\"thresholdPercent\": 0.5, \"spendBasis\": \"CURRENT_SPEND\"},
+            {\"thresholdPercent\": 0.8, \"spendBasis\": \"CURRENT_SPEND\"},
+            {\"thresholdPercent\": 1.0, \"spendBasis\": \"CURRENT_SPEND\"}
+          ],
+          \"notificationsRule\": {
+            \"pubsubTopic\": \"projects/${NEW_PROJECT}/topics/${TOPIC}\",
+            \"schemaVersion\": \"1.0\"
+          }
+        }" | python3 -c "import sys,json; b=json.load(sys.stdin); print(b.get('name','ERROR:',b))"
     ok "Budget created"
 fi
 
@@ -404,27 +403,22 @@ cat <<EOF
   Topic:           projects/${NEW_PROJECT}/topics/${TOPIC}
   Push endpoint:   ${PUSH_ENDPOINT}
 
-  Access (Tailscale required):
-    https://redstonecipher-web.${TS_TAILNET}/
+  Access: https://example.com  (protected by Google OAuth)
 
   Next steps:
-    1. Add the following redirect URI to your Google OAuth credentials:
-         https://redstonecipher-web.${TS_TAILNET}/auth/callback
+    1. Add the redirect URI to your Google OAuth credentials:
+         https://example.com/auth/callback
        (console.cloud.google.com → APIs & Services → Credentials → OAuth 2.0 client)
 
-    2. Set up example.com as the public domain:
-       a) Firebase Console → Hosting → Add custom domain → example.com
-       b) Add the DNS records Firebase provides to your registrar.
-       c) Firebase provisions TLS automatically (free).
-       Visitors on the public internet get the private-network page.
-       Visitors on Tailscale are silently redirected to the portal.
+    2. Set up the Cloud Run domain mapping (if not already done):
+         gcloud beta run domain-mappings create \\
+           --service=${SERVICE_NAME} \\
+           --domain=example.com \\
+           --region=${REGION} \\
+           --project=${NEW_PROJECT}
+       Then point your DNS A records to the IPs shown in the output.
 
-    3. Connect your device to Tailscale and open:
-         https://redstonecipher-web.${TS_TAILNET}/
-       (or https://example.com once step 2 is complete and Tailscale is active)
-       The Minecraft server is on Tailscale at 100.64.0.3 — same requirement.
-
-    3. Connect a Cloud Build trigger to your Git repo for automatic deploys:
+    3. Connect a Cloud Build trigger for automatic deploys:
          gcloud builds triggers create github \\
            --repo-name=mc-manager-web \\
            --repo-owner=<YOUR_GITHUB_USER> \\
@@ -435,7 +429,7 @@ cat <<EOF
     4. Smoke-test the budget kill-switch:
          gcloud pubsub topics publish ${TOPIC} \\
            --project=${NEW_PROJECT} \\
-           --message '\$(echo -n "{\"costAmount\":9,\"budgetAmount\":8,\"alertThresholdExceeded\":1.0}" | base64)'
+           --message '{"costAmount":26,"budgetAmount":25,"alertThresholdExceeded":1.0}'
 
     5. Verify Tailscale gate (should return 403):
          curl -H 'X-Forwarded-For: 1.2.3.4' ${CLOUD_RUN_URL}/
