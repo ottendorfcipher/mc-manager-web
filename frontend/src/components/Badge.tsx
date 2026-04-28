@@ -1,14 +1,25 @@
 import { ROLE_COLORS, ROLE_LABELS, type Role } from "@/types";
 
-interface RoleBadgeProps { role: Role }
+interface RoleBadgeProps {
+  role:   Role;
+  /** Override label and color when using API-loaded RoleRecord data. */
+  label?: string;
+  color?: string;
+}
 
-export function RoleBadge({ role }: RoleBadgeProps) {
+/** Displays a colored pill for a role.  Accepts either:
+ *  1. A static system role string (uses ROLE_LABELS / ROLE_COLORS as fallback)
+ *  2. Explicit `label` + `color` from a dynamic RoleRecord loaded via /api/roles
+ */
+export function RoleBadge({ role, label, color }: RoleBadgeProps) {
+  const displayLabel = label ?? (ROLE_LABELS as Record<string, string>)[role] ?? role;
+  const displayColor = color ?? (ROLE_COLORS as Record<string, string>)[role] ?? "#6B7280";
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white"
-      style={{ backgroundColor: ROLE_COLORS[role] }}
+      style={{ backgroundColor: displayColor }}
     >
-      {ROLE_LABELS[role]}
+      {displayLabel}
     </span>
   );
 }

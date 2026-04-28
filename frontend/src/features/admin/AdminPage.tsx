@@ -1,27 +1,32 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { PermissionsPage } from "./PermissionsPage";
-import type { User, PlayerLink, McPlayer, Role } from "@/types";
-import { ROLE_LABELS, ROLE_LEVELS } from "@/types";
+import { RolesTab } from "./RolesTab";
+import { UserOverridePanel } from "./UserOverridePanel";
+import type { User, PlayerLink, McPlayer, RoleRecord } from "@/types";
+import { ROLE_LEVELS } from "@/types";
 
-type Tab = "users" | "pairing" | "permissions";
+type Tab = "users" | "roles" | "pairing" | "permissions";
 
-// ── AdminPage ──────────────────────────────────────────────────────────────────
+// ── AdminPage ───────────────────────────────────────────────────────────────────
 
 export function AdminPage() {
   const { hasPerm } = useAuthStore();
   const [tab, setTab] = useState<Tab>("users");
 
-  const canManage   = hasPerm("users.invite") || hasPerm("users.remove");
-  const canEditPerms = hasPerm("users.permissions.edit");
+  const canSeeUsers   = hasPerm("users.view") || hasPerm("users.invite") || hasPerm("users.remove");
+  const canSeeRoles   = hasPerm("roles.view") || hasPerm("roles.create") || hasPerm("roles.edit");
+  const canManage     = hasPerm("users.invite") || hasPerm("users.remove");
+  const canEditPerms  = hasPerm("roles.edit") || hasPerm("users.permissions.edit");
 
   const tabs = [
-    { id: "users" as Tab,       label: "Users",              Icon: Users,       show: canManage },
-    { id: "pairing" as Tab,     label: "Minecraft Pairing",  Icon: Pickaxe,     show: canManage },
+    { id: "users"       as Tab, label: "Users",              Icon: Users,       show: canSeeUsers },
+    { id: "roles"       as Tab, label: "Roles",              Icon: Shield,      show: canSeeRoles },
+    { id: "pairing"     as Tab, label: "Minecraft Pairing",  Icon: Pickaxe,     show: canManage },
     { id: "permissions" as Tab, label: "Permissions",         Icon: ShieldCheck, show: canEditPerms },
   ].filter((t) => t.show);
 
@@ -30,7 +35,7 @@ export function AdminPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Admin Settings</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-          Manage users, Minecraft accounts, and role permissions
+          Manage users, roles, Minecraft accounts, and permissions
         </p>
       </div>
 
@@ -54,21 +59,27 @@ export function AdminPage() {
       </div>
 
       {tab === "users"       && <UsersTab />}
+      {tab === "roles"       && <RolesTab />}
       {tab === "pairing"     && <MCPairingTab />}
       {tab === "permissions" && <PermissionsPage />}
     </div>
   );
 }
 
-// ── Users tab ─────────────────────────────────────────────────────────────────
+// ── Users tab ───────────────────────────────────────────────────────────────────
 
 function UsersTab() {
-  const { user: me } = useAuthStore();
+  const { user: me, hasPerm } = useAuthStore();
   const qc = useQueryClient();
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<Role>("member");
+  const [inviteRole, setInviteRole] = useState("member");
   const [error, setError] = useState("");
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+
+  const canInvite    = hasPerm("users.invite");
+  const canRemove    = hasPerm("users.remove");
+  const canOverrides = hasPerm("users.permission_overrides.edit");
 
   const myLevel = ROLE_LEVELS[me?.role ?? "user"] ?? 1;
 
@@ -76,6 +87,15 @@ function UsersTab() {
     queryKey: ["users"],
     queryFn: () => api.get("/users"),
   });
+
+  // Load API roles for the invite / change-role dropdowns
+  const { data: apiRoles = [] } = useQuery<RoleRecord[]>({
+    queryKey: ["roles"],
+    queryFn: () => api.get<RoleRecord[]>("/roles"),
+  });
+
+  // Only show roles the actor can assign (level strictly below theirs)
+  const assignableRoles = apiRoles.filter((r) => r.level < myLevel);
 
   const inviteMut = useMutation({
     mutationFn: () => api.post("/users", { email: inviteEmail, role: inviteRole }),
@@ -91,7 +111,10 @@ function UsersTab() {
   const removeMut = useMutation({
     mutationFn: (email: string) =>
       api.delete(`/users/${encodeURIComponent(email)}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      if (selectedUser?.email === removeMut.variables) setSelectedUser(null);
+    },
   });
 
   const updateRoleMut = useMutation({
@@ -105,19 +128,24 @@ function UsersTab() {
     (ROLE_LEVELS[u.role] ?? 0) < myLevel &&
     u.email !== "admin@example.com";
 
+  const roleMap = new Map(apiRoles.map((r) => [r.name, r]));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-          Invite users by email. They sign in with their Google account to activate access.
+          Whitelist users by email — they sign in with their Google account to activate access.
+          Click a user row to manage their role and permission overrides.
         </p>
-        <button
-          onClick={() => setShowInvite(true)}
-          className="btn-primary flex items-center gap-2 text-sm"
-          data-testid="invite-user-btn"
-        >
-          <UserPlus className="w-4 h-4" aria-hidden /> Invite User
-        </button>
+        {canInvite && (
+          <button
+            onClick={() => setShowInvite(true)}
+            className="btn-primary flex items-center gap-2 text-sm flex-shrink-0"
+            data-testid="invite-user-btn"
+          >
+            <UserPlus className="w-4 h-4" aria-hidden /> Whitelist User
+          </button>
+        )}
       </div>
 
       {/* Invite dialog */}
@@ -126,19 +154,20 @@ function UsersTab() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           role="dialog"
           aria-modal
-          aria-label="Invite user"
+          aria-label="Whitelist user"
         >
           <div className="card max-w-md w-full mx-4 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
-                Invite a user
+                Whitelist a user
               </h2>
               <button onClick={() => setShowInvite(false)} aria-label="Close">
                 <X className="w-4 h-4 text-[#9B9EA6]" />
               </button>
             </div>
             <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-              Enter their Gmail address. They sign in with that Google account once added.
+              Enter their Gmail address. They'll be able to sign in with that Google account once added.
+              Users not on this list are rejected at login.
             </p>
             <div className="space-y-3">
               <input
@@ -150,14 +179,12 @@ function UsersTab() {
               />
               <select
                 value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as Role)}
+                onChange={(e) => setInviteRole(e.target.value)}
                 className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm"
               >
-                {(Object.entries(ROLE_LABELS) as [Role, string][])
-                  .filter(([r]) => (ROLE_LEVELS[r] ?? 0) < myLevel)
-                  .map(([r, l]) => (
-                    <option key={r} value={r}>{l}</option>
-                  ))}
+                {assignableRoles.map((r) => (
+                  <option key={r.name} value={r.name}>{r.label}</option>
+                ))}
               </select>
               {error && <p className="text-xs text-[#F87171]">{error}</p>}
             </div>
@@ -170,93 +197,141 @@ function UsersTab() {
                 disabled={!inviteEmail.includes("@") || inviteMut.isPending}
                 className="btn-primary text-sm"
               >
-                {inviteMut.isPending ? "Inviting…" : "Send Invite"}
+                {inviteMut.isPending ? "Adding…" : "Add to Whitelist"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* User list */}
-      {isLoading ? (
-        <div className="flex justify-center py-10">
-          <div className="w-6 h-6 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {[...users]
-            .sort((a, b) => (ROLE_LEVELS[b.role] ?? 0) - (ROLE_LEVELS[a.role] ?? 0))
-            .map((u) => {
-              const isPending = !u.google_sub;
-              const initials  = u.display_name.slice(0, 2).toUpperCase();
-              const editable  = canEdit(u);
-              const avatarBg  = ["#9B9EA6", "#36B37E", "#5B9BF0", "#FBBF24"][
-                Math.max(0, (ROLE_LEVELS[u.role] ?? 0) - 1)
-              ];
-              return (
-                <div key={u.email} className="card flex items-center gap-3" data-testid="user-card">
-                  {/* Avatar */}
-                  <div
-                    className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs"
-                    style={{ backgroundColor: avatarBg }}
-                  >
-                    {u.avatar_url
-                      ? <img src={u.avatar_url} className="w-9 h-9 rounded-full" alt="" />
-                      : initials}
-                  </div>
+      {/* User list + detail panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* List */}
+        <div>
+          {isLoading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-6 h-6 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {[...users]
+                .sort((a, b) => (ROLE_LEVELS[b.role] ?? 0) - (ROLE_LEVELS[a.role] ?? 0))
+                .map((u) => {
+                  const isPending = !u.google_sub;
+                  const initials  = u.display_name.slice(0, 2).toUpperCase();
+                  const roleData  = roleMap.get(u.role);
+                  const avatarBg  = roleData?.color ?? ["#9B9EA6", "#36B37E", "#5B9BF0", "#FBBF24"][
+                    Math.max(0, (ROLE_LEVELS[u.role] ?? 0) - 1)
+                  ];
+                  const isSelected = selectedUser?.email === u.email;
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
-                        {u.display_name}
-                      </span>
-                      {u.email === me?.email && (
-                        <span className="text-xs text-[#9B9EA6]">(you)</span>
-                      )}
-                      <RoleBadge role={u.role} />
-                      {isPending && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] dark:bg-[#3D2A00] dark:text-[#FCD34D]">
-                          Pending sign-in
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{u.email}</p>
-                  </div>
-
-                  {/* Role selector */}
-                  {editable && (
-                    <select
-                      value={u.role}
-                      onChange={(e) =>
-                        updateRoleMut.mutate({ email: u.email, role: e.target.value })
-                      }
-                      className="text-xs rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-2 py-1"
-                      aria-label={`Change role for ${u.display_name}`}
-                    >
-                      {(Object.entries(ROLE_LABELS) as [Role, string][])
-                        .filter(([r]) => (ROLE_LEVELS[r] ?? 0) < myLevel)
-                        .map(([r, l]) => (
-                          <option key={r} value={r}>{l}</option>
-                        ))}
-                    </select>
-                  )}
-
-                  {/* Remove */}
-                  {editable && (
+                  return (
                     <button
-                      onClick={() => removeMut.mutate(u.email)}
-                      disabled={removeMut.isPending}
-                      className="btn-danger text-xs"
+                      key={u.email}
+                      onClick={() => setSelectedUser(isSelected ? null : u)}
+                      className={`w-full text-left card flex items-center gap-3 transition-all ${
+                        isSelected ? "ring-2 ring-[#5B9BF0]" : ""
+                      }`}
+                      data-testid="user-card"
                     >
-                      Remove
+                      {/* Avatar */}
+                      <div
+                        className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                        style={{ backgroundColor: avatarBg }}
+                      >
+                        {u.avatar_url
+                          ? <img src={u.avatar_url} className="w-9 h-9 rounded-full" alt="" />
+                          : initials}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+                            {u.display_name}
+                          </span>
+                          {u.email === me?.email && (
+                            <span className="text-xs text-[#9B9EA6]">(you)</span>
+                          )}
+                          <RoleBadge
+                            role={u.role}
+                            label={roleData?.label}
+                            color={roleData?.color}
+                          />
+                          {isPending && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] dark:bg-[#3D2A00] dark:text-[#FCD34D]">
+                              Pending sign-in
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{u.email}</p>
+                      </div>
+
+                      <ChevronRight className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" aria-hidden />
                     </button>
-                  )}
-                </div>
-              );
-            })}
+                  );
+                })}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Detail panel */}
+        {selectedUser && (
+          <div className="card space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+                {selectedUser.display_name}
+              </span>
+              <button onClick={() => setSelectedUser(null)} aria-label="Close panel">
+                <X className="w-4 h-4 text-[#9B9EA6]" />
+              </button>
+            </div>
+            <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{selectedUser.email}</p>
+
+            {/* Role assignment */}
+            {canEdit(selectedUser) && (
+              <div>
+                <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide mb-1">
+                  Role
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    defaultValue={selectedUser.role}
+                    onChange={(e) => updateRoleMut.mutate({ email: selectedUser.email, role: e.target.value })}
+                    className="flex-1 text-sm rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2"
+                    aria-label={`Change role for ${selectedUser.display_name}`}
+                  >
+                    {assignableRoles.map((r) => (
+                      <option key={r.name} value={r.name}>{r.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Permission overrides */}
+            <UserOverridePanel
+              email={selectedUser.email}
+              roleName={selectedUser.role}
+              canEdit={canOverrides}
+            />
+
+            {/* Remove user */}
+            {canRemove && canEdit(selectedUser) && (
+              <div className="pt-2 border-t border-[#D9D5D0] dark:border-[#363944]">
+                <button
+                  onClick={() => removeMut.mutate(selectedUser.email)}
+                  disabled={removeMut.isPending}
+                  className="btn-danger w-full text-sm"
+                  data-testid="remove-user-btn"
+                >
+                  Remove from whitelist
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
