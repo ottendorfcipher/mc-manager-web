@@ -1,7 +1,23 @@
 // These types mirror the Rust structs decorated with #[derive(TS)].
 // In a full setup ts-rs generates these automatically via `cargo test`.
 
-export type Role = "global_admin" | "admin" | "member" | "user" | "visitor";
+// ── Dynamic role (from /api/roles) ────────────────────────────────────────────
+// Replaces the old hard-coded string union.  Use RoleRecord everywhere you need
+// the full role object; use `string` for role name fields in payloads.
+export interface RoleRecord {
+  name:        string;
+  label:       string;
+  description: string;
+  color:       string;
+  level:       number;
+  is_system:   boolean;
+  created_by:  string;
+  created_at:  string;
+}
+
+// Kept for backwards compatibility with existing UI code that uses the union type.
+// Gradually migrate call-sites to use RoleRecord instead.
+export type Role = "global_admin" | "admin" | "member" | "user" | "visitor" | (string & {});
 export type Gamemode = "survival" | "creative" | "adventure" | "spectator";
 
 export interface Permissions {
@@ -20,6 +36,14 @@ export interface MeResponse {
   permissions:  Permissions;
   /** Flat permission-key list (e.g. "server.vm.start", "nav.team"). */
   permission_keys: string[];
+}
+
+// ── Permission override (from /api/users/:email/permission-overrides) ─────────
+
+export interface PermissionOverride {
+  permission_key: string;
+  granted_by:     string;
+  granted_at:     string;
 }
 
 export interface KillSwitchStatus {
@@ -73,6 +97,13 @@ export interface VmStatus {
 export interface ServerStatus {
   vm:      VmStatus;
   service: string;
+}
+
+// ── Role permissions (from /api/roles/:role/permissions) ──────────────────
+
+export interface RoleWithPermissions {
+  role:        string;
+  permissions: string[];
 }
 
 export interface MetricsSnapshot {

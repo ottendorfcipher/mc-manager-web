@@ -20,8 +20,10 @@ const ERROR_COPY: Record<string, { title: string; detail: string }> = {
       "Google rejected the redirect URI the backend sent. Open the GCP Console → APIs & Services → Credentials → your OAuth 2.0 Client ID, and make sure the URI matching your backend's REDIRECT_URI is listed under Authorized redirect URIs (e.g. https://redstonecipher.com/auth/callback for the HTTPS setup, or http://localhost:5173/auth/callback for plain dev).",
   },
   not_invited: {
-    title: "You're not on the invite list",
-    detail: "Ask the server admin to add your Google account, then try again.",
+    title: "Access not granted",
+    detail:
+      "Your Google account hasn't been whitelisted. Ask a server admin to add your email address. " +
+      "Admins can whitelist users in Admin → Users → Whitelist User. The whitelist permission can also be delegated to other roles.",
   },
   unknown: {
     title: "Something went wrong",
