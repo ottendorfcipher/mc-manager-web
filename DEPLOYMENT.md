@@ -97,7 +97,7 @@ echo -n "your-ts-authkey" | \
 ### 1. Deploy Backend to Cloud Run
 ```bash
 cd /Users/user/Desktop/mc-manager-web
-gcloud builds submit --config cloudbuild.yaml
+gcloud builds submit --config cloudbuild.yaml --project=redstonecipher-web
 ```
 
 This builds and deploys:
@@ -105,6 +105,20 @@ This builds and deploys:
 - Cloud Run service `redstonecipher-web`
 - Scaling: min=0, max=3, concurrency=80
 - Region: us-central1
+
+After the first deploy, or when adding new env vars, update them separately:
+```bash
+gcloud run services update redstonecipher-web \
+  --project=redstonecipher-web --region=us-central1 \
+  --update-env-vars=GCS_BACKUP_BUCKET=mc-server-backups-491
+```
+
+**Required environment variables** (set via `--set-env-vars` in `cloudbuild.yaml` or `services update`):
+| Variable | Value | Purpose |
+|---|---|---|
+| `GCS_BACKUP_BUCKET` | `mc-server-backups-491` | Cloud backup storage bucket |
+
+All other variables (secrets, GCP project, Tailscale) are already set in `cloudbuild.yaml`.
 
 ### 2. Build and Deploy Frontend to Firebase
 ```bash
@@ -254,11 +268,37 @@ firebase hosting:channel:list
 
 ---
 
+## Cloud Backup Storage
+
+### GCS Bucket: `mc-server-backups-491`
+- **Region**: us-central1 (same as VM)
+- **Storage class**: Nearline (~$0.01/GB/month)
+- **Auto-delete lifecycle rules**:
+  - `backups/regular/` prefix → deleted after **30 days**
+  - `backups/extended/` prefix → deleted after **365 days** (requires `backups.create.extended` permission)
+- **Estimated cost**: <$0.10/month with daily backups
+
+### Recreating the bucket (if needed)
+```bash
+gcloud storage buckets create gs://mc-server-backups-491 \
+  --project=example-project \
+  --location=us-central1 \
+  --default-storage-class=nearline \
+  --uniform-bucket-level-access
+
+# Apply lifecycle rules
+gcloud storage buckets update gs://mc-server-backups-491 \
+  --lifecycle-file=docs/gcs-lifecycle.json
+```
+
+---
+
 ## Cost Optimization
 
 ### Current Configuration
 - **Frontend**: Free (Firebase Hosting free tier)
 - **Backend**: $0 when idle (scale-to-zero)
+- **Backups (GCS)**: <$0.10/month (Nearline, 30-day auto-delete)
 - **Budget Cap**: $8/month automatic shutdown
 - **Total**: $0-8/month
 
@@ -267,6 +307,7 @@ firebase hosting:channel:list
 - Cloud Function: Free tier covers budget monitoring
 - Cloud Run Job: Only runs on budget alerts (~seconds/month)
 - Firebase Hosting: 10GB storage + 360MB/day bandwidth free
+- GCS Nearline: $0.01/GB/month + $0.01/GB retrieval
 
 ---
 
@@ -375,13 +416,37 @@ npm update
 
 ## Deployment Checklist
 
-- [ ] Backend deployed to Cloud Run
-- [ ] Frontend built and deployed to Firebase
+- [ ] Backend deployed to Cloud Run (`gcloud builds submit --project=redstonecipher-web`)
+- [ ] `GCS_BACKUP_BUCKET` env var set on Cloud Run service
+- [ ] Frontend built (`cd frontend && npm run build`)
+- [ ] Frontend deployed to Firebase (`firebase deploy --only hosting`)
 - [ ] DNS points to Firebase Hosting
 - [ ] Budget shutdown system deployed
 - [ ] $8 budget created in Console
 - [ ] Secrets configured in Secret Manager
-- [ ] Service health verified
+- [ ] GCS bucket `mc-server-backups-491` exists with lifecycle rules
+- [ ] Service health verified (`curl https://example.com`)
+- [ ] All API routes return 401 for unauthenticated requests
+- [ ] Weather assets serve correctly (`/weather/sunny.png` etc.)
 - [ ] Budget alert tested
 - [ ] Cost monitoring enabled
-- [ ] Backup and restore procedures documented
+
+---
+
+## Deployment History
+
+### 2026-04-28 — commit `79ab145`
+**Backend revision**: `redstonecipher-web-00079-cgk`
+
+Features deployed:
+- Dashboard monitoring fix: SSE error handling, live `service_active` status, fixed undefined player count
+- VM controls: animated progress bar + action-specific copy for Start/Stop/Reset
+- Gamerule state persisted in SQLite (`world_gamerules` table) and hydrated on page load
+- Minecraft game-process restart controls removed from all user roles
+- Backup storage tiers: local (Mac) vs cloud (GCS 30-day) vs cloud extended (GCS 1-year)
+  - New permissions: `backups.create.cloud`, `backups.create.extended`
+  - GCS bucket created: `mc-server-backups-491` (Nearline, us-central1)
+- `server.properties` JSON export and import with correct permission gating
+- Weather buttons replaced with animated GIF cards (hover-to-animate, static PNG at rest)
+- DB migrations 0007 and 0008 applied
+- `GCS_BACKUP_BUCKET=mc-server-backups-491` added to Cloud Run env vars
