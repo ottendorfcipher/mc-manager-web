@@ -11,7 +11,9 @@ use crate::{
     state::AppState,
 };
 
-pub const JWT_COOKIE: &str = "rc_session";
+/// The only cookie name Firebase Hosting forwards through Cloud Run rewrites.
+/// All other cookie names are stripped from both requests and responses.
+pub const JWT_COOKIE: &str = "__session";
 pub const JWT_EXPIRY_SECS: i64 = 8 * 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
