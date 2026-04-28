@@ -544,8 +544,336 @@ async fn users_list_returns_seeded_global_admin() {
     );
 }
 
+// ── Role management tests (migration 0006) ────────────────────────────────────────
+
 #[tokio::test]
-async fn users_list_forbidden_for_member() {
+async fn roles_list_requires_roles_view() {
+    let (srv, _) = server().await;
+    // Visitor has no roles.view — expect 403
+    let cookie = session_cookie("anon@example.com", "nonexistent_role");
+    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn roles_list_returns_system_roles() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let roles: Vec<serde_json::Value> = res.json();
+    assert!(roles.iter().any(|r| r["name"] == "global_admin"));
+    assert!(roles.iter().any(|r| r["name"] == "member"));
+    // System roles must be flagged
+    for r in &roles {
+        assert_eq!(r["is_system"], true, "seeded roles must be system roles");
+    }
+}
+
+#[tokio::test]
+async fn create_custom_role_succeeds() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    let res = srv
+        .post("/api/roles")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({
+            "name": "developer",
+            "label": "Developer",
+            "description": "Engineering team",
+            "color": "#A78BFA",
+            "level": 2
+        }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let role: serde_json::Value = res.json();
+    assert_eq!(role["name"], "developer");
+    assert_eq!(role["label"], "Developer");
+    assert_eq!(role["is_system"], false);
+    assert_eq!(role["level"], 2);
+
+    // Verify it appears in the list
+    let list_res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let roles: Vec<serde_json::Value> = list_res.json();
+    assert!(roles.iter().any(|r| r["name"] == "developer"));
+}
+
+#[tokio::test]
+async fn create_role_invalid_name_rejected() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    for bad_name in &["Admin", "2cool", "has space", ""] {
+        let res = srv
+            .post("/api/roles")
+            .add_header(header::COOKIE, cookie.clone())
+            .json(&serde_json::json!({ "name": bad_name, "label": "X", "level": 1 }))
+            .await;
+        assert_eq!(
+            res.status_code(), StatusCode::BAD_REQUEST,
+            "name '{bad_name}' should be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn create_role_reserved_name_rejected() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "name": "admin", "label": "Admin", "level": 2 }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn create_role_level_gate_prevents_escalation() {
+    let (srv, _) = server().await;
+    // global_admin has level 4; cannot create level 4 (must be strictly below)
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "name": "superrole", "label": "Super", "level": 4 }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "cannot create role at own level");
+}
+
+#[tokio::test]
+async fn delete_system_role_rejected() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .delete("/api/roles/admin")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "system roles cannot be deleted");
+}
+
+#[tokio::test]
+async fn delete_role_with_users_rejected() {
+    let (srv, state) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Create a custom role
+    srv.post("/api/roles")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "name": "myteam", "label": "My Team", "level": 1 }))
+        .await;
+
+    // Assign a user to it
+    sqlx::query("INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'myteam', 'U', 'test')")
+        .bind("user_on_myteam@example.com")
+        .execute(&state.pool)
+        .await
+        .expect("insert failed");
+
+    let res = srv
+        .delete("/api/roles/myteam")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CONFLICT, "role with users must not be deletable");
+}
+
+#[tokio::test]
+async fn delete_custom_role_empty_succeeds() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Create then delete a custom role
+    srv.post("/api/roles")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "name": "tempteam", "label": "Temp", "level": 1 }))
+        .await;
+
+    let res = srv
+        .delete("/api/roles/tempteam")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+
+    // Verify gone from list
+    let list: Vec<serde_json::Value> = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await
+        .json();
+    assert!(!list.iter().any(|r| r["name"] == "tempteam"));
+}
+
+#[tokio::test]
+async fn update_role_label_and_color() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    srv.post("/api/roles")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "name": "editme", "label": "Old Label", "level": 1 }))
+        .await;
+
+    let res = srv
+        .patch("/api/roles/editme")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "label": "New Label", "color": "#FF6B6B" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let updated: serde_json::Value = res.json();
+    assert_eq!(updated["label"], "New Label");
+    assert_eq!(updated["color"], "#FF6B6B");
+}
+
+#[tokio::test]
+async fn system_role_level_immutable() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    // admin is a system role (level 3); trying to change its level must fail
+    let res = srv
+        .patch("/api/roles/admin")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "level": 1 }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+// ── Per-user permission override tests ───────────────────────────────────────────
+
+#[tokio::test]
+async fn permission_override_roundtrip() {
+    let (srv, state) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Seed a visitor user
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'visitor', 'V', 'test')"
+    )
+    .bind("override_test@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    // Initially no overrides
+    let list_res = srv
+        .get("/api/users/override_test@example.com/permission-overrides")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(list_res.status_code(), StatusCode::OK);
+    let initial: Vec<serde_json::Value> = list_res.json();
+    assert!(initial.is_empty());
+
+    // Add an override
+    let add_res = srv
+        .post("/api/users/override_test@example.com/permission-overrides")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "permission_key": "server.kick" }))
+        .await;
+    assert_eq!(add_res.status_code(), StatusCode::CREATED);
+
+    // Verify it appears
+    let after: Vec<serde_json::Value> = srv
+        .get("/api/users/override_test@example.com/permission-overrides")
+        .add_header(header::COOKIE, cookie.clone())
+        .await
+        .json();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0]["permission_key"], "server.kick");
+
+    // Remove it
+    let del_res = srv
+        .delete("/api/users/override_test@example.com/permission-overrides/server.kick")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(del_res.status_code(), StatusCode::NO_CONTENT);
+
+    // Verify gone
+    let final_list: Vec<serde_json::Value> = srv
+        .get("/api/users/override_test@example.com/permission-overrides")
+        .add_header(header::COOKIE, cookie)
+        .await
+        .json();
+    assert!(final_list.is_empty());
+}
+
+#[tokio::test]
+async fn override_invalid_key_rejected() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/users/admin@example.com/permission-overrides")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "permission_key": "nonexistent.key.xyz" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+// ── Whitelist delegation tests ─────────────────────────────────────────────────────
+
+/// Verifies that the whitelist (invite) permission can be delegated:
+/// an admin who holds `users.invite` can whitelist new users.
+#[tokio::test]
+async fn delegated_whitelist_invite_works() {
+    let (srv, state) = server().await;
+
+    // Seed an admin user (admin role has users.invite)
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'admin', 'Admin User', 'test')"
+    )
+    .bind("admin_user@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let admin_cookie = session_cookie("admin_user@example.com", "admin");
+
+    // Admin can invite a new user (whitelist them)
+    let res = srv
+        .post("/api/users")
+        .add_header(header::COOKIE, admin_cookie.clone())
+        .json(&serde_json::json!({
+            "email": "newplayer@example.com",
+            "role": "visitor"
+        }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED, "admin should be able to whitelist users");
+
+    // But admin cannot invite to their own level or higher
+    let escalation_res = srv
+        .post("/api/users")
+        .add_header(header::COOKIE, admin_cookie)
+        .json(&serde_json::json!({
+            "email": "tryescalate@example.com",
+            "role": "admin"  // same level as actor — should be rejected
+        }))
+        .await;
+    assert_eq!(
+        escalation_res.status_code(),
+        StatusCode::FORBIDDEN,
+        "admin cannot invite to same or higher role"
+    );
+}
+
+#[tokio::test]
+async fn invite_to_nonexistent_role_rejected() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/users")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({
+            "email": "test@example.com",
+            "role": "ghost_role_that_does_not_exist"
+        }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+/// Migration 0006 grants `users.view` to all system roles (member, user, visitor)
+/// so the Team page works for every authenticated user.  Members can READ the
+/// user list but cannot INVITE or REMOVE users.
+#[tokio::test]
+async fn users_list_allowed_for_member() {
     let (srv, state) = server().await;
 
     sqlx::query(
@@ -557,9 +885,18 @@ async fn users_list_forbidden_for_member() {
     .expect("insert failed");
 
     let cookie = session_cookie("member2@example.com", "member");
+    // Member now has users.view → should get 200
     let res = srv
         .get("/api/users")
-        .add_header(header::COOKIE, cookie)
+        .add_header(header::COOKIE, cookie.clone())
         .await;
-    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+    assert_eq!(res.status_code(), StatusCode::OK, "member should be able to list users");
+
+    // But member cannot INVITE new users (lacks users.invite)
+    let invite_res = srv
+        .post("/api/users")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "email": "new@example.com", "role": "visitor" }))
+        .await;
+    assert_eq!(invite_res.status_code(), StatusCode::FORBIDDEN, "member should NOT be able to invite users");
 }

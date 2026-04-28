@@ -36,11 +36,31 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/:email/players",             get(handlers::users::list_players).put(handlers::users::replace_players))
         .route("/users/:email/players/:ign",        delete(handlers::users::unlink_player))
         .route("/users/:email/players/:ign/gamemode", patch(handlers::users::set_player_gamemode))
+        // Per-user permission overrides
+        .route("/users/:email/permission-overrides",
+                                                    get(handlers::roles::list_overrides)
+                                                        .post(handlers::roles::add_override))
+        .route("/users/:email/permission-overrides/:key",
+                                                    delete(handlers::roles::remove_override))
+        // Roles catalog (dynamic role management)
+        .route("/roles",                            get(handlers::roles::list).post(handlers::roles::create))
+        .route("/roles/:role",                      get(handlers::roles::get)
+                                                        .patch(handlers::roles::update)
+                                                        .delete(handlers::roles::delete))
+        .route("/roles/:role/permissions",          get(handlers::roles::get_permissions)
+                                                        .put(handlers::roles::set_permissions))
         // Server
         .route("/server/status",                    get(handlers::server::status))
         .route("/server/vm/:action",                post(handlers::server::vm_action))
         .route("/server/service/:action",           post(handlers::server::service_action))
         .route("/console",                          post(handlers::server::send_console))
+        // Granular Minecraft server commands
+        .route("/server/whitelist/:action",         post(handlers::server::whitelist_action))
+        .route("/server/op/:action",                post(handlers::server::op_action))
+        .route("/server/kick",                      post(handlers::server::kick_player))
+        .route("/server/ban/:action",               post(handlers::server::ban_action))
+        .route("/server/announce",                  post(handlers::server::announce))
+        .route("/server/save",                      post(handlers::server::save_world))
         // World settings
         .route("/world/gamerule/:rule",             post(handlers::server::set_gamerule))
         .route("/world/time",                       post(handlers::server::set_time))
@@ -58,10 +78,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/kill-switch",                      get(handlers::kill_switch::get)
                                                         .post(handlers::kill_switch::engage)
                                                         .delete(handlers::kill_switch::release))
-        // Permissions
-        .route("/permissions",                      get(handlers::permissions::list))
-        .route("/roles/:role/permissions",          get(handlers::permissions::get_role)
-                                                        .put(handlers::permissions::set_role));
+        // Permission catalog (read-only; editing is via /roles/:role/permissions)
+        .route("/permissions",                      get(handlers::permissions::list));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

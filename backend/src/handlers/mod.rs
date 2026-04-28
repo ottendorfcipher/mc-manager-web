@@ -6,5 +6,6 @@ pub mod mc_players;
 pub mod metrics;
 pub mod permissions;
 pub mod properties;
+pub mod roles;
 pub mod server;
 pub mod users;
