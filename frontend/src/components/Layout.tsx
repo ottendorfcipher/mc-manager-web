@@ -12,7 +12,7 @@ const NAV = [
   { to: "/team",                icon: Users,       label: "Team",        perm: "nav.team" },
   { to: "/backups",             icon: HardDrive,   label: "Backups",     perm: "nav.backups" },
   { to: "/configure",           icon: Settings,    label: "Configure",   perm: "nav.configure" },
-  { to: "/admin/permissions",   icon: ShieldCheck, label: "Permissions", perm: "nav.admin" },
+  { to: "/admin",               icon: ShieldCheck, label: "Admin",       perm: "nav.admin" },
 ] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -21,7 +21,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const nav = NAV.filter((n) => hasPerm(n.perm));
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Sidebar */}
       <aside
         className="w-56 flex-shrink-0 flex flex-col sidebar border-r"

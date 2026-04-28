@@ -65,8 +65,10 @@ export function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <MetricTile icon={Users}       label="Online Players" value={String(metrics.players_online)} />
           <MetricTile icon={Clock}       label="Uptime"         value={metrics.uptime_raw || "—"} />
-          <MetricTile icon={Brain}       label="Game Memory"    value={`${metrics.jvm_mem_pct.toFixed(1)}%`} />
-          <MetricTile icon={Cpu}         label="VM CPU"         value={`${metrics.vm_cpu_pct}%`} />
+          <MetricTile icon={Brain} label="Game Memory"
+            value={metrics.jvm_mem_pct != null ? `${metrics.jvm_mem_pct.toFixed(1)}%` : "—"} />
+          <MetricTile icon={Cpu}   label="VM CPU"
+            value={metrics.vm_cpu_pct  != null ? `${metrics.vm_cpu_pct.toFixed(1)}%`  : "—"} />
         </div>
       ) : (
         <div className="card flex items-center gap-3 text-[#9B9EA6]">

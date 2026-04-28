@@ -21,43 +21,38 @@ function mockAdmin(page: any) {
   page.route("/api/mc/players",       (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
 }
 
-test.describe("Team page — admin", () => {
-  test("shows Add Member button for admin", async ({ page }) => {
+test.describe("Team page — roster view", () => {
+  test("shows all team members for admin", async ({ page }) => {
     mockAdmin(page);
     await page.goto("/team");
-    await expect(page.getByRole("button", { name: /Add Member/i })).toBeVisible();
+    // Use unique email text to avoid collisions with role badge text
+    await expect(page.getByText("nicholasaweiner@gmail.com")).toBeVisible();
+    await expect(page.getByText("member@example.com")).toBeVisible();
   });
 
-  test("user cards list all members", async ({ page }) => {
+  test("shows search input", async ({ page }) => {
     mockAdmin(page);
     await page.goto("/team");
-    await expect(page.getByText("Nicholas")).toBeVisible();
-    await expect(page.getByText("Member")).toBeVisible();
+    await expect(page.getByPlaceholder(/Search by name/i)).toBeVisible();
   });
 
-  test("invite modal opens and has email + role fields", async ({ page }) => {
+  test("no Add Member or Remove buttons on team page (moved to Admin)", async ({ page }) => {
     mockAdmin(page);
     await page.goto("/team");
-    await page.getByRole("button", { name: /Add Member/i }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByPlaceholder("user@gmail.com")).toBeVisible();
-    await expect(page.getByRole("combobox")).toBeVisible();
-  });
-
-  test("invite modal closes on Cancel", async ({ page }) => {
-    mockAdmin(page);
-    await page.goto("/team");
-    await page.getByRole("button", { name: /Add Member/i }).click();
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(page.getByRole("button", { name: /Add Member/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 });
 
 test.describe("Team page — member", () => {
-  test("member does not see Add Member button", async ({ page }) => {
-    page.route("/api/me",    (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MEMBER_ME) }));
-    page.route("/api/users", (r: any) => r.fulfill({ status: 403, body: "{}" }));
+  test("member sees roster without admin controls", async ({ page }) => {
+    page.route("/api/me",         (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MEMBER_ME) }));
+    page.route("/api/users",      (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(USERS) }));
+    page.route("/api/mc/players", (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+    page.route("/api/users/*/players", (r: any) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
     await page.goto("/team");
-    await expect(page.getByRole("button", { name: /Add Member/i })).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Add Member/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 });

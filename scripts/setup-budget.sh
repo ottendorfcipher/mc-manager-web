@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
+# NOTE: This script creates a single-project budget and is kept for reference
+# only.  The live setup uses a combined $25/month budget covering both
+# redstonecipher-web AND minecraft-493201, created via the Billing Budgets
+# REST API (gcloud doesn't support multi-project budget filters).
+# See docs/budget-cap.md for the current budget details and update instructions.
+#
 # Idempotently creates the GCP billing plumbing that caps redstoneCipher
-# at $8/month:
+# at $8/month (legacy single-project approach):
 #
 #   1. Enables the Billing Budgets + Pub/Sub APIs.
 #   2. Creates a Pub/Sub topic for budget notifications.

@@ -79,8 +79,10 @@ export interface MetricsSnapshot {
   service_active: boolean;
   players_online: number;
   uptime_raw:     string;
-  jvm_mem_pct:    number;
-  vm_cpu_pct:     number;
+  /** null when the server is stopped and JVM stats are unavailable */
+  jvm_mem_pct:    number | null;
+  /** null when VM CPU metrics cannot be read */
+  vm_cpu_pct:     number | null;
 }
 
 export interface BackupRun {

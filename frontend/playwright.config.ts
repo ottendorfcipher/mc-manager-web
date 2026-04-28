@@ -8,11 +8,11 @@ export default defineConfig({
   reporter: [["html", { open: "never" }], ["line"]],
 
   use: {
-    baseURL:     "http://localhost:5173",
-    trace:       "on-first-retry",
-    screenshot:  "only-on-failure",
-    video:       "retain-on-failure",
-    // Cookies sent with every request (JWT)
+    baseURL:          "https://localhost:5173",
+    ignoreHTTPSErrors: true,   // local mkcert cert is self-signed
+    trace:            "on-first-retry",
+    screenshot:       "only-on-failure",
+    video:            "retain-on-failure",
     extraHTTPHeaders: {},
   },
 
@@ -22,8 +22,9 @@ export default defineConfig({
 
   webServer: {
     command: "npm run dev",
-    url:     "http://localhost:5173",
+    url:     "https://localhost:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
+    ignoreHTTPSErrors: true,
   },
 });
