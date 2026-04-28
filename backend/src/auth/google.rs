@@ -1,7 +1,7 @@
 use anyhow::Context;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::config::Config;
@@ -49,6 +49,52 @@ pub fn authorization_url(cfg: &Config, challenge: &str, state: &str) -> String {
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
+}
+
+// ── OAuth state JWT ──────────────────────────────────────────────────────────
+//
+// Firebase Hosting strips all Set-Cookie response headers from Cloud Run
+// rewrites **except** for a cookie named `__session`.  Temp cookies
+// (pkce_verifier, oauth_state) set by /auth/login therefore never reach the
+// browser, causing a state-mismatch error on every callback.
+//
+// Solution: embed the PKCE verifier directly in the OAuth `state` parameter
+// as a short-lived signed JWT.  Google echoes the state back verbatim, so
+// the callback can extract the verifier without any browser-side storage.
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OAuthStateClaims {
+    /// PKCE code verifier — used for the token exchange on /auth/callback.
+    pub verifier: String,
+    /// Standard JWT expiry (10 minutes from login initiation).
+    pub exp: i64,
+}
+
+/// Encode the PKCE verifier into a signed JWT used as the OAuth `state` param.
+pub fn encode_oauth_state(verifier: &str, secret: &str) -> anyhow::Result<String> {
+    use jsonwebtoken::{encode, EncodingKey, Header};
+    let claims = OAuthStateClaims {
+        verifier: verifier.to_owned(),
+        exp: chrono::Utc::now().timestamp() + 600, // 10 minutes
+    };
+    Ok(encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )?)
+}
+
+/// Decode and verify the OAuth `state` JWT, returning the embedded verifier.
+/// Returns an error if the token is invalid, tampered with, or expired.
+pub fn decode_oauth_state(token: &str, secret: &str) -> anyhow::Result<OAuthStateClaims> {
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+    Ok(decode::<OAuthStateClaims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    )
+    .context("OAuth state JWT is invalid or expired")?
+    .claims)
 }
 
 #[derive(Debug, Deserialize)]

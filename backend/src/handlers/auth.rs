@@ -10,7 +10,7 @@ use ts_rs::TS;
 
 use crate::{
     auth::{
-        google::{authorization_url, exchange_code, generate_pkce},
+        google::{authorization_url, decode_oauth_state, encode_oauth_state, exchange_code, generate_pkce},
         middleware::{issue_jwt, AuthUser, JWT_COOKIE},
     },
     db::{users, users::GLOBAL_ADMIN},
@@ -27,29 +27,32 @@ mod err_code {
     pub const OAUTH_DENIED:   &str = "oauth_denied";
 }
 
-/// Build a response that clears the PKCE / state cookies and sends the user
-/// back to the login page with a friendly error code. This keeps the SPA in
-/// control of copy and preserves NN/g heuristic #9 (help users recover).
-fn login_error(jar: CookieJar, code: &str) -> Response {
-    let jar = jar
-        .remove(Cookie::from(PKCE_COOKIE))
-        .remove(Cookie::from(STATE_COOKIE));
-    (jar, Redirect::to(&format!("/login?error={code}"))).into_response()
+/// Redirect to the login page with an error code.
+/// No temp cookies to clear — state is carried in the OAuth `state` JWT.
+fn login_error(code: &str) -> Response {
+    Redirect::to(&format!("/login?error={code}")).into_response()
 }
 
-const PKCE_COOKIE:  &str = "rc_pkce_verifier";
-const STATE_COOKIE: &str = "rc_oauth_state";
-
-/// GET /auth/login  — redirect the browser to Google's consent screen
+/// GET /auth/login  — redirect the browser to Google's consent screen.
+///
+/// The PKCE verifier is embedded in the OAuth `state` parameter as a signed
+/// JWT (valid 10 min) rather than in browser cookies.  Firebase Hosting strips
+/// all Set-Cookie headers on Cloud Run rewrites except `__session`, so cookies
+/// can’t be used for the short-lived PKCE/state values.
 pub async fn login(State(state): State<AppState>) -> impl IntoResponse {
     let pkce = generate_pkce();
-    let url  = authorization_url(&state.config, &pkce.challenge, &pkce.state);
 
-    let jar = CookieJar::new()
-        .add(build_temp_cookie(PKCE_COOKIE,  pkce.verifier))
-        .add(build_temp_cookie(STATE_COOKIE, pkce.state));
-
-    (jar, Redirect::to(&url))
+    // Embed verifier in a signed JWT used as the OAuth state param.
+    // On callback Google echoes it back verbatim, so no browser storage needed.
+    let state_jwt = match encode_oauth_state(&pkce.verifier, &state.config.jwt_secret) {
+        Ok(t)  => t,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to encode OAuth state");
+            return login_error(err_code::STATE_MISMATCH);
+        }
+    };
+    let url = authorization_url(&state.config, &pkce.challenge, &state_jwt);
+    Redirect::to(&url).into_response()
 }
 
 #[derive(Deserialize)]
@@ -70,26 +73,23 @@ pub async fn callback(
 ) -> Response {
     // The user clicked "Cancel" on Google's consent screen.
     if params.error.is_some() {
-        return login_error(jar, err_code::OAUTH_DENIED);
+        return login_error(err_code::OAUTH_DENIED);
     }
 
-    let (code, state_param) = match (params.code, params.state) {
+    let (code, state_jwt) = match (params.code, params.state) {
         (Some(c), Some(s)) => (c, s),
-        _ => return login_error(jar, err_code::STATE_MISMATCH),
+        _ => return login_error(err_code::STATE_MISMATCH),
     };
 
-    // CSRF check
-    let stored_state = match jar.get(STATE_COOKIE).map(|c| c.value().to_owned()) {
-        Some(s) => s,
-        None => return login_error(jar, err_code::STATE_MISMATCH),
-    };
-    if stored_state != state_param {
-        return login_error(jar, err_code::STATE_MISMATCH);
-    }
-
-    let verifier = match jar.get(PKCE_COOKIE).map(|c| c.value().to_owned()) {
-        Some(v) => v,
-        None => return login_error(jar, err_code::STATE_MISMATCH),
+    // Decode + verify the signed state JWT to recover the PKCE verifier.
+    // The signature check also serves as CSRF protection — only our server
+    // could have produced a valid token.
+    let verifier = match decode_oauth_state(&state_jwt, &state.config.jwt_secret) {
+        Ok(claims) => claims.verifier,
+        Err(e) => {
+            tracing::warn!(error = %e, "OAuth state JWT invalid");
+            return login_error(err_code::STATE_MISMATCH);
+        }
     };
 
     // Exchange code for Google user info
@@ -97,7 +97,7 @@ pub async fn callback(
         Ok(u) => u,
         Err(e) => {
             tracing::warn!(error = %e, "Google token exchange failed");
-            return login_error(jar, err_code::TOKEN_EXCHANGE);
+            return login_error(err_code::TOKEN_EXCHANGE);
         }
     };
 
@@ -112,7 +112,7 @@ pub async fn callback(
     let role = match user {
         Some(ref u) => u.role.clone(),
         None if guser.email == GLOBAL_ADMIN => "global_admin".to_string(),
-        None => return login_error(jar, err_code::NOT_INVITED),
+        None => return login_error(err_code::NOT_INVITED),
     };
 
     // Upsert Google identity (sub, avatar) and last_login
@@ -136,24 +136,22 @@ pub async fn callback(
         }
     };
 
+    // `__session` is the only cookie Firebase Hosting forwards through Cloud
+    // Run rewrites.  All other names are stripped on both requests and responses.
     let session_cookie = Cookie::build((JWT_COOKIE, token))
         .http_only(true)
-        .secure(true)              // Reject cookie over plain HTTP
+        .secure(true)
         .same_site(SameSite::Lax) // Lax allows redirect after OAuth
         .path("/")
         .max_age(time::Duration::hours(8))
         .build();
 
-    let jar = jar
-        .add(session_cookie)
-        .remove(Cookie::from(PKCE_COOKIE))
-        .remove(Cookie::from(STATE_COOKIE));
-
-    (jar, Redirect::to("/")).into_response()
+    (jar.add(session_cookie), Redirect::to("/")).into_response()
 }
 
 /// DELETE /auth/logout
 pub async fn logout(jar: CookieJar) -> impl IntoResponse {
+    // Remove the __session cookie so Firebase stops forwarding it
     let jar = jar.remove(Cookie::from(JWT_COOKIE));
     (jar, StatusCode::NO_CONTENT)
 }
@@ -209,11 +207,3 @@ pub async fn me(
     }))
 }
 
-fn build_temp_cookie(name: &'static str, value: String) -> Cookie<'static> {
-    Cookie::build((name, value))
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .max_age(time::Duration::minutes(10))
-        .build()
-}
