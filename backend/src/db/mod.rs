@@ -6,7 +6,7 @@ pub mod audit;
 pub mod kill_switch;
 pub mod permissions;
 
-use sqlx::{sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions}, ConnectOptions};
+use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
 use std::str::FromStr;
 use anyhow::Context;
 

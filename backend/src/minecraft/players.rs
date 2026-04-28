@@ -100,4 +100,86 @@ mod tests {
         assert!(!steve.online);
         assert!(alex.online);
     }
+
+    #[test]
+    fn empty_usercache_returns_empty_vec() {
+        let output = "=CACHE=\n[]\n=ONLINE=\n";
+        assert!(parse_output(output).is_empty());
+    }
+
+    #[test]
+    fn invalid_usercache_json_returns_empty_vec() {
+        let output = "=CACHE=\n{not valid json}\n=ONLINE=\n";
+        assert!(parse_output(output).is_empty());
+    }
+
+    #[test]
+    fn no_online_section_means_all_offline() {
+        let output = "=CACHE=\n[{\"uuid\":\"abc\",\"name\":\"Steve\"}]\n";
+        let players = parse_output(output);
+        assert_eq!(players.len(), 1);
+        assert!(!players[0].online);
+    }
+
+    #[test]
+    fn player_join_then_leave_is_offline() {
+        let output = concat!(
+            "=CACHE=\n",
+            "[{\"uuid\":\"abc\",\"name\":\"Steve\"}]\n",
+            "=ONLINE=\n",
+            "[10:00:00] [Server thread/INFO]: Steve joined the game\n",
+            "[10:01:00] [Server thread/INFO]: Steve left the game\n",
+        );
+        let players = parse_output(output);
+        assert!(!players[0].online, "player who joined then left should be offline");
+    }
+
+    #[test]
+    fn player_join_twice_stays_online() {
+        // Duplicate join lines (e.g. server crash + rejoin) must keep them online
+        let output = concat!(
+            "=CACHE=\n",
+            "[{\"uuid\":\"abc\",\"name\":\"Steve\"}]\n",
+            "=ONLINE=\n",
+            "[10:00:00] [Server thread/INFO]: Steve joined the game\n",
+            "[10:00:30] [Server thread/INFO]: Steve joined the game\n",
+        );
+        let players = parse_output(output);
+        assert!(players[0].online);
+    }
+
+    #[test]
+    fn extract_player_name_basic() {
+        let line = "[04:27:04] [Server thread/INFO]: Steve joined the game";
+        assert_eq!(
+            extract_player_name(line, "joined the game"),
+            Some("Steve".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_player_name_with_spaces_in_name() {
+        // MC names cannot have spaces but this tests robustness
+        let line = "[04:27:04] [Server thread/INFO]: left the game left the game";
+        // Should match the trailing " left the game" suffix
+        assert!(extract_player_name(line, "left the game").is_some());
+    }
+
+    #[test]
+    fn extract_player_name_missing_delimiter_returns_none() {
+        let line = "[04:27:04] [Server thread/INFO]: some other log line";
+        assert_eq!(extract_player_name(line, "joined the game"), None);
+    }
+
+    #[test]
+    fn usercache_uuid_and_ign_preserved() {
+        let output = concat!(
+            "=CACHE=\n",
+            "[{\"uuid\":\"550e8400-e29b-41d4-a716-446655440000\",\"name\":\"Notch\"}]\n",
+            "=ONLINE=\n",
+        );
+        let players = parse_output(output);
+        assert_eq!(players[0].ign, "Notch");
+        assert_eq!(players[0].uuid, "550e8400-e29b-41d4-a716-446655440000");
+    }
 }

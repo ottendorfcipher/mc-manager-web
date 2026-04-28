@@ -50,7 +50,7 @@ steps:
       - --max-instances=3
       - --memory=256Mi
       - --cpu=1
-      - --timeout=60
+      - --timeout=300
       # Higher concurrency reduces cold start frequency
       - --concurrency=80
       - --port=8080

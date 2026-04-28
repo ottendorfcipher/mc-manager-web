@@ -47,11 +47,17 @@ pub async fn run_with_timeout(
 
 /// Write a Minecraft console command to the FIFO pipe.
 /// Returns true if APPLIED, false if OFFLINE/NOFIFO (not an error).
+///
+/// Single quotes in `mc_cmd` are escaped with the POSIX `'\''` idiom so
+/// they cannot break out of the surrounding single-quoted shell string.
 pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
+    let safe_cmd = mc_cmd.replace('\'', r"'\''")
+        .replace('\n', " ")   // newlines would inject extra commands
+        .replace('\r', "");   // strip CR
     let script = format!(
         "FIFO=/opt/minecraft/console.fifo; \
          if [ -p \"$FIFO\" ]; then \
-           echo '{mc_cmd}' | sudo -u minecraft tee -a \"$FIFO\" > /dev/null && echo APPLIED; \
+           echo '{safe_cmd}' | sudo -u minecraft tee -a \"$FIFO\" > /dev/null && echo APPLIED; \
          elif systemctl is-active minecraft > /dev/null 2>&1; then echo NOFIFO; \
          else echo OFFLINE; fi"
     );
@@ -79,8 +85,10 @@ pub struct MetricsSnapshot {
     pub service_active: bool,
     pub players_online: u32,
     pub uptime_raw: String,
-    pub jvm_mem_pct: f32,
-    pub vm_cpu_pct: u32,
+    /// `None` when the server is stopped and JVM stats are unavailable.
+    pub jvm_mem_pct: Option<f32>,
+    /// `None` when vmstat cannot be read (e.g. VM just booted).
+    pub vm_cpu_pct: Option<u32>,
 }
 
 impl MetricsSnapshot {
@@ -95,10 +103,80 @@ impl MetricsSnapshot {
             service_active: map.get("active").map(|s| s == "active").unwrap_or(false),
             players_online: map.get("players").and_then(|s| s.parse().ok()).unwrap_or(0),
             uptime_raw: map.get("uptime").cloned().unwrap_or_default(),
-            jvm_mem_pct: map.get("javamem").and_then(|s| s.parse().ok()).unwrap_or(0.0),
+            jvm_mem_pct: map.get("javamem")
+                .and_then(|s| { let s = s.trim(); if s.is_empty() { None } else { s.parse().ok() } }),
             vm_cpu_pct: map.get("vmcpu")
-                .and_then(|s| s.trim_end_matches('%').parse().ok())
-                .unwrap_or(0),
+                .and_then(|s| { let s = s.trim().trim_end_matches('%').trim(); if s.is_empty() { None } else { s.parse().ok() } }),
         }
+    }
+
+    #[cfg(test)]
+    pub fn parse_test(output: &str) -> Self {
+        Self::parse(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MetricsSnapshot;
+
+    fn parse(s: &str) -> MetricsSnapshot {
+        MetricsSnapshot::parse_test(s)
+    }
+
+    #[test]
+    fn metrics_parse_active_server() {
+        let output = "ACTIVE:active\nUPTIME:Mon 2026-04-28 00:00:00 UTC\nPLAYERS:3\nJAVAMEM:12.5\nVMCPU:42%";
+        let m = parse(output);
+        assert!(m.service_active);
+        assert_eq!(m.players_online, 3);
+        assert_eq!(m.uptime_raw, "Mon 2026-04-28 00:00:00 UTC");
+        assert!((m.jvm_mem_pct.unwrap() - 12.5).abs() < 0.001);
+        assert_eq!(m.vm_cpu_pct, Some(42));
+    }
+
+    #[test]
+    fn metrics_parse_inactive_server() {
+        // When minecraft is stopped: JAVAMEM is empty, VMCPU may still have value.
+        let output = "ACTIVE:inactive\nUPTIME:\nPLAYERS:0\nJAVAMEM:\nVMCPU:5%";
+        let m = parse(output);
+        assert!(!m.service_active);
+        assert_eq!(m.players_online, 0);
+        assert_eq!(m.jvm_mem_pct, None,  "empty JAVAMEM should be None");
+        assert_eq!(m.vm_cpu_pct, Some(5));
+    }
+
+    #[test]
+    fn metrics_parse_vmstat_unavailable() {
+        // vmstat fails → VMCPU: (empty value)
+        let output = "ACTIVE:active\nUPTIME:\nPLAYERS:1\nJAVAMEM:8.2\nVMCPU:";
+        let m = parse(output);
+        assert!(m.service_active);
+        assert_eq!(m.vm_cpu_pct, None, "empty VMCPU should be None");
+        assert!((m.jvm_mem_pct.unwrap() - 8.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn metrics_parse_empty_output() {
+        let m = parse("");
+        assert!(!m.service_active);
+        assert_eq!(m.players_online, 0);
+        assert_eq!(m.jvm_mem_pct, None);
+        assert_eq!(m.vm_cpu_pct, None);
+    }
+
+    #[test]
+    fn metrics_parse_cpu_100_percent() {
+        let output = "ACTIVE:active\nUPTIME:\nPLAYERS:0\nJAVAMEM:\nVMCPU:100%";
+        let m = parse(output);
+        assert_eq!(m.vm_cpu_pct, Some(100));
+    }
+
+    #[test]
+    fn metrics_parse_players_zero_is_uint() {
+        // grep -c returns 0 when no matches — must parse as u32 not fail
+        let output = "ACTIVE:active\nUPTIME:\nPLAYERS:0\nJAVAMEM:4.0\nVMCPU:10%";
+        let m = parse(output);
+        assert_eq!(m.players_online, 0u32);
     }
 }

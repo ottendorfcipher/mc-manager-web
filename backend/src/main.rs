@@ -1,24 +1,5 @@
-mod auth;
-mod config;
-mod db;
-mod error;
-mod gcloud;
-mod handlers;
-mod middleware;
-mod minecraft;
-mod state;
-
-use axum::{
-    routing::{delete, get, patch, post},
-    Router,
-};
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
+use redstonecipher_server as lib;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,21 +9,21 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let cfg = config::Config::from_env();
+    let cfg = lib::config::Config::from_env();
 
     // Ensure backup directory exists at startup
     std::fs::create_dir_all(&cfg.backup_dir)?;
 
-    let pool = db::init(&cfg.database_url).await?;
+    let pool = lib::db::init(&cfg.database_url).await?;
 
     // Sync any .tar.gz files in the backup dir that aren't yet in the DB
-    let synced = db::backups::sync_from_dir(&pool, &cfg.backup_dir, "system").await?;
+    let synced = lib::db::backups::sync_from_dir(&pool, &cfg.backup_dir, "system").await?;
     if synced > 0 {
         tracing::info!("Synced {synced} existing backup(s) from disk into database");
     }
 
-    let state = AppState::new(pool, cfg.clone());
-    let app   = build_router(state);
+    let state = lib::AppState::new(pool, cfg.clone());
+    let app   = lib::build_router(state);
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -53,70 +34,6 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn build_router(state: AppState) -> Router {
-    let api = Router::new()
-        // Auth
-        .route("/me",                               get(handlers::auth::me))
-        // Users
-        .route("/users",                            get(handlers::users::list).post(handlers::users::invite))
-        .route("/users/:email",                     patch(handlers::users::update).delete(handlers::users::remove))
-        .route("/users/:email/players",             get(handlers::users::list_players).put(handlers::users::replace_players))
-        .route("/users/:email/players/:ign",        delete(handlers::users::unlink_player))
-        .route("/users/:email/players/:ign/gamemode", patch(handlers::users::set_player_gamemode))
-        // Server
-        .route("/server/status",                    get(handlers::server::status))
-        .route("/server/vm/:action",                post(handlers::server::vm_action))
-        .route("/server/service/:action",           post(handlers::server::service_action))
-        .route("/console",                          post(handlers::server::send_console))
-        // World settings
-        .route("/world/gamerule/:rule",             post(handlers::server::set_gamerule))
-        .route("/world/time",                       post(handlers::server::set_time))
-        .route("/world/weather",                    post(handlers::server::set_weather))
-        // Live data
-        .route("/metrics",                          get(handlers::metrics::stream))
-        .route("/mc/players",                       get(handlers::mc_players::list))
-        // server.properties
-        .route("/properties",                       get(handlers::properties::get_all).put(handlers::properties::update))
-        // Backups
-        .route("/backups",                          get(handlers::backups::list).post(handlers::backups::create))
-        .route("/backups/:id",                      get(handlers::backups::download).delete(handlers::backups::delete))
-        .route("/backups/:id/restore",              post(handlers::backups::restore))
-        // Kill-switch
-        .route("/kill-switch",                      get(handlers::kill_switch::get)
-                                                        .post(handlers::kill_switch::engage)
-                                                        .delete(handlers::kill_switch::release))
-        // Permissions
-        .route("/permissions",                      get(handlers::permissions::list))
-        .route("/roles/:role/permissions",          get(handlers::permissions::get_role)
-                                                        .put(handlers::permissions::set_role));
-
-    let api = api.layer(axum::middleware::from_fn_with_state(
-        state.clone(),
-        crate::middleware::kill_switch_guard,
-    ));
-
-    Router::new()
-        .route("/auth/login",    get(handlers::auth::login))
-        .route("/auth/callback", get(handlers::auth::callback))
-        .route("/auth/logout",   delete(handlers::auth::logout))
-        .route("/internal/budget-alert", post(handlers::budget::webhook))
-        .nest("/api", api)
-        .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_headers(Any)
-                .allow_methods(Any),
-        )
-        // Outermost layer: runs first. Blocks any request whose
-        // X-Forwarded-For header is not a Tailscale CGNAT IP.
-        // (set by `tailscale serve` in the container; absent in local dev)
-        .layer(axum::middleware::from_fn(
-            crate::middleware::tailscale_guard,
-        ))
-        .with_state(state)
 }
 
 async fn shutdown_signal() {
