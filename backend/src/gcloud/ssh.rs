@@ -23,6 +23,11 @@ pub async fn run_with_timeout(
             &format!("--project={}", cfg.gcp_project),
             &format!("--zone={}", cfg.gcp_zone),
             "--tunnel-through-iap",
+            // Use a writable path for SSH keys (Cloud Run containers may
+            // have a read-only home dir) and skip host key verification
+            // since the IAP tunnel already authenticates the connection.
+            "--ssh-key-file=/tmp/gcloud-ssh-key",
+            "--strict-host-key-checking=no",
             &format!("--command={}", command),
         ])
         .output();
