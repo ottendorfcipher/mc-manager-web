@@ -24,10 +24,13 @@ pub async fn status(
 ) -> Result<Json<ServerStatus>> {
     let vm = instance::status(&state.config).await?;
     let service = if vm.status == "RUNNING" {
-        ssh::run(&state.config, "systemctl is-active minecraft 2>/dev/null || echo inactive")
-            .await
-            .map(|(out, _)| out)
-            .unwrap_or_else(|_| "unknown".into())
+        match ssh::run(&state.config, "systemctl is-active minecraft 2>/dev/null || echo inactive").await {
+            Ok((out, _)) => out,
+            Err(e) => {
+                tracing::warn!(error = %e, "SSH to VM failed when checking service status");
+                "unknown".into()
+            }
+        }
     } else {
         "stopped".into()
     };
