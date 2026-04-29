@@ -41,6 +41,10 @@ pub async fn run_with_timeout(
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
     if !output.status.success() {
+        // Log full stderr for debugging SSH issues in Cloud Run.
+        if !stderr.is_empty() {
+            tracing::warn!(stderr = %stderr, "gcloud compute ssh stderr");
+        }
         let detail = if stdout.is_empty() { &stderr } else { &stdout };
         return Err(AppError::ExternalCommand(
             detail.lines().last().unwrap_or("unknown error").to_string(),
