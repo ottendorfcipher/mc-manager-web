@@ -29,8 +29,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(res.status, body.error ?? "Unknown error");
   }
 
-  if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+  // 202 Accepted and 204 No Content both have no body to parse.
+  // Also guard against any other success status with an empty body.
+  const text = await res.text();
+  if (!text) return undefined as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 export const api = {
