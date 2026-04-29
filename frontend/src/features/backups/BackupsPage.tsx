@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Cloud, HardDrive, Download, RotateCcw, Trash2, Plus } from "lucide-react";
+import { AlertTriangle, Cloud, HardDrive, Download, RotateCcw, Trash2, Plus } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { BackupRun } from "@/types";
@@ -56,12 +56,18 @@ export function BackupsPage() {
     queryFn: () => api.get("/backups"),
   });
 
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const createMut = useMutation({
-    mutationFn: () => api.post<BackupRun>("/backups", {
-      storage: storageChoice,
-      extended: extendedRetention,
-    }),
+    mutationFn: () => {
+      setCreateError(null);
+      return api.post<BackupRun>("/backups", {
+        storage: storageChoice,
+        extended: extendedRetention,
+      });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["backups"] }),
+    onError: (e: Error) => setCreateError(e.message),
   });
 
   const deleteMut = useMutation({
@@ -141,6 +147,14 @@ export function BackupsPage() {
           Stopping server, archiving world data, downloading…
           {storageChoice === "cloud" && (extendedRetention ? " Uploading to GCS (1-year retention)." : " Uploading to GCS (30-day retention).")}
           {" "}This takes 1–2 minutes.
+        </div>
+      )}
+
+      {createError && (
+        <div className="card flex items-center gap-3 text-sm text-[#F87171] bg-[#FEF2F2] dark:bg-[#3B1F1F] border border-[#FECACA] dark:border-[#7F1D1D]">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{createError}</span>
+          <button onClick={() => setCreateError(null)} className="ml-auto text-xs text-[#9B9EA6] hover:text-[#6B6E78]">✕</button>
         </div>
       )}
 
