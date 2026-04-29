@@ -76,6 +76,11 @@ SSH_KEY=/tmp/gcloud-ssh-key
 if [ ! -f "${SSH_KEY}" ]; then
     ssh-keygen -t rsa -b 2048 -f "${SSH_KEY}" -N "" -q 2>/dev/null
     echo "[entrypoint] SSH key pre-generated at ${SSH_KEY}"
+    # Push the public key to OS Login so gcloud compute ssh doesn't have to
+    # register it on first use (which can hang inside Cloud Run).
+    gcloud compute os-login ssh-keys add --key-file="${SSH_KEY}.pub" --project=example-project 2>/dev/null \
+        && echo "[entrypoint] SSH key registered with OS Login" \
+        || echo "[entrypoint] WARNING: OS Login key registration failed (SSH may not work)" >&2
 fi
 
 # ── 3. Restore SQLite from GCS (Litestream) ──────────────────────────────────────
