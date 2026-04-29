@@ -13,6 +13,7 @@ use crate::{
     auth::middleware::AuthUser,
     db::{audit, backups},
     error::{AppError, Result},
+    gcloud::instance,
     minecraft::backup,
     state::AppState,
 };
@@ -61,7 +62,20 @@ pub async fn create(
         crate::auth::middleware::require_perm(&actor, "backups.create.extended")?;
     }
 
-    let result = backup::create(&state.config, upload_to_cloud, extended_retention).await?;
+    // The VM must be running — backups require SSH access to archive world files.
+    let vm = instance::status(&state.config).await?;
+    if vm.status != "RUNNING" {
+        return Err(AppError::BadRequest(format!(
+            "Cannot create backup: VM is {} — start the VM first",
+            vm.status
+        )));
+    }
+
+    let result = backup::create(&state.config, upload_to_cloud, extended_retention).await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Backup creation failed");
+            e
+        })?;
     let path = state.config.backup_dir.join(&result.filename);
     let size = std::fs::metadata(&path)
         .map(|m| m.len() as i64)
