@@ -67,7 +67,18 @@ TAILSCALED_PID=$!
 # Give tailscaled up to 5 s to create its socket before we move on.
 for i in $(seq 1 10); do [ -S "${TS_SOCKET}" ] && break; sleep 0.5; done
 
-# ── 3. Restore SQLite from GCS (Litestream) ────────────────────────────────
+# ── 2b. Pre-generate SSH key for gcloud compute ssh ──────────────────────────
+# On first invocation gcloud compute ssh generates an SSH key pair and
+# pushes the public key to the OS Login profile.  Inside Cloud Run this
+# can time out or hang because $HOME/.ssh may be read-only.  We pre-
+# generate the key to /tmp so the first SSH call doesn't block.
+SSH_KEY=/tmp/gcloud-ssh-key
+if [ ! -f "${SSH_KEY}" ]; then
+    ssh-keygen -t rsa -b 2048 -f "${SSH_KEY}" -N "" -q 2>/dev/null
+    echo "[entrypoint] SSH key pre-generated at ${SSH_KEY}"
+fi
+
+# ── 3. Restore SQLite from GCS (Litestream) ──────────────────────────────────────
 if litestream restore -config /etc/litestream.yml -if-replica-exists /data/mc-manager.db 2>/dev/null; then
     echo "[entrypoint] Database restored from GCS replica"
 else
