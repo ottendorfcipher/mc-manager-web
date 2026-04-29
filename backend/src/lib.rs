@@ -67,7 +67,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/world/time",                       post(handlers::server::set_time))
         .route("/world/weather",                    post(handlers::server::set_weather))
         // Live data
-        .route("/metrics",                          get(handlers::metrics::stream))
+        .route("/metrics",                          get(handlers::metrics::snapshot))
         .route("/mc/players",                       get(handlers::mc_players::list))
         // server.properties
         .route("/properties",                       get(handlers::properties::get_all).put(handlers::properties::update))

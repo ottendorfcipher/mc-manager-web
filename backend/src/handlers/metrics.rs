@@ -1,27 +1,25 @@
-use axum::{extract::State, response::Sse};
-use axum::response::sse::{Event, KeepAlive};
-use tokio_stream::StreamExt as _;
-use tokio_stream::wrappers::IntervalStream;
-use std::time::Duration;
+use axum::{extract::State, Json};
 
-use crate::{auth::middleware::AuthUser, gcloud::ssh, state::AppState};
+use crate::{
+    auth::middleware::AuthUser,
+    gcloud::ssh,
+    state::AppState,
+};
 
-/// GET /api/metrics  — SSE stream, one snapshot every 30 s
-pub async fn stream(
+/// GET /api/metrics  — returns a single metrics snapshot (polled by the frontend).
+///
+/// Previously this was an SSE stream, but SSE holds connections open which
+/// conflicts with Cloud Run's scale-to-zero and container recycling.
+/// The frontend now polls this endpoint every 15 s instead.
+pub async fn snapshot(
     State(state): State<AppState>,
     _: AuthUser,
-) -> Sse<impl tokio_stream::Stream<Item = std::result::Result<Event, std::convert::Infallible>>> {
-    let interval = tokio::time::interval(Duration::from_secs(30));
-    let stream = IntervalStream::new(interval).then(move |_| {
-        let cfg = state.config.clone();
-        async move {
-            let data = match ssh::fetch_metrics(&cfg).await {
-                Ok(m)  => serde_json::to_string(&m).unwrap_or_default(),
-                Err(_) => r#"{"error":"unreachable"}"#.into(),
-            };
-            Ok::<_, std::convert::Infallible>(Event::default().data(data))
+) -> Json<serde_json::Value> {
+    match ssh::fetch_metrics(&state.config).await {
+        Ok(m) => Json(serde_json::to_value(&m).unwrap_or_default()),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to fetch metrics via SSH");
+            Json(serde_json::json!({ "error": "unreachable" }))
         }
-    });
-
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    }
 }
