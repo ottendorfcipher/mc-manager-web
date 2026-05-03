@@ -6,7 +6,12 @@ use crate::{config::Config, error::{AppError, Result}};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Run an arbitrary shell command on the GCP VM over the IAP tunnel.
+/// SSH key used by the backend service to reach the Minecraft server.
+const MC_SSH_KEY: &str = "/opt/redstonecipher/mc_ssh_key";
+/// Pinned host keys for the Minecraft server — avoids StrictHostKeyChecking=no.
+const MC_KNOWN_HOSTS: &str = "/opt/redstonecipher/mc_known_hosts";
+
+/// Run an arbitrary shell command on the Minecraft server over Tailscale SSH.
 /// Returns (stdout, stderr). Non-zero exit is an `AppError::ExternalCommand`.
 pub async fn run(cfg: &Config, command: &str) -> Result<(String, String)> {
     run_with_timeout(cfg, command, DEFAULT_TIMEOUT).await
@@ -17,18 +22,16 @@ pub async fn run_with_timeout(
     command: &str,
     time_limit: Duration,
 ) -> Result<(String, String)> {
-    let fut = Command::new(&cfg.gcloud_bin)
+    let dest = format!("root@{}", cfg.tailscale_ip);
+    let fut = Command::new("ssh")
         .args([
-            "compute", "ssh", &cfg.gcp_instance,
-            &format!("--project={}", cfg.gcp_project),
-            &format!("--zone={}", cfg.gcp_zone),
-            "--tunnel-through-iap",
-            // Use a writable path for SSH keys (Cloud Run containers may
-            // have a read-only home dir) and skip host key verification
-            // since the IAP tunnel already authenticates the connection.
-            "--ssh-key-file=/tmp/gcloud-ssh-key",
-            "--strict-host-key-checking=no",
-            &format!("--command={}", command),
+            "-i", MC_SSH_KEY,
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", &format!("UserKnownHostsFile={MC_KNOWN_HOSTS}"),
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            &dest,
+            command,
         ])
         .output();
 
@@ -41,9 +44,8 @@ pub async fn run_with_timeout(
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
     if !output.status.success() {
-        // Log full stderr for debugging SSH issues in Cloud Run.
         if !stderr.is_empty() {
-            tracing::warn!(stderr = %stderr, "gcloud compute ssh stderr");
+            tracing::warn!(stderr = %stderr, "mc ssh stderr");
         }
         let detail = if stdout.is_empty() { &stderr } else { &stdout };
         return Err(AppError::ExternalCommand(
@@ -66,7 +68,7 @@ pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
     let script = format!(
         "FIFO=/opt/minecraft/console.fifo; \
          if [ -p \"$FIFO\" ]; then \
-           echo '{safe_cmd}' | sudo -u minecraft tee -a \"$FIFO\" > /dev/null && echo APPLIED; \
+           echo '{safe_cmd}' | tee -a \"$FIFO\" > /dev/null && echo APPLIED; \
          elif systemctl is-active minecraft > /dev/null 2>&1; then echo NOFIFO; \
          else echo OFFLINE; fi"
     );
