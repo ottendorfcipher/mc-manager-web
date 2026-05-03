@@ -88,6 +88,21 @@ export interface McPlayer {
   online: boolean;
 }
 
+export interface WhitelistEntry {
+  uuid: string;
+  name: string;
+}
+
+export interface PendingPlayer {
+  id:             number;
+  ign:            string;
+  uuid:           string | null;
+  first_seen:     string;
+  last_attempted: string;
+  attempt_count:  number;
+  status:         "pending" | "approved" | "rejected";
+}
+
 export interface VmStatus {
   status:      string;
   external_ip: string | null;

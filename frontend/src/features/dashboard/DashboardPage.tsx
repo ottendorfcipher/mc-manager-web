@@ -54,7 +54,7 @@ export function DashboardPage() {
         <div className="card flex items-center gap-3">
           <StatusDot status={vmStatus} />
           <div>
-            <p className="text-xs text-[#9B9EA6]">Cloud VM</p>
+            <p className="text-xs text-[#9B9EA6]">Server</p>
             <p className="font-semibold text-[#1C1E27] dark:text-[#EAECF0] text-sm">{vmStatus}</p>
           </div>
         </div>
@@ -96,7 +96,7 @@ export function DashboardPage() {
         <div className="card">
           <p className="text-xs text-[#9B9EA6] mb-1">Connect in Minecraft</p>
           <code className="text-[#5B9BF0] font-mono font-semibold">{status.vm.tailscale_ip}</code>
-          <p className="text-xs text-[#9B9EA6] mt-1">Requires Tailscale — Minecraft Java port 25565</p>
+          <p className="text-xs text-[#9B9EA6] mt-1">Requires Tailscale — Java Edition port 25565</p>
         </div>
       )}
     </div>

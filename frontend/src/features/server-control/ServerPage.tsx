@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
-import type { ServerStatus } from "@/types";
+import type { ServerStatus, WhitelistEntry } from "@/types";
 
 const GAMERULES = [
   { key: "reducedDebugInfo",    label: "📍 Show Coordinates", desc: "Players see XYZ in F3 debug screen.", onVal: "false", offVal: "true",  defaultOn: true },
@@ -60,13 +60,42 @@ function valueToOn(key: GameruleKey, raw: string): boolean {
 }
 
 export function ServerPage() {
-  const { user } = useAuthStore();
+  const { user, hasPerm } = useAuthStore();
   const qc = useQueryClient();
   const canControl = user?.permissions.can_control_server ?? false;
+  const canManageWhitelist = hasPerm("server.whitelist.manage");
   const [statusMsg, setStatusMsg] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [grStates, setGrStates] = useState<Record<string, boolean>>(defaultGrState);
   const [hoveredWeather, setHoveredWeather] = useState<string | null>(null);
+  const [wlInput, setWlInput] = useState("");
+  const wlInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: whitelist, isLoading: wlLoading } = useQuery<WhitelistEntry[]>({
+    queryKey: ["whitelist"],
+    queryFn:  () => api.get("/server/whitelist"),
+    enabled:  canManageWhitelist,
+  });
+
+  const wlAddMut = useMutation({
+    mutationFn: (player: string) => api.post("/server/whitelist/add", { player }),
+    onSuccess:  (_, player) => {
+      setStatusMsg(`✓ ${player} added to whitelist`);
+      setWlInput("");
+      wlInputRef.current?.focus();
+      qc.invalidateQueries({ queryKey: ["whitelist"] });
+    },
+    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+  });
+
+  const wlRemoveMut = useMutation({
+    mutationFn: (player: string) => api.post("/server/whitelist/remove", { player }),
+    onSuccess:  (_, player) => {
+      setStatusMsg(`✓ ${player} removed from whitelist`);
+      qc.invalidateQueries({ queryKey: ["whitelist"] });
+    },
+    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+  });
 
   const { data: serverStatus } = useQuery<ServerStatus>({
     queryKey: ["server-status"],
@@ -148,9 +177,9 @@ export function ServerPage() {
 
       {/* VM Status */}
       <div className="card space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">Cloud VM (GCP Spot)</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">Server (Hetzner)</p>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-          Stopping ends all player sessions but preserves the world. Force Reset reboots the OS — use only if the VM is unresponsive.
+          Stop ends all player sessions but preserves the world. Force Reset restarts the Minecraft process — use only if the server is unresponsive.
         </p>
         <div className="flex gap-2 flex-wrap items-center">
           {canControl && (
@@ -175,7 +204,7 @@ export function ServerPage() {
             </>
           )}
           <span className="text-xs text-[#9B9EA6]">
-            VM: {serverStatus?.vm.status ?? "…"}
+            Status: {serverStatus?.vm.status ?? "…"}
           </span>
         </div>
 
@@ -193,6 +222,79 @@ export function ServerPage() {
           </div>
         )}
       </div>
+
+      {/* Whitelist */}
+      {canManageWhitelist && (
+        <div className="card space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">🛡️ Whitelist</p>
+
+          {/* Add player */}
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = wlInput.trim();
+              if (name) wlAddMut.mutate(name);
+            }}
+          >
+            <input
+              ref={wlInputRef}
+              value={wlInput}
+              onChange={(e) => setWlInput(e.target.value)}
+              placeholder="Minecraft username"
+              className="flex-1 rounded-lg border border-[#D9D5D0] dark:border-[#363944]
+                         bg-white dark:bg-[#1E2028] text-sm px-3 py-1.5
+                         text-[#1C1E27] dark:text-[#EAECF0]
+                         placeholder:text-[#9B9EA6]
+                         focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
+              aria-label="Player username to whitelist"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="submit"
+              disabled={!wlInput.trim() || wlAddMut.isPending}
+              className="btn-primary text-sm px-4"
+            >
+              {wlAddMut.isPending ? "Adding…" : "Add"}
+            </button>
+          </form>
+
+          {/* Current list */}
+          {wlLoading ? (
+            <p className="text-sm text-[#9B9EA6]">Loading…</p>
+          ) : !whitelist?.length ? (
+            <p className="text-sm text-[#9B9EA6] italic">No players whitelisted.</p>
+          ) : (
+            <ul className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
+              {whitelist.map((entry) => (
+                <li key={entry.uuid} className="flex items-center justify-between py-2 gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img
+                      src={`https://mc-heads.net/avatar/${entry.name}/20`}
+                      alt=""
+                      className="w-5 h-5 rounded-sm flex-shrink-0"
+                      loading="lazy"
+                    />
+                    <span className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
+                      {entry.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => wlRemoveMut.mutate(entry.name)}
+                    disabled={wlRemoveMut.isPending}
+                    className="text-xs text-[#F87171] hover:text-red-400 transition-colors flex-shrink-0
+                               disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label={`Remove ${entry.name} from whitelist`}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* World Settings */}
       <div className="card space-y-5">
