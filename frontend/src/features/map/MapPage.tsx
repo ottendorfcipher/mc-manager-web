@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin as MapPinIcon, Users, Plus, Globe, Flame, Moon,
          Eye, EyeOff, Trash2, Edit2, Navigation } from "lucide-react";
@@ -149,11 +149,25 @@ export function MapPage() {
   const canCreatePin  = hasPerm("map.pin.create");
   const canManagePins = hasPerm("map.pin.manage");
 
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   const [dim, setDim]           = useState("minecraft:overworld");
   const [activeTab, setActiveTab] = useState<"players" | "pins">("players");
   const [selectedIgn, setSelectedIgn] = useState<string | null>(null);
   const [showPinForm, setShowPinForm] = useState(false);
   const [editingPin, setEditingPin]   = useState<MapPin | null>(null);
+
+  // Navigate the BlueMap iframe to a coordinate without a full reload.
+  // BlueMap listens for hashchange and flies to the new position.
+  function flyTo(dimension: string, x: number, z: number, zoom = 5) {
+    const d = DIM_MAP.find((d) => d.id === dimension) ?? DIM_MAP[0];
+    const hash = `#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${zoom}:0:0`;
+    const win = iframeRef.current?.contentWindow;
+    if (win) {
+      win.location.hash = hash;
+    }
+  }
+
   // ── Data
   const { data: snapshots = [] } = useQuery<PlayerSnapshot[]>({
     queryKey: ["snapshots"],
@@ -264,7 +278,10 @@ export function MapPage() {
                 return (
                   <button
                     key={s.ign}
-                    onClick={() => setSelectedIgn(selectedIgn === s.ign ? null : s.ign)}
+                    onClick={() => {
+                        setSelectedIgn(selectedIgn === s.ign ? null : s.ign);
+                        if (selectedIgn !== s.ign && s.dimension === dim) flyTo(s.dimension, s.x, s.z);
+                      }}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left transition-colors ${
                       selectedIgn === s.ign
                         ? "bg-[#EFF6FF] dark:bg-[#1E3A5F]"
@@ -367,14 +384,13 @@ export function MapPage() {
                     </div>
                     <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
                       {/* Navigate to pin */}
-                      <a
-                        href={bluemapUrl(pin.dimension, pin.x, pin.z)}
-                        target="bluemap"
-                        title="Center map here"
+                      <button
+                        onClick={() => { flyTo(pin.dimension, pin.x, pin.z); }}
+                        title="Fly to on map"
                         className="p-1 rounded hover:bg-[#EFF6FF] text-[#9B9EA6] hover:text-[#5B9BF0]"
                       >
                         <Navigation className="w-3 h-3" />
-                      </a>
+                      </button>
                       {(canManagePins || pin.created_by === user?.email) && (
                         <>
                           <button
@@ -406,6 +422,7 @@ export function MapPage() {
       {/* ── Map iframe ───────────────────────────────────────────────────────── */}
       <div className="flex-1 relative overflow-hidden">
         <iframe
+          ref={iframeRef}
           name="bluemap"
           src={bluemapUrl(dim)}
           className="w-full h-full border-0"
