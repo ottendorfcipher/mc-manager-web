@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Cloud, HardDrive, Download, RotateCcw, Trash2, Plus } from "lucide-react";
+import { AlertTriangle, Server, HardDrive, Download, RotateCcw, Trash2, Plus } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { BackupRun } from "@/types";
@@ -20,35 +20,11 @@ function relativeTime(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function StorageBadge({
-  location, gcsUri, extended,
-}: { location: string; gcsUri: string | null; extended: boolean }) {
-  const isCloud = location === "cloud";
-  const label = isCloud ? (extended ? "cloud · 1yr" : "cloud · 30d") : "local";
-  return (
-    <span
-      title={gcsUri ?? undefined}
-      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${
-        isCloud
-          ? "bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0]"
-          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6]"
-      }`}
-    >
-      {isCloud ? <Cloud className="w-2.5 h-2.5" /> : <HardDrive className="w-2.5 h-2.5" />}
-      {label}
-    </span>
-  );
-}
-
 export function BackupsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [restoreId, setRestoreId] = useState<number | null>(null);
-  const [storageChoice, setStorageChoice] = useState<"local" | "cloud">("local");
-  const [extendedRetention, setExtendedRetention] = useState(false);
-  const canCreate = user?.permissions.can_control_server ?? false;
-  const canCreateCloud = user?.permission_keys?.includes("backups.create.cloud") ?? false;
-  const canExtended   = user?.permission_keys?.includes("backups.create.extended") ?? false;
+  const canCreate  = user?.permissions.can_control_server ?? false;
   const canRestore = user?.permissions.can_restore_backup ?? false;
 
   const { data: backups = [], isLoading } = useQuery<BackupRun[]>({
@@ -61,10 +37,7 @@ export function BackupsPage() {
   const createMut = useMutation({
     mutationFn: () => {
       setCreateError(null);
-      return api.post<BackupRun>("/backups", {
-        storage: storageChoice,
-        extended: extendedRetention,
-      });
+      return api.post<BackupRun>("/backups");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["backups"] }),
     onError: (e: Error) => setCreateError(e.message),
@@ -85,68 +58,26 @@ export function BackupsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Backups</h1>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">World snapshots — stored on the server</p>
+          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            World snapshots — stored on the Minecraft server
+          </p>
         </div>
         {canCreate && (
-          <div className="flex items-center gap-2">
-            {/* Storage tier selector — only shown when the user can create cloud backups */}
-            {canCreateCloud && (
-              <div className="flex flex-col items-end gap-1.5">
-                {/* Local / Cloud tier selector */}
-                <div className="flex rounded-lg overflow-hidden border border-[#D9D5D0] dark:border-[#363944] text-xs">
-                  <button
-                    onClick={() => { setStorageChoice("local"); setExtendedRetention(false); }}
-                    className={`px-2.5 py-1.5 flex items-center gap-1 ${
-                      storageChoice === "local"
-                        ? "bg-[#5B9BF0] text-white"
-                        : "bg-white dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#363944]"
-                    }`}
-                  >
-                    <HardDrive className="w-3 h-3" /> Local
-                  </button>
-                  <button
-                    onClick={() => setStorageChoice("cloud")}
-                    className={`px-2.5 py-1.5 flex items-center gap-1 ${
-                      storageChoice === "cloud"
-                        ? "bg-[#5B9BF0] text-white"
-                        : "bg-white dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#363944]"
-                    }`}
-                  >
-                    <Cloud className="w-3 h-3" /> Cloud
-                  </button>
-                </div>
-                {/* Extended retention — only for cloud + permission */}
-                {storageChoice === "cloud" && canExtended && (
-                  <label className="flex items-center gap-1.5 text-xs text-[#6B6E78] dark:text-[#9BA0B0] cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={extendedRetention}
-                      onChange={(e) => setExtendedRetention(e.target.checked)}
-                      className="accent-[#5B9BF0] w-3 h-3"
-                    />
-                    Keep for 1 year
-                  </label>
-                )}
-              </div>
-            )}
-            <button
-              onClick={() => createMut.mutate()}
-              disabled={createMut.isPending}
-              className="btn-primary flex items-center gap-2 text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              {createMut.isPending ? "Creating…" : "Create Backup"}
-            </button>
-          </div>
+          <button
+            onClick={() => createMut.mutate()}
+            disabled={createMut.isPending}
+            className="btn-primary flex items-center gap-2 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            {createMut.isPending ? "Creating…" : "Create Backup"}
+          </button>
         )}
       </div>
 
       {createMut.isPending && (
         <div className="card flex items-center gap-3 text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
           <div className="w-4 h-4 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
-          Stopping server, archiving world data, downloading…
-          {storageChoice === "cloud" && (extendedRetention ? " Uploading to GCS (1-year retention)." : " Uploading to GCS (30-day retention).")}
-          {" "}This takes 1–2 minutes.
+          Archiving world data on the Minecraft server… This takes 1–2 minutes.
         </div>
       )}
 
@@ -187,13 +118,10 @@ export function BackupsPage() {
         <div className="space-y-2">
           {backups.map((b) => (
             <div key={b.id} className="card flex items-center gap-4">
-              <HardDrive className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" aria-hidden />
+              <Server className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" aria-hidden />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate">{b.filename}</p>
-                  <StorageBadge location={b.storage_location} gcsUri={b.gcs_uri} extended={b.extended_retention} />
-                </div>
-                <p className="text-xs text-[#9B9EA6] mt-0.5">{humanBytes(b.size_bytes)} · {relativeTime(b.created_at)} by {b.created_by}</p>
+                <p className="text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate">{b.filename}</p>
+                <p className="text-xs text-[#9B9EA6] mt-0.5">{humanBytes(b.size_bytes)} · {relativeTime(b.created_at)} · mc-server-1</p>
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
                 <a href={`/api/backups/${b.id}`} download={b.filename} title="Download" className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]">

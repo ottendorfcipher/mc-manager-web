@@ -1,6 +1,5 @@
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
     Json,
 };
@@ -149,11 +148,10 @@ pub async fn callback(
     (jar.add(session_cookie), Redirect::to("/")).into_response()
 }
 
-/// DELETE /auth/logout
+/// GET /auth/logout — clears the session cookie and redirects to /login
 pub async fn logout(jar: CookieJar) -> impl IntoResponse {
-    // Remove the __session cookie so Firebase stops forwarding it
     let jar = jar.remove(Cookie::from(JWT_COOKIE));
-    (jar, StatusCode::NO_CONTENT)
+    (jar, Redirect::to("/login"))
 }
 
 #[derive(Debug, Serialize, TS)]

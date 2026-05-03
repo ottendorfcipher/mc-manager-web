@@ -11,15 +11,13 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = lib::config::Config::from_env();
 
-    // Ensure backup directory exists at startup
-    std::fs::create_dir_all(&cfg.backup_dir)?;
-
     let pool = lib::db::init(&cfg.database_url).await?;
 
-    // Sync any .tar.gz files in the backup dir that aren't yet in the DB
-    let synced = lib::db::backups::sync_from_dir(&pool, &cfg.backup_dir, "system").await?;
+    // Sync any new .tar.gz archives from mc-server-1 that aren't yet in the DB.
+    // Non-fatal: if mc-server-1 is offline at startup the service still starts.
+    let synced = lib::minecraft::backup::sync_into_db(&pool, &cfg).await;
     if synced > 0 {
-        tracing::info!("Synced {synced} existing backup(s) from disk into database");
+        tracing::info!("Synced {synced} new backup(s) from mc-server-1 into database");
     }
 
     let state = lib::AppState::new(pool, cfg.clone());

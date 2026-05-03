@@ -5,28 +5,14 @@ use axum::{
     response::Response,
     Json,
 };
-use serde::Deserialize;
-use tokio::fs::File;
-use tokio_util::io::ReaderStream;
 
 use crate::{
     auth::middleware::AuthUser,
     db::{audit, backups},
     error::{AppError, Result},
-    gcloud::instance,
     minecraft::backup,
     state::AppState,
 };
-
-#[derive(Deserialize, Default)]
-pub struct CreateBackupParams {
-    /// "local" (default) or "cloud".
-    #[serde(default)]
-    pub storage: String,
-    /// When true (and storage=cloud), store under the 1-year GCS prefix.
-    #[serde(default)]
-    pub extended: bool,
-}
 
 pub async fn list(
     State(state): State<AppState>,
@@ -35,79 +21,33 @@ pub async fn list(
     Ok(Json(backups::list(&state.pool).await?))
 }
 
-/// POST /api/backups  — trigger a new backup
-/// Body: `{ "storage": "local" | "cloud" }` (storage defaults to "local").
-/// Requires `backups.create` for local; also needs `backups.create.cloud` for cloud.
+/// POST /api/backups
+/// Runs the backup script on mc-server-1, syncs the new record into the DB,
+/// and returns it. Requires `backups.create`.
 pub async fn create(
     State(state): State<AppState>,
     actor: AuthUser,
-    // Accept optional JSON body; fall back gracefully if body is absent.
-    body: Option<Json<CreateBackupParams>>,
 ) -> Result<(StatusCode, Json<backups::BackupRun>)> {
     crate::auth::middleware::require_perm(&actor, "backups.create")?;
 
-    let params = body.map(|b| b.0).unwrap_or_default();
-    let upload_to_cloud = params.storage == "cloud";
-    let extended_retention = upload_to_cloud && params.extended;
+    let filename = backup::create(&state.config)
+        .await
+        .map_err(|e| { tracing::error!(error = %e, "Backup creation failed"); e })?;
 
-    if upload_to_cloud {
-        crate::auth::middleware::require_perm(&actor, "backups.create.cloud")?;
-        if state.config.gcs_backup_bucket.is_none() {
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "GCS_BACKUP_BUCKET is not configured on this server"
-            )));
-        }
-    }
-    if extended_retention {
-        crate::auth::middleware::require_perm(&actor, "backups.create.extended")?;
-    }
+    // Sync to pick up the new file (and any other new cron backups)
+    backup::sync_into_db(&state.pool, &state.config).await;
 
-    // The VM must be running — backups require SSH access to archive world files.
-    let vm = instance::status(&state.config).await?;
-    if vm.status != "RUNNING" {
-        return Err(AppError::BadRequest(format!(
-            "Cannot create backup: VM is {} — start the VM first",
-            vm.status
-        )));
-    }
-
-    let result = backup::create(&state.config, upload_to_cloud, extended_retention).await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Backup creation failed");
-            e
-        })?;
-    let path = state.config.backup_dir.join(&result.filename);
-    let size = std::fs::metadata(&path)
-        .map(|m| m.len() as i64)
-        .unwrap_or(0);
-
-    let storage_location = match (true, upload_to_cloud) {
-        (_, true)  => "cloud",
-        _          => "local",
-    };
-
-    let id = backups::insert(
-        &state.pool,
-        &result.filename,
-        path.to_str().unwrap_or_default(),
-        size,
-        &actor.email,
-        storage_location,
-        result.gcs_uri.as_deref(),
-        result.extended_retention,
-    )
-    .await?;
-
-    let run = backups::get(&state.pool, id)
+    let run = backups::get_by_filename(&state.pool, &filename)
         .await?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("insert failed")))?;
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!(
+            "Backup was created but not found in DB after sync"
+        )))?;
 
-    let detail = result.gcs_uri.as_deref().unwrap_or("local");
-    audit::log(&state.pool, &actor.email, "create_backup", Some(&result.filename), Some(detail)).await?;
+    audit::log(&state.pool, &actor.email, "create_backup", Some(&filename), Some("mc-server-1")).await?;
     Ok((StatusCode::CREATED, Json(run)))
 }
 
-/// GET /api/backups/:id  — stream the .tar.gz file
+/// GET /api/backups/:id  — stream the .tar.gz directly from mc-server-1
 pub async fn download(
     State(state): State<AppState>,
     actor: AuthUser,
@@ -118,9 +58,8 @@ pub async fn download(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
 
-    let file = File::open(&run.file_path).await?;
-    let stream = ReaderStream::new(file);
-    let body = Body::from_stream(stream);
+    let stream = backup::stream_file(&state.config, &run.file_path)?;
+    let body   = Body::from_stream(stream);
 
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/gzip")
@@ -132,7 +71,7 @@ pub async fn download(
         .unwrap())
 }
 
-/// DELETE /api/backups/:id
+/// DELETE /api/backups/:id — remove from mc-server-1 and from the DB
 pub async fn delete(
     State(state): State<AppState>,
     actor: AuthUser,
@@ -143,8 +82,8 @@ pub async fn delete(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
 
-    // Remove the file then the DB record
-    let _ = std::fs::remove_file(&run.file_path);
+    // Delete the archive from mc-server-1, then remove the DB record
+    backup::delete_remote(&state.config, &run.file_path).await?;
     backups::remove(&state.pool, id).await?;
     audit::log(&state.pool, &actor.email, "delete_backup", Some(&run.filename), None).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -163,7 +102,7 @@ pub async fn restore(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
 
-    backup::restore(&state.config, std::path::Path::new(&run.file_path)).await?;
+    backup::restore(&state.config, &run.file_path).await?;
     audit::log(&state.pool, &actor.email, "restore_backup", Some(&run.filename), None).await?;
     Ok(StatusCode::ACCEPTED)
 }
