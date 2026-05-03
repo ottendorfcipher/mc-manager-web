@@ -158,11 +158,37 @@ export function MapPage() {
   const [showPinForm, setShowPinForm] = useState(false);
   const [editingPin, setEditingPin]   = useState<MapPin | null>(null);
 
-  // Navigate BlueMap to a coordinate by reloading the iframe with the
-  // target hash — BlueMap reads the hash on load to set its initial camera.
-  function flyTo(dimension: string, x: number, z: number, zoom = 5) {
+  // Navigate BlueMap to a coordinate.
+  // BlueMap exposes window.bluemap — use its controlsManager API directly
+  // (no reload). Falls back to a hash URL reload if the API isn't ready yet.
+  // Hash format: mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewType (10 fields)
+  function flyTo(dimension: string, x: number, z: number, distance = 500) {
     const d = DIM_MAP.find((d) => d.id === dimension) ?? DIM_MAP[0];
-    setMapSrc(`/map/#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${zoom}:0:0`);
+    const win = iframeRef.current?.contentWindow as (Window & { bluemap?: { mapViewer?: { controlsManager?: { position: { x: number; y: number; z: number }; distance: number; rotation: number; angle: number; tilt: number; ortho: number }; map?: { data: { id: string } } }; switchMap?: (id: string) => Promise<void> } }) | null;
+    const bm  = win?.bluemap;
+
+    if (bm?.mapViewer?.controlsManager) {
+      const cm = bm.mapViewer.controlsManager;
+      // Switch map if needed, then pan camera
+      const doNav = () => {
+        cm.position.x = Math.round(x);
+        cm.position.z = Math.round(z);
+        cm.distance   = distance;
+        cm.rotation   = 0;
+        cm.angle      = 0;
+        cm.tilt       = 0;
+        cm.ortho      = 1;  // flat top-down view
+      };
+      if (bm.mapViewer.map?.data.id !== d.bmId && bm.switchMap) {
+        bm.switchMap(d.bmId).then(doNav);
+      } else {
+        doNav();
+      }
+    } else {
+      // BlueMap not initialised yet — load with full hash URL
+      // BlueMap requires exactly 10 fields: mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewType
+      setMapSrc(`/map/#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${distance}:0:0:0:1:flat`);
+    }
   }
 
   // Keep iframe src in sync when the dimension tab changes
