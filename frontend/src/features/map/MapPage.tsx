@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin as MapPinIcon, Users, Plus, Globe, Flame, Moon,
-         Eye, EyeOff, Trash2, Edit2, Navigation } from "lucide-react";
+         Eye, EyeOff, Trash2, Edit2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { MapPin, PlayerSnapshot, McPlayer } from "@/types";
