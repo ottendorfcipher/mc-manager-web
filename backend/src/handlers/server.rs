@@ -167,6 +167,29 @@ pub struct PlayerTargetBody {
     pub reason: Option<String>,
 }
 
+/// GET /api/server/whitelist  — list current whitelist entries from whitelist.json
+#[derive(Debug, Serialize, TS, serde::Deserialize)]
+#[ts(export)]
+pub struct WhitelistEntry {
+    pub uuid: String,
+    pub name: String,
+}
+
+pub async fn list_whitelist(
+    State(state): State<AppState>,
+    actor: AuthUser,
+) -> Result<Json<Vec<WhitelistEntry>>> {
+    crate::auth::middleware::require_perm(&actor, "server.whitelist.manage")?;
+    let (out, _) = ssh::run(
+        &state.config,
+        "cat /opt/minecraft/server/whitelist.json 2>/dev/null || echo '[]'",
+    )
+    .await?;
+    let entries: Vec<WhitelistEntry> =
+        serde_json::from_str(out.trim()).unwrap_or_default();
+    Ok(Json(entries))
+}
+
 /// POST /api/server/whitelist/:action  (add | remove)
 pub async fn whitelist_action(
     State(state): State<AppState>,

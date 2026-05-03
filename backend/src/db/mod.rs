@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod backups;
 pub mod kill_switch;
+pub mod pending_players;
 pub mod permissions;
 pub mod players;
 pub mod prefs;
