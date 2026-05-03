@@ -1,452 +1,244 @@
-# Deployment Guide - redstoneCipher
+# redstoneCipher — Deployment Reference
 
-Complete deployment steps for the redstoneCipher Minecraft management portal.
+Last updated: 2026-05-03
 
-## Architecture Overview
+> **Migration note**: This project was migrated from Google Cloud (Firebase Hosting +
+> Cloud Run + GCE) to Hetzner-hosted bare servers in May 2026. All GCP projects
+> (`redstonecipher-web`, `minecraft-493201`, `g-bridges`) are decommissioned.
+
+## Architecture
 
 ```
-Firebase Hosting (Frontend)
-    ↓ rewrites /api/** and /auth/**
-Cloud Run (Backend API)
-    ↓ connects via Tailscale
-Minecraft Server VM (GCP Compute Engine)
+                        Internet
+                            │
+                   ┌────────▼────────┐
+                   │  Web Server      │  178.105.43.199
+                   │  Hetzner (38 GB) │  redstonecipher.com
+                   │  nginx + Rust    │
+                   └────────┬────────┘
+                            │ Tailscale (WireGuard)
+                   ┌────────▼────────┐
+                   │  MC Server       │  5.161.212.29
+                   │  Hetzner (75 GB) │  Tailscale: 100.123.253.30
+                   │  PaperMC 1.21.11 │
+                   └─────────────────┘
 ```
 
-**Budget Protection:**
-- Cloud Function monitors spending
-- Automatically shuts down at $8/month threshold
-- Prevents runaway costs
+All Minecraft traffic is private — port 25565 is **not** open to the public internet.
+The web server reaches the MC server over Tailscale SSH.
 
 ---
 
-## Initial Setup (One-Time)
+## Servers
 
-### 1. Prerequisites
-- Google Cloud SDK installed and authenticated
-- Firebase CLI installed: `npm install -g firebase-tools`
-- Node.js 22+ and Rust 1.88+
-- Access to billing account `01D611-3D5E81-CECCE6`
+### Web server — `178.105.43.199`
 
-### 2. Enable Required APIs
-```bash
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  cloudfunctions.googleapis.com \
-  pubsub.googleapis.com \
-  --project=redstonecipher-web
-```
+| Property | Value |
+|---|---|
+| Provider | Hetzner |
+| Tailscale IP | `100.67.225.12` |
+| Disk | 38 GB total / 4.1 GB used |
+| Domain | `redstonecipher.com`, `www.redstonecipher.com` |
+| SSL | Let's Encrypt — expires **2026-08-01** (auto-renews via certbot) |
 
-### 3. Create Artifact Registry
-```bash
-gcloud artifacts repositories create app \
-  --repository-format=docker \
-  --location=us-central1 \
-  --project=redstonecipher-web
-```
+**Services**
 
-### 4. Create Service Account
-```bash
-gcloud iam service-accounts create redstonecipher-sa \
-  --display-name="redstoneCipher Service Account" \
-  --project=redstonecipher-web
-
-# Grant permissions
-gcloud projects add-iam-policy-binding redstonecipher-web \
-  --member="serviceAccount:redstonecipher-sa@redstonecipher-web.iam.gserviceaccount.com" \
-  --role="roles/run.admin"
-
-gcloud projects add-iam-policy-binding redstonecipher-web \
-  --member="serviceAccount:redstonecipher-sa@redstonecipher-web.iam.gserviceaccount.com" \
-  --role="roles/artifactregistry.reader"
-```
-
-### 5. Create Pub/Sub Topic for Budget Alerts
-```bash
-gcloud pubsub topics create redstonecipher-budget-alerts \
-  --project=redstonecipher-web
-```
-
-### 6. Store Secrets in Secret Manager
-```bash
-# JWT secret
-echo -n "your-jwt-secret" | \
-  gcloud secrets create jwt_secret --data-file=- --project=redstonecipher-web
-
-# Google OAuth credentials
-echo -n "your-client-id" | \
-  gcloud secrets create google_client_id --data-file=- --project=redstonecipher-web
-
-echo -n "your-client-secret" | \
-  gcloud secrets create google_client_secret --data-file=- --project=redstonecipher-web
-
-# Budget webhook token
-echo -n "your-webhook-token" | \
-  gcloud secrets create budget_webhook_token --data-file=- --project=redstonecipher-web
-
-# Tailscale auth key
-echo -n "your-ts-authkey" | \
-  gcloud secrets create ts_authkey --data-file=- --project=redstonecipher-web
-```
-
----
-
-## Standard Deployment
-
-### 1. Deploy Backend to Cloud Run
-```bash
-cd /Users/nicholasweiner/Desktop/mc-manager-web
-gcloud builds submit --config cloudbuild.yaml --project=redstonecipher-web
-```
-
-This builds and deploys:
-- Rust backend API
-- Cloud Run service `redstonecipher-web`
-- Scaling: min=0, max=3, concurrency=80
-- Region: us-central1
-
-After the first deploy, or when adding new env vars, update them separately:
-```bash
-gcloud run services update redstonecipher-web \
-  --project=redstonecipher-web --region=us-central1 \
-  --update-env-vars=GCS_BACKUP_BUCKET=mc-server-backups-491
-```
-
-**Required environment variables** (set via `--set-env-vars` in `cloudbuild.yaml` or `services update`):
-| Variable | Value | Purpose |
+| Service | State | Uptime |
 |---|---|---|
-| `GCS_BACKUP_BUCKET` | `mc-server-backups-491` | Cloud backup storage bucket |
+| `nginx` | active | 1 hr 13 min |
+| `redstonecipher` | active | 1 hr |
 
-All other variables (secrets, GCP project, Tailscale) are already set in `cloudbuild.yaml`.
+**Key paths**
 
-### 2. Build and Deploy Frontend to Firebase
+| Path | Purpose |
+|---|---|
+| `/opt/redstonecipher/redstonecipher-server` | Rust backend binary |
+| `/opt/redstonecipher/.env` | Environment / secrets |
+| `/opt/redstonecipher/www/` | Built React frontend (static files) |
+| `/etc/nginx/sites-enabled/redstonecipher` | nginx vhost config |
+| `/etc/letsencrypt/live/redstonecipher.com/` | TLS certificates |
+
+**nginx routing**
+
+| Path pattern | Target |
+|---|---|
+| `/api/*`, `/auth/*` | `http://127.0.0.1:8080` (Rust backend) |
+| `/*` | `/opt/redstonecipher/www` (SPA, `try_files … /index.html`) |
+| HTTP → HTTPS | 301 redirect (managed by Certbot) |
+
+---
+
+### MC server — `5.161.212.29`
+
+| Property | Value |
+|---|---|
+| Provider | Hetzner |
+| Tailscale IP | `100.123.253.30` |
+| Disk | 75 GB total / 7.4 GB used |
+| Java | OpenJDK 21.0.11 |
+| Server software | PaperMC 1.21.11 |
+| Game port | `25565` (Tailscale interface only) |
+| RCON | `127.0.0.1:25575` (localhost only) |
+| World size | 82 MB |
+
+**Services**
+
+| Service | State | Uptime |
+|---|---|---|
+| `minecraft` | active | 35 min |
+| `mc-fifo-bridge` | active | 35 min |
+
+**Key paths**
+
+| Path | Purpose |
+|---|---|
+| `/opt/minecraft/server/` | Server root |
+| `/opt/minecraft/server/server.properties` | Server configuration |
+| `/opt/minecraft/server/whitelist.json` | Whitelist entries |
+| `/opt/minecraft/server/ops.json` | Operator list |
+| `/opt/minecraft/server/logs/latest.log` | Live server log |
+| `/opt/minecraft/console.fifo` | FIFO for RCON command bridge |
+| `/usr/local/bin/mcrcon` | RCON client |
+
+**Backup**
+
+| Property | Value |
+|---|---|
+| Schedule | Daily at **04:00 UTC** (systemd timer: `minecraft-backup.timer`) |
+| Timer state | Persistent (catches up missed runs) |
+
+---
+
+## Firewall (mc-server UFW)
+
+| Rule | Action |
+|---|---|
+| `22/tcp` (SSH) | ALLOW IN |
+| `41641/udp` (Tailscale WireGuard) | ALLOW IN |
+| All traffic on `tailscale0` | ALLOW IN / OUT |
+| Everything else | DENY (default) |
+
+Minecraft port 25565 is intentionally absent from the public ruleset.
+Access to the server requires being on the Tailscale network.
+
+---
+
+## Whitelist
+
+Whitelist enforcement is **enabled** (`white-list=true`, `enforce-whitelist=true`).
+`enforce-whitelist=true` takes full effect after the next server restart —
+players already online will be kicked if removed from the whitelist mid-session.
+
+> **The whitelist is currently empty.** No players can connect until you add them.
+
+Add a player (requires a valid Mojang/Microsoft account username):
+
 ```bash
-# Build frontend
-cd frontend
-npm install
+ssh mc-server
+RCON_PASS=$(grep '^rcon.password=' /opt/minecraft/server/server.properties | cut -d= -f2)
+/usr/local/bin/mcrcon -H 127.0.0.1 -P 25575 -p "$RCON_PASS" 'whitelist add <username>'
+```
+
+Or via the web console at **https://redstonecipher.com** → Server → Whitelist.
+
+---
+
+## Auth & Permissions
+
+**Authentication**: Google OAuth, invite-only.
+
+| Role | Level | Description |
+|---|---|---|
+| `global_admin` | 4 | Permanent seed account — `nicholasaweiner@gmail.com` |
+| `admin` | 3 | Full management, cannot elevate to global_admin |
+| `member` | 2 | Standard access |
+| `user` | 1 | Limited access |
+| `visitor` | 0 | Read-only |
+
+- System roles cannot be deleted or have their level changed.
+- Custom roles can be created via the admin UI with a level strictly below the creator's.
+- Per-user permission overrides are additive (grant extra permissions beyond the role).
+- Permissions are re-checked from the DB on every request — changes take effect immediately without requiring re-login.
+- Any Google account not in the users table (and not the `global_admin` email) is rejected at the OAuth callback with `?error=not_invited`.
+
+**JWT**: HS256, 8-hour expiry, stored in `__session` cookie (HttpOnly, Secure, SameSite=Lax).
+
+---
+
+## Common Runbooks
+
+### Restart the Minecraft server
+
+```bash
+ssh mc-server 'systemctl restart minecraft'
+```
+
+### Deploy a new backend build
+
+```bash
+# Build on the local machine, then:
+cargo build --release -p redstonecipher-server
+scp target/release/redstonecipher-server redstonecipher-web:/opt/redstonecipher/redstonecipher-server
+ssh redstonecipher-web 'systemctl restart redstonecipher'
+```
+
+### Deploy a new frontend build
+
+```bash
+# From mc-manager-web/frontend:
 npm run build
-
-# Deploy to Firebase Hosting
-cd ..
-firebase deploy --only hosting
+rsync -av dist/ redstonecipher-web:/opt/redstonecipher/www/
 ```
 
-### 3. Deploy Budget Shutdown System
+### Renew SSL certificate (manual)
 
-#### Deploy Cloud Function
+Certbot auto-renews twice daily via its own systemd timer; manual renewal is only needed for troubleshooting.
+
 ```bash
-cd functions/budget-shutdown
-./deploy.sh
+ssh redstonecipher-web 'certbot renew --nginx'
 ```
 
-#### Deploy Cloud Run Job
-```bash
-cd ../shutdown-job
-./deploy-job.sh
-```
-
-### 4. Configure DNS (First Time Only)
-Point your domain to Firebase Hosting:
-- Go to Firebase Console → Hosting
-- Add custom domain: `redstonecipher.com`
-- Update DNS A records to Firebase IPs (provided in console)
-
----
-
-## Budget Shutdown System Setup
-
-### Deploy Components (Done Above)
-- ✅ Cloud Function: `budget-shutdown`
-- ✅ Cloud Run Job: `budget-shutdown-job`
-- ✅ Pub/Sub Topic: `redstonecipher-budget-alerts`
-
-### Create $8 Budget (Manual - One Time)
-1. Go to: https://console.cloud.google.com/billing/01D611-3D5E81-CECCE6/budgets
-2. Click "CREATE BUDGET"
-3. Configure:
-   - Name: `redstonecipher-shutdown-8usd`
-   - Projects: `redstonecipher-web` only
-   - Amount: **$8.00 USD** monthly
-   - Threshold: **100%** (triggers at $8)
-   - Pub/Sub: `projects/redstonecipher-web/topics/redstonecipher-budget-alerts`
-   - Disable email notifications
-4. Click "FINISH"
-
----
-
-## Verification Steps
-
-### 1. Test Backend Health
-```bash
-curl https://redstonecipher-web-868495187875.us-central1.run.app/api/metrics
-```
-
-### 2. Test Frontend
-```bash
-curl https://redstonecipher.com
-# Should return HTML with React app
-```
-
-### 3. Test Budget Shutdown (Safe - Below Threshold)
-```bash
-gcloud pubsub topics publish redstonecipher-budget-alerts \
-  --message='{"costAmount": 5.0, "budgetAmount": 8.0, "budgetDisplayName": "Test"}'
-
-# Check function logs
-gcloud functions logs read budget-shutdown --region=us-central1 --gen2 --limit=10
-# Should see "No action taken"
-```
-
-### 4. Verify Cloud Run Scaling
-```bash
-gcloud run services describe redstonecipher-web --region=us-central1 \
-  --format="value(spec.template.metadata.annotations)" | grep Scale
-# Should show: minScale=0, maxScale=3
-```
-
----
-
-## Rollback Procedures
-
-### Rollback Backend
-```bash
-# List recent revisions
-gcloud run revisions list --service=redstonecipher-web --region=us-central1 --limit=5
-
-# Route traffic to previous revision
-gcloud run services update-traffic redstonecipher-web \
-  --region=us-central1 \
-  --to-revisions=<REVISION-NAME>=100
-```
-
-### Rollback Frontend
-```bash
-# List deployment history
-firebase hosting:channel:list
-
-# Rollback to previous version (from Firebase Console)
-# Or redeploy from previous git commit
-git checkout <previous-commit>
-cd frontend && npm run build && cd ..
-firebase deploy --only hosting
-```
-
-### Disable Budget Shutdown
-```bash
-# Temporarily disable the Cloud Function
-gcloud functions delete budget-shutdown --region=us-central1 --quiet
-
-# Or delete the budget in Google Cloud Console
-```
-
----
-
-## Monitoring
-
-### Cloud Run Logs
-```bash
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=redstonecipher-web" \
-  --limit=50 \
-  --format=json
-```
-
-### Cloud Function Logs
-```bash
-gcloud functions logs read budget-shutdown --region=us-central1 --gen2 --limit=20
-```
-
-### Budget Status
-```bash
-gcloud billing budgets list --billing-account=01D611-3D5E81-CECCE6
-```
-
-### Firebase Hosting Status
-```bash
-firebase hosting:channel:list
-```
-
----
-
-## Cloud Backup Storage
-
-### GCS Bucket: `mc-server-backups-491`
-- **Region**: us-central1 (same as VM)
-- **Storage class**: Nearline (~$0.01/GB/month)
-- **Auto-delete lifecycle rules**:
-  - `backups/regular/` prefix → deleted after **30 days**
-  - `backups/extended/` prefix → deleted after **365 days** (requires `backups.create.extended` permission)
-- **Estimated cost**: <$0.10/month with daily backups
-
-### Recreating the bucket (if needed)
-```bash
-gcloud storage buckets create gs://mc-server-backups-491 \
-  --project=minecraft-493201 \
-  --location=us-central1 \
-  --default-storage-class=nearline \
-  --uniform-bucket-level-access
-
-# Apply lifecycle rules
-gcloud storage buckets update gs://mc-server-backups-491 \
-  --lifecycle-file=docs/gcs-lifecycle.json
-```
-
----
-
-## Cost Optimization
-
-### Current Configuration
-- **Frontend**: Free (Firebase Hosting free tier)
-- **Backend**: $0 when idle (scale-to-zero)
-- **Backups (GCS)**: <$0.10/month (Nearline, 30-day auto-delete)
-- **Budget Cap**: $8/month automatic shutdown
-- **Total**: $0-8/month
-
-### Cost Breakdown
-- Cloud Run: Pay only for requests (idle = $0)
-- Cloud Function: Free tier covers budget monitoring
-- Cloud Run Job: Only runs on budget alerts (~seconds/month)
-- Firebase Hosting: 10GB storage + 360MB/day bandwidth free
-- GCS Nearline: $0.01/GB/month + $0.01/GB retrieval
-
----
-
-## Restore Service After Budget Shutdown
-
-If the budget shutdown system triggers:
+### View live server logs
 
 ```bash
-# Restore normal scaling
-gcloud run services update redstonecipher-web \
-  --region=us-central1 \
-  --min-instances=0 \
-  --max-instances=3
+# Minecraft
+ssh mc-server 'journalctl -u minecraft -f'
 
-# Or redeploy
-gcloud builds submit --config cloudbuild.yaml
-```
-
----
-
-## Maintenance
-
-### Update Cloud Run
-```bash
-# Make code changes, then:
-gcloud builds submit --config cloudbuild.yaml
-```
-
-### Update Frontend
-```bash
-cd frontend
-npm run build
-cd ..
-firebase deploy --only hosting
-```
-
-### Update Budget Shutdown System
-```bash
-# Update Cloud Function
-cd functions/budget-shutdown
-./deploy.sh
-
-# Update Cloud Run Job
-cd ../shutdown-job
-./deploy-job.sh
-```
-
-### Update Dependencies
-```bash
 # Backend
-cd backend
-cargo update
-
-# Frontend
-cd ../frontend
-npm update
+ssh redstonecipher-web 'journalctl -u redstonecipher -f'
 ```
 
----
+### Invite a new user
 
-## Troubleshooting
+Sign in at **https://redstonecipher.com** with a `global_admin` or `admin` account and use the Users page to invite the new user.
 
-### Frontend Not Loading
-1. Check Firebase Hosting deployment: `firebase hosting:channel:list`
-2. Verify DNS points to Firebase IPs
-3. Check browser console for errors
-4. Verify rewrites in `firebase.json`
+### Add a player to the Minecraft whitelist
 
-### Backend API Errors
-1. Check Cloud Run logs: `gcloud logging read ...`
-2. Verify secrets are accessible
-3. Check Tailscale connection to Minecraft VM
-4. Verify service account permissions
-
-### Budget Shutdown Not Working
-1. Verify budget exists in Console
-2. Check Pub/Sub topic: `gcloud pubsub topics describe redstonecipher-budget-alerts`
-3. Test manually: `gcloud pubsub topics publish ...`
-4. Check function logs for errors
-
-### Service Won't Scale to Zero
-1. Ensure no traffic to service
-2. Check for background tasks keeping instances alive
-3. Verify min-instances=0 is set
-4. Wait 15 minutes for scale-down
+See [Whitelist](#whitelist) above.
 
 ---
 
-## Documentation
+## Service Dependencies
 
-- Architecture: `README.md`
-- Budget Shutdown: `docs/budget-shutdown-setup.md`
-- Budget Cap: `docs/budget-cap.md`
-- Functions: `functions/README.md`
-
----
-
-## Emergency Contacts
-
-- GCP Project: `redstonecipher-web`
-- Billing Account: `01D611-3D5E81-CECCE6`
-- Region: `us-central1`
-- Firebase Project: `redstonecipher-web`
-
----
-
-## Deployment Checklist
-
-- [ ] Backend deployed to Cloud Run (`gcloud builds submit --project=redstonecipher-web`)
-- [ ] `GCS_BACKUP_BUCKET` env var set on Cloud Run service
-- [ ] Frontend built (`cd frontend && npm run build`)
-- [ ] Frontend deployed to Firebase (`firebase deploy --only hosting`)
-- [ ] DNS points to Firebase Hosting
-- [ ] Budget shutdown system deployed
-- [ ] $8 budget created in Console
-- [ ] Secrets configured in Secret Manager
-- [ ] GCS bucket `mc-server-backups-491` exists with lifecycle rules
-- [ ] Service health verified (`curl https://redstonecipher.com`)
-- [ ] All API routes return 401 for unauthenticated requests
-- [ ] Weather assets serve correctly (`/weather/sunny.png` etc.)
-- [ ] Budget alert tested
-- [ ] Cost monitoring enabled
+```
+minecraft-backup.timer  →  minecraft-backup.service
+mc-fifo-bridge.service  →  /opt/minecraft/console.fifo  →  minecraft.service
+redstonecipher.service  →  network.target, tailscaled.service
+nginx                   →  redstonecipher.service (proxy_pass 127.0.0.1:8080)
+```
 
 ---
 
 ## Deployment History
 
-### 2026-04-28 — commit `79ab145`
-**Backend revision**: `redstonecipher-web-00079-cgk`
+### 2026-05-03 — Hetzner migration
 
-Features deployed:
-- Dashboard monitoring fix: SSE error handling, live `service_active` status, fixed undefined player count
-- VM controls: animated progress bar + action-specific copy for Start/Stop/Reset
-- Gamerule state persisted in SQLite (`world_gamerules` table) and hydrated on page load
-- Minecraft game-process restart controls removed from all user roles
-- Backup storage tiers: local (Mac) vs cloud (GCS 30-day) vs cloud extended (GCS 1-year)
-  - New permissions: `backups.create.cloud`, `backups.create.extended`
-  - GCS bucket created: `mc-server-backups-491` (Nearline, us-central1)
-- `server.properties` JSON export and import with correct permission gating
-- Weather buttons replaced with animated GIF cards (hover-to-animate, static PNG at rest)
-- DB migrations 0007 and 0008 applied
-- `GCS_BACKUP_BUCKET=mc-server-backups-491` added to Cloud Run env vars
+- Migrated from Google Cloud (Firebase + Cloud Run + GCE) to Hetzner bare servers.
+- All GCP projects decommissioned (`redstonecipher-web`, `minecraft-493201`, `g-bridges`).
+- Rust/Axum backend deployed as a systemd service on `178.105.43.199`.
+- PaperMC server running on `5.161.212.29`, accessible only via Tailscale.
+- SSL via Let's Encrypt / certbot; nginx reverse proxy.
+- Auth: invite-only Google OAuth with role-based permission model.
+- Whitelist enforcement enabled (`white-list=true`, `enforce-whitelist=true`).
+- Daily backup at 04:00 UTC via `minecraft-backup.timer`.
+
