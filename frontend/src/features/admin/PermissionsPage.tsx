@@ -4,6 +4,8 @@ import { Save, ShieldCheck } from "lucide-react";
 import { api } from "@/api/client";
 import type { PermissionCatalogEntry, RoleRecord, RoleWithPermissions } from "@/types";
 
+type CellState = "unchanged" | "added" | "removed";
+
 /**
  * Admin page: edit the role → permission matrix.
  *
@@ -43,11 +45,19 @@ export function PermissionsPage() {
     enabled: apiRoles.length > 0,
   });
 
+  // Saved = last-committed server state; pending = live edits
+  const [saved,   setSaved]   = useState<Record<string, Set<string>> | null>(null);
   const [pending, setPending] = useState<Record<string, Set<string>> | null>(null);
+
   if (allRolePerms && !pending) {
-    const copy: Record<string, Set<string>> = {};
-    for (const [k, v] of Object.entries(allRolePerms)) copy[k] = new Set(v as Set<string>);
-    setPending(copy);
+    const s: Record<string, Set<string>> = {};
+    const p: Record<string, Set<string>> = {};
+    for (const [k, v] of Object.entries(allRolePerms)) {
+      s[k] = new Set(v as Set<string>);
+      p[k] = new Set(v as Set<string>);
+    }
+    setSaved(s);
+    setPending(p);
   }
 
   const toggle = (role: string, key: string) => {
@@ -60,12 +70,53 @@ export function PermissionsPage() {
     });
   };
 
-  const saveRole = useMutation({
-    mutationFn: (role: string) =>
-      api.put<RoleWithPermissions>(`/roles/${role}/permissions`, {
-        permissions: Array.from(pending?.[role] ?? new Set()),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["all-role-permissions"] }),
+  // True when any cell differs from last save
+  const hasDiff = useMemo(() => {
+    if (!saved || !pending) return false;
+    return Object.keys(pending).some((role) => {
+      const s = saved[role] ?? new Set<string>();
+      const p = pending[role] ?? new Set<string>();
+      if (s.size !== p.size) return true;
+      for (const k of s) if (!p.has(k)) return true;
+      return false;
+    });
+  }, [saved, pending]);
+
+  const cellState = (role: string, key: string): CellState => {
+    const inSaved   = saved?.[role]?.has(key)   ?? false;
+    const inPending = pending?.[role]?.has(key) ?? false;
+    if (!inSaved && inPending)  return "added";
+    if (inSaved  && !inPending) return "removed";
+    return "unchanged";
+  };
+
+  // Save only roles that actually changed
+  const saveAll = useMutation({
+    mutationFn: async () => {
+      const changed = apiRoles.filter((r) => {
+        const s = saved?.[r.name]   ?? new Set<string>();
+        const p = pending?.[r.name] ?? new Set<string>();
+        if (s.size !== p.size) return true;
+        for (const k of s) if (!p.has(k)) return true;
+        return false;
+      });
+      await Promise.all(
+        changed.map((r) =>
+          api.put<RoleWithPermissions>(`/roles/${r.name}/permissions`, {
+            permissions: Array.from(pending?.[r.name] ?? new Set()),
+          }),
+        ),
+      );
+    },
+    onSuccess: () => {
+      // Advance saved state to match what was just written
+      if (pending) {
+        const next: Record<string, Set<string>> = {};
+        for (const [k, v] of Object.entries(pending)) next[k] = new Set(v);
+        setSaved(next);
+      }
+      qc.invalidateQueries({ queryKey: ["all-role-permissions"] });
+    },
   });
 
   const categories = useMemo(() => {
@@ -89,14 +140,25 @@ export function PermissionsPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center gap-3">
-        <ShieldCheck className="w-5 h-5 text-[#5B9BF0]" aria-hidden />
-        <div>
-          <h2 className="text-lg font-bold text-[#1C1E27] dark:text-[#EAECF0]">Permission Matrix</h2>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
-            Cross-role view. To edit a single role, use the Roles tab.
-          </p>
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <ShieldCheck className="w-5 h-5 text-[#5B9BF0]" aria-hidden />
+          <div>
+            <h2 className="text-lg font-bold text-[#1C1E27] dark:text-[#EAECF0]">Permission Matrix</h2>
+            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+              Cross-role view. Unsaved changes are highlighted.
+            </p>
+          </div>
         </div>
+        <button
+          onClick={() => saveAll.mutate()}
+          disabled={!hasDiff || saveAll.isPending}
+          className="btn-primary text-sm flex items-center gap-2 flex-shrink-0 disabled:opacity-40"
+          data-testid="save-all-permissions"
+        >
+          <Save className="w-3.5 h-3.5" aria-hidden />
+          {saveAll.isPending ? "Saving…" : hasDiff ? "Save Changes" : "No Changes"}
+        </button>
       </header>
 
       <div className="card overflow-x-auto" data-testid="permissions-grid">
@@ -133,17 +195,30 @@ export function PermissionsPage() {
                       <div className="font-mono text-xs">{p.key}</div>
                       <div className="text-xs text-[#9B9EA6]">{p.description}</div>
                     </td>
-                    {apiRoles.map((r) => (
-                      <td key={r.name} className="text-center">
-                        <input
-                          type="checkbox"
-                          checked={pending[r.name]?.has(p.key) ?? false}
-                          onChange={() => toggle(r.name, p.key)}
-                          aria-label={`${r.label} has ${p.key}`}
-                          data-testid={`cell-${r.name}-${p.key}`}
-                        />
-                      </td>
-                    ))}
+                    {apiRoles.map((r) => {
+                      const cs = cellState(r.name, p.key);
+                      return (
+                        <td
+                          key={r.name}
+                          className={`text-center transition-colors ${
+                            cs === "added"   ? "bg-green-50 dark:bg-green-950/30" :
+                            cs === "removed" ? "bg-red-50   dark:bg-red-950/30"   : ""
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={pending[r.name]?.has(p.key) ?? false}
+                            onChange={() => toggle(r.name, p.key)}
+                            aria-label={`${r.label} has ${p.key}`}
+                            data-testid={`cell-${r.name}-${p.key}`}
+                            className={`accent-[#5B9BF0] ${
+                              cs === "added"   ? "accent-green-500" :
+                              cs === "removed" ? "accent-red-400"   : ""
+                            }`}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </>
@@ -152,19 +227,14 @@ export function PermissionsPage() {
         </table>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {apiRoles.map((r) => (
-          <button
-            key={r.name}
-            onClick={() => saveRole.mutate(r.name)}
-            className="btn-primary text-sm flex items-center gap-2"
-            data-testid={`save-${r.name}`}
-          >
-            <Save className="w-3.5 h-3.5" aria-hidden />
-            Save {r.label}
-          </button>
-        ))}
-      </div>
+      {hasDiff && (
+        <p className="text-xs text-[#9B9EA6]">
+          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-200 dark:bg-green-900 mr-1" />
+          Added &nbsp;
+          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 dark:bg-red-900 mr-1 ml-2" />
+          Removed
+        </p>
+      )}
     </div>
   );
 }

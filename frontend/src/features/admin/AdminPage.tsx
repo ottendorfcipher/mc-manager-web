@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2 } from "lucide-react";
 import { api } from "@/api/client";
@@ -82,6 +82,9 @@ function UsersTab() {
   const [inviteRole, setInviteRole] = useState("member");
   const [error, setError] = useState("");
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  // Staged role — reset to the user's actual role whenever the selected user changes.
+  const [stagedRole, setStagedRole] = useState("");
+  useEffect(() => { setStagedRole(selectedUser?.role ?? ""); }, [selectedUser?.email]);
 
   const canInvite    = hasPerm("users.invite");
   const canRemove    = hasPerm("users.remove");
@@ -296,14 +299,14 @@ function UsersTab() {
 
             {/* Role assignment */}
             {canEdit(selectedUser) && (
-              <div>
-                <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide mb-1">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide">
                   Role
                 </label>
                 <div className="flex gap-2">
                   <select
-                    defaultValue={selectedUser.role}
-                    onChange={(e) => updateRoleMut.mutate({ email: selectedUser.email, role: e.target.value })}
+                    value={stagedRole}
+                    onChange={(e) => setStagedRole(e.target.value)}
                     className="flex-1 text-sm rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2"
                     aria-label={`Change role for ${selectedUser.display_name}`}
                   >
@@ -311,7 +314,22 @@ function UsersTab() {
                       <option key={r.name} value={r.name}>{r.label}</option>
                     ))}
                   </select>
+                  <button
+                    onClick={() => updateRoleMut.mutate(
+                      { email: selectedUser.email, role: stagedRole },
+                      { onSuccess: () => setStagedRole(stagedRole) },
+                    )}
+                    disabled={stagedRole === selectedUser.role || updateRoleMut.isPending}
+                    className="btn-primary text-sm px-3 disabled:opacity-40"
+                  >
+                    {updateRoleMut.isPending ? "Saving…" : "Save"}
+                  </button>
                 </div>
+                {stagedRole !== selectedUser.role && (
+                  <p className="text-xs text-[#9B9EA6]">
+                    Changing from <span className="font-medium">{selectedUser.role}</span> to <span className="font-medium text-[#5B9BF0]">{stagedRole}</span>
+                  </p>
+                )}
               </div>
             )}
 
