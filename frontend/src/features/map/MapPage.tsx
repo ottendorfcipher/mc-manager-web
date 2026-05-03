@@ -162,7 +162,7 @@ export function MapPage() {
   // BlueMap exposes window.bluemap — use its controlsManager API directly
   // (no reload). Falls back to a hash URL reload if the API isn't ready yet.
   // Hash format: mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewType (10 fields)
-  function flyTo(dimension: string, x: number, z: number, distance = 500) {
+  function flyTo(dimension: string, x: number, z: number, distance = 150) {
     const d = DIM_MAP.find((d) => d.id === dimension) ?? DIM_MAP[0];
     const win = iframeRef.current?.contentWindow as (Window & { bluemap?: { mapViewer?: { controlsManager?: { position: { x: number; y: number; z: number }; distance: number; rotation: number; angle: number; tilt: number; ortho: number }; map?: { data: { id: string } } }; switchMap?: (id: string) => Promise<void> } }) | null;
     const bm  = win?.bluemap;
