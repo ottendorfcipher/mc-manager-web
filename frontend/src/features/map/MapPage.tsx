@@ -154,9 +154,7 @@ export function MapPage() {
   const [selectedIgn, setSelectedIgn] = useState<string | null>(null);
   const [showPinForm, setShowPinForm] = useState(false);
   const [editingPin, setEditingPin]   = useState<MapPin | null>(null);
-  const [mapKey]                       = useState(0); // key for future forced iframe reload
-
-  // ── Data ────────────────────────────────────────────────────────────────────
+  // ── Data
   const { data: snapshots = [] } = useQuery<PlayerSnapshot[]>({
     queryKey: ["snapshots"],
     queryFn:  () => api.get("/players/snapshots"),
@@ -214,7 +212,7 @@ export function MapPage() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
-      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27]">
+      <aside className="w-72 flex-shrink-0 flex flex-col border-r border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27]">
         {/* Dimension selector */}
         <div className="p-3 border-b border-[#D9D5D0] dark:border-[#363944] space-y-1">
           <p className="text-[10px] uppercase tracking-wider text-[#9B9EA6] font-semibold px-1">Dimension</p>
@@ -405,28 +403,40 @@ export function MapPage() {
         </div>
       </aside>
 
-      {/* ── Map iframe ───────────────────────────────────────────────────────── */}
-      <div className="flex-1 relative overflow-hidden">
-        <iframe
-          key={mapKey}
-          name="bluemap"
-          src={bluemapUrl(dim)}
-          className="w-full h-full border-0"
-          title="World Map"
-          allow="fullscreen"
-        />
+      {/* ── Main area ────────────────────────────────────────────────────────── */}
+      <div className="flex-1 relative overflow-hidden overflow-y-auto bg-[#F7F5F2] dark:bg-[#13151A]">
 
-        {/* Player detail panel (slides in from right) */}
-        {selectedIgn && (
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="pointer-events-auto absolute top-0 right-0 h-full">
-              <PlayerDetailPanel
-                ign={selectedIgn}
-                onClose={() => setSelectedIgn(null)}
-              />
-            </div>
+        {/* Open Map banner */}
+        <div className="p-6 border-b border-[#D9D5D0] dark:border-[#363944] flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">World Map</h1>
+            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">
+              BlueMap requires WebGL2 — opens in its own tab for best compatibility.
+            </p>
           </div>
-        )}
+          <a
+            href={bluemapUrl(dim)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary flex items-center gap-2 text-sm flex-shrink-0"
+          >
+            <MapPinIcon className="w-4 h-4" />
+            Open World Map
+          </a>
+        </div>
+
+        {/* Player detail panel */}
+        {selectedIgn
+          ? <div className="h-full"><PlayerDetailPanel ign={selectedIgn} onClose={() => setSelectedIgn(null)} /></div>
+          : (
+            <div className="p-6 text-sm text-[#9B9EA6]">
+              {snapshots.length === 0
+                ? <p>No player snapshots yet. Click a player in the sidebar, then hit Refresh.</p>
+                : <p>Select a player from the sidebar to view their location and inventory.</p>
+              }
+            </div>
+          )
+        }
       </div>
     </div>
   );
