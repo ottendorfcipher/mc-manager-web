@@ -99,7 +99,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/auth/login",    get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
-        .route("/auth/logout",   delete(handlers::auth::logout))
+        .route("/auth/logout",   get(handlers::auth::logout))
         .route("/internal/budget-alert",  post(handlers::budget::webhook))
         .route("/internal/player-joined",  post(handlers::pending_players::player_joined))
         .nest("/api", api)

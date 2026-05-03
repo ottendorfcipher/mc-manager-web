@@ -132,19 +132,14 @@ export interface MetricsSnapshot {
 }
 
 export interface BackupRun {
-  id:               number;
-  filename:         string;
-  file_path:        string;
-  size_bytes:       number;
-  created_by:       string;
-  created_at:       string;
-  notes:            string | null;
-  /** 'local' | 'cloud' */
-  storage_location: string;
-  /** gs://bucket/backups/filename — null for local-only backups */
-  gcs_uri:            string | null;
-  /** true = stored under the 1-year lifecycle prefix instead of 30 days */
-  extended_retention: boolean;
+  id:         number;
+  filename:   string;
+  /** Full path of the archive on mc-server-1 */
+  file_path:  string;
+  size_bytes: number;
+  created_by: string;
+  created_at: string;
+  notes:      string | null;
 }
 
 export type RoleLevel = 1 | 2 | 3 | 4;

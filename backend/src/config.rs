@@ -15,15 +15,14 @@ pub struct Config {
     /// Shared secret for the Pub/Sub budget webhook. When `None` the webhook
     /// endpoint returns 404, keeping the surface area small in dev.
     pub budget_webhook_token: Option<String>,
-    pub backup_dir: PathBuf,
     pub gcloud_bin: PathBuf,
     pub gcp_project: String,
     pub gcp_zone: String,
     pub gcp_instance: String,
     pub tailscale_ip: String,
-    /// Optional GCS bucket for cloud backup storage (e.g. "my-mc-backups").
-    /// If not set, cloud backup creation is disabled at runtime.
-    pub gcs_backup_bucket: Option<String>,
+    /// Remote path on mc-server-1 where daily backups are stored.
+    /// Used for listing, downloading, and creating backups over SSH.
+    pub mc_backup_dir: String,
     /// Shared secret for the mc-server-1 watchdog webhook.
     /// When `None` the endpoint returns 401 for every request.
     pub watchdog_token: Option<String>,
@@ -47,13 +46,6 @@ impl Config {
                 "https://example.com/auth/callback",
             ),
             budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN").ok().filter(|s| !s.is_empty()),
-            backup_dir: PathBuf::from(env_or(
-                "BACKUP_DIR",
-                &format!(
-                    "{}/Desktop/minecraft server/backups",
-                    home_dir()
-                ),
-            )),
             gcloud_bin: PathBuf::from(env_or(
                 "GCLOUD_BIN",
                 &format!("{}/google-cloud-sdk/bin/gcloud", home_dir()),
@@ -62,7 +54,7 @@ impl Config {
             gcp_zone: env_or("GCP_ZONE", "us-central1-a"),
             gcp_instance: env_or("GCP_INSTANCE", "mc-server-spot"),
             tailscale_ip: env_or("TAILSCALE_IP", "100.64.0.3"),
-            gcs_backup_bucket: std::env::var("GCS_BACKUP_BUCKET").ok().filter(|s| !s.is_empty()),
+            mc_backup_dir: env_or("MC_BACKUP_DIR", "/opt/minecraft/backups/daily"),
             watchdog_token: std::env::var("WATCHDOG_TOKEN").ok().filter(|s| !s.is_empty()),
         }
     }
