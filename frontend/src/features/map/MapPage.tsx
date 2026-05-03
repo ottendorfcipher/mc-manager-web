@@ -359,7 +359,8 @@ export function MapPage() {
                 {dimPins.map((pin) => (
                   <div
                     key={pin.id}
-                    className="group flex items-start gap-1.5 px-2 py-1.5 rounded-lg hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
+                    onClick={() => flyTo(pin.dimension, pin.x, pin.z)}
+                    className="group flex items-start gap-1.5 px-2 py-1.5 rounded-lg hover:bg-[#EFF6FF] dark:hover:bg-[#1E3A5F] cursor-pointer"
                   >
                     <span className="text-base flex-shrink-0 mt-0.5">
                       {ICON_EMOJI[pin.icon] ?? "📍"}
@@ -383,25 +384,17 @@ export function MapPage() {
                       )}
                     </div>
                     <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
-                      {/* Navigate to pin */}
-                      <button
-                        onClick={() => { flyTo(pin.dimension, pin.x, pin.z); }}
-                        title="Fly to on map"
-                        className="p-1 rounded hover:bg-[#EFF6FF] text-[#9B9EA6] hover:text-[#5B9BF0]"
-                      >
-                        <Navigation className="w-3 h-3" />
-                      </button>
                       {(canManagePins || pin.created_by === user?.email) && (
                         <>
                           <button
-                            onClick={() => { setEditingPin(pin); setShowPinForm(false); }}
+                            onClick={(e) => { e.stopPropagation(); setEditingPin(pin); setShowPinForm(false); }}
                             className="p-1 rounded hover:bg-[#F0EDE9] text-[#9B9EA6] hover:text-[#6B6E78]"
                             title="Edit"
                           >
                             <Edit2 className="w-3 h-3" />
                           </button>
                           <button
-                            onClick={() => deletePinMut.mutate(pin.id)}
+                            onClick={(e) => { e.stopPropagation(); deletePinMut.mutate(pin.id); }}
                             disabled={deletePinMut.isPending}
                             className="p-1 rounded hover:bg-[#FEE2E2] text-[#9B9EA6] hover:text-[#F87171]"
                             title="Delete"
