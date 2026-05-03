@@ -55,6 +55,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/server/service/:action",           post(handlers::server::service_action))
         .route("/console",                          post(handlers::server::send_console))
         // Granular Minecraft server commands
+        .route("/server/whitelist",                 get(handlers::server::list_whitelist))
         .route("/server/whitelist/:action",         post(handlers::server::whitelist_action))
         .route("/server/op/:action",                post(handlers::server::op_action))
         .route("/server/kick",                      post(handlers::server::kick_player))
@@ -79,6 +80,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/kill-switch",                      get(handlers::kill_switch::get)
                                                         .post(handlers::kill_switch::engage)
                                                         .delete(handlers::kill_switch::release))
+        // Pending Minecraft players (admission queue)
+        .route("/players/pending",                  get(handlers::pending_players::list))
+        .route("/players/pending/:ign/approve",     post(handlers::pending_players::approve))
+        .route("/players/pending/:ign",             delete(handlers::pending_players::reject))
+        // Rejected players (blocklist)
+        .route("/players/rejected",                 get(handlers::pending_players::list_rejected))
+        .route("/players/rejected/:ign/reinstate",  post(handlers::pending_players::reinstate))
+        .route("/players/rejected/:ign/approve",    post(handlers::pending_players::approve))
         // Permission catalog (read-only; editing is via /roles/:role/permissions)
         .route("/permissions",                      get(handlers::permissions::list));
 
@@ -91,7 +100,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login",    get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
         .route("/auth/logout",   delete(handlers::auth::logout))
-        .route("/internal/budget-alert", post(handlers::budget::webhook))
+        .route("/internal/budget-alert",  post(handlers::budget::webhook))
+        .route("/internal/player-joined",  post(handlers::pending_players::player_joined))
         .nest("/api", api)
         .layer(TraceLayer::new_for_http())
         .layer(

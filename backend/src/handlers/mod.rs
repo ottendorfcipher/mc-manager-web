@@ -4,6 +4,7 @@ pub mod budget;
 pub mod kill_switch;
 pub mod mc_players;
 pub mod metrics;
+pub mod pending_players;
 pub mod permissions;
 pub mod properties;
 pub mod roles;

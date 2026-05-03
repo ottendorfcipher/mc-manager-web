@@ -85,7 +85,7 @@ export function BackupsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Backups</h1>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">World snapshots — stored locally or in Google Cloud Storage</p>
+          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">World snapshots — stored on the server</p>
         </div>
         {canCreate && (
           <div className="flex items-center gap-2">

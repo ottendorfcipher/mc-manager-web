@@ -24,6 +24,9 @@ pub struct Config {
     /// Optional GCS bucket for cloud backup storage (e.g. "my-mc-backups").
     /// If not set, cloud backup creation is disabled at runtime.
     pub gcs_backup_bucket: Option<String>,
+    /// Shared secret for the mc-server-1 watchdog webhook.
+    /// When `None` the endpoint returns 401 for every request.
+    pub watchdog_token: Option<String>,
 }
 
 impl Config {
@@ -60,6 +63,7 @@ impl Config {
             gcp_instance: env_or("GCP_INSTANCE", "mc-server-spot"),
             tailscale_ip: env_or("TAILSCALE_IP", "100.64.0.3"),
             gcs_backup_bucket: std::env::var("GCS_BACKUP_BUCKET").ok().filter(|s| !s.is_empty()),
+            watchdog_token: std::env::var("WATCHDOG_TOKEN").ok().filter(|s| !s.is_empty()),
         }
     }
 }
