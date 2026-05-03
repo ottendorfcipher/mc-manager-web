@@ -8,6 +8,7 @@ import { DashboardPage }    from "@/features/dashboard/DashboardPage";
 import { ServerPage }       from "@/features/server-control/ServerPage";
 import { TeamPage }         from "@/features/team/TeamPage";
 import { BackupsPage }      from "@/features/backups/BackupsPage";
+import { MapPage }          from "@/features/map/MapPage";
 import { ConfigurePage }    from "@/features/configure/ConfigurePage";
 import { LoginPage }        from "@/features/auth/LoginPage";
 import { AdminPage }        from "@/features/admin/AdminPage";
@@ -39,6 +40,7 @@ export default function App() {
                       <Route path="/"                    element={<DashboardPage />} />
                       <Route path="/server"              element={<ServerPage />} />
                       <Route path="/team"                element={<TeamPage />} />
+                      <Route path="/map"                 element={<MapPage />} />
                       <Route path="/backups"             element={<BackupsPage />} />
                       <Route path="/configure"           element={<ConfigurePage />} />
                       <Route path="/admin"              element={<AdminPage />} />

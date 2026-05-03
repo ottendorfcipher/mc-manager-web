@@ -1,8 +1,10 @@
 pub mod audit;
 pub mod backups;
 pub mod kill_switch;
+pub mod map_pins;
 pub mod pending_players;
 pub mod permissions;
+pub mod player_snapshots;
 pub mod players;
 pub mod prefs;
 pub mod roles;

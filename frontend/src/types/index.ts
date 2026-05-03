@@ -131,6 +131,41 @@ export interface MetricsSnapshot {
   vm_cpu_pct:     number | null;
 }
 
+export interface InventorySlot {
+  id:    string;   // e.g. "minecraft:diamond"
+  count: number;
+  slot:  number;   // 0-8 hotbar, 9-35 main, 100-103 armor, -106 offhand
+}
+
+export interface PlayerSnapshot {
+  id:             number;
+  uuid:           string;
+  ign:            string;
+  x:              number;
+  y:              number;
+  z:              number;
+  yaw:            number;
+  dimension:      string;
+  inventory_json: string;  // JSON-encoded InventorySlot[]
+  health:         number;
+  captured_at:    string;
+}
+
+export interface MapPin {
+  id:         number;
+  x:          number;
+  z:          number;
+  dimension:  string;
+  label:      string;
+  body:       string | null;
+  icon:       string;
+  /** "private" = author only; "team" = all users */
+  visibility: "private" | "team";
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BackupRun {
   id:         number;
   filename:   string;
