@@ -1,11 +1,14 @@
 pub mod auth;
 pub mod backups;
 pub mod budget;
+pub mod give_item;
 pub mod kill_switch;
+pub mod map_pins;
 pub mod mc_players;
 pub mod metrics;
 pub mod pending_players;
 pub mod permissions;
+pub mod player_data;
 pub mod properties;
 pub mod roles;
 pub mod server;

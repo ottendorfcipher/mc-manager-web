@@ -21,8 +21,13 @@ pub struct Config {
     pub gcp_instance: String,
     pub tailscale_ip: String,
     /// Remote path on mc-server-1 where daily backups are stored.
-    /// Used for listing, downloading, and creating backups over SSH.
     pub mc_backup_dir: String,
+    /// Remote path of the Minecraft server data directory on mc-server-1.
+    pub mc_server_dir: String,
+    /// Remote path where helper scripts (get-player-data.py, give-item.py) live.
+    pub mc_scripts_dir: String,
+    /// Local path on the web server where BlueMap tiles are served from.
+    pub map_tiles_dir: String,
     /// Shared secret for the mc-server-1 watchdog webhook.
     /// When `None` the endpoint returns 401 for every request.
     pub watchdog_token: Option<String>,
@@ -55,6 +60,9 @@ impl Config {
             gcp_instance: env_or("GCP_INSTANCE", "mc-server-spot"),
             tailscale_ip: env_or("TAILSCALE_IP", "100.80.114.91"),
             mc_backup_dir: env_or("MC_BACKUP_DIR", "/opt/minecraft/backups/daily"),
+            mc_server_dir: env_or("MC_SERVER_DIR", "/opt/minecraft/server"),
+            mc_scripts_dir: env_or("MC_SCRIPTS_DIR", "/opt/minecraft/scripts"),
+            map_tiles_dir: env_or("MAP_TILES_DIR", "/opt/redstonecipher/www/map"),
             watchdog_token: std::env::var("WATCHDOG_TOKEN").ok().filter(|s| !s.is_empty()),
         }
     }

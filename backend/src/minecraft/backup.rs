@@ -9,7 +9,7 @@ use crate::{
     gcloud::ssh,
 };
 
-const BACKUP_SCRIPT: &str = "/opt/minecraft/scripts/backup.sh";
+const BACKUP_SCRIPT: &str = "/opt/minecraft/backup.sh";
 const REMOTE_MINECRAFT_DIR: &str = "/opt/minecraft";
 
 /// SSH constants (mirrors gcloud/ssh.rs so we can spawn raw processes for streaming)

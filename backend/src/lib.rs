@@ -88,6 +88,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/players/rejected",                 get(handlers::pending_players::list_rejected))
         .route("/players/rejected/:ign/reinstate",  post(handlers::pending_players::reinstate))
         .route("/players/rejected/:ign/approve",    post(handlers::pending_players::approve))
+        // Player snapshots (inventory + location)
+        .route("/players/snapshots",                get(handlers::player_data::list))
+        .route("/players/snapshots/refresh",        post(handlers::player_data::refresh))
+        .route("/players/snapshots/:ign",           get(handlers::player_data::get))
+        // Give items to a player
+        .route("/players/:ign/give",                post(handlers::give_item::give))
+        // Map pins
+        .route("/map/pins",                         get(handlers::map_pins::list).post(handlers::map_pins::create))
+        .route("/map/pins/:id",                     patch(handlers::map_pins::update).delete(handlers::map_pins::delete))
         // Permission catalog (read-only; editing is via /roles/:role/permissions)
         .route("/permissions",                      get(handlers::permissions::list));
 

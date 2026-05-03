@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
-  Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck,
+  Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map,
 } from "lucide-react";
 import { useAuthStore, useThemeStore } from "@/store/auth";
 
@@ -10,6 +10,7 @@ const NAV = [
   { to: "/",                    icon: Activity,    label: "Dashboard",   perm: "nav.dashboard" },
   { to: "/server",              icon: Server,      label: "Server",      perm: "nav.server" },
   { to: "/team",                icon: Users,       label: "Team",        perm: "nav.team" },
+  { to: "/map",                 icon: Map,         label: "Map",         perm: "nav.map" },
   { to: "/backups",             icon: HardDrive,   label: "Backups",     perm: "nav.backups" },
   { to: "/configure",           icon: Settings,    label: "Configure",   perm: "nav.configure" },
   { to: "/admin",               icon: ShieldCheck, label: "Admin",       perm: "nav.admin" },
