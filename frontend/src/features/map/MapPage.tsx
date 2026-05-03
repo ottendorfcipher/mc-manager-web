@@ -152,20 +152,23 @@ export function MapPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const [dim, setDim]           = useState("minecraft:overworld");
+  const [mapSrc, setMapSrc]     = useState(() => bluemapUrl("minecraft:overworld"));
   const [activeTab, setActiveTab] = useState<"players" | "pins">("players");
   const [selectedIgn, setSelectedIgn] = useState<string | null>(null);
   const [showPinForm, setShowPinForm] = useState(false);
   const [editingPin, setEditingPin]   = useState<MapPin | null>(null);
 
-  // Navigate the BlueMap iframe to a coordinate without a full reload.
-  // BlueMap listens for hashchange and flies to the new position.
+  // Navigate BlueMap to a coordinate by reloading the iframe with the
+  // target hash — BlueMap reads the hash on load to set its initial camera.
   function flyTo(dimension: string, x: number, z: number, zoom = 5) {
     const d = DIM_MAP.find((d) => d.id === dimension) ?? DIM_MAP[0];
-    const hash = `#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${zoom}:0:0`;
-    const win = iframeRef.current?.contentWindow;
-    if (win) {
-      win.location.hash = hash;
-    }
+    setMapSrc(`/map/#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${zoom}:0:0`);
+  }
+
+  // Keep iframe src in sync when the dimension tab changes
+  function changeDim(newDim: string) {
+    setDim(newDim);
+    setMapSrc(bluemapUrl(newDim));
   }
 
   // ── Data
@@ -233,7 +236,7 @@ export function MapPage() {
           {DIM_MAP.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setDim(id)}
+              onClick={() => changeDim(id)}
               className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${
                 dim === id
                   ? "bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0]"
@@ -416,8 +419,9 @@ export function MapPage() {
       <div className="flex-1 relative overflow-hidden">
         <iframe
           ref={iframeRef}
+          key={mapSrc}
           name="bluemap"
-          src={bluemapUrl(dim)}
+          src={mapSrc}
           className="w-full h-full border-0"
           title="World Map"
           allow="fullscreen"
