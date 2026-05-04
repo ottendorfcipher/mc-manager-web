@@ -8,13 +8,13 @@ use crate::error::Result;
 #[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
 #[ts(export)]
 pub struct PendingPlayer {
-    pub id:            i64,
-    pub ign:           String,
-    pub uuid:          Option<String>,
-    pub first_seen:    String,
+    pub id: i64,
+    pub ign: String,
+    pub uuid: Option<String>,
+    pub first_seen: String,
     pub last_attempted: String,
     pub attempt_count: i64,
-    pub status:        String,
+    pub status: String,
 }
 
 /// Determine the admission action for an incoming player and persist the event.
@@ -23,18 +23,13 @@ pub struct PendingPlayer {
 /// - `"allow"`  → IGN is linked to a site user, or first-ever connection (let them play once)
 /// - `"kick"`   → pending (seen before, not yet linked); kick with a message
 /// - `"ban"`    → explicitly rejected by an admin
-pub async fn record_join(
-    pool: &SqlitePool,
-    ign: &str,
-    uuid: Option<&str>,
-) -> Result<&'static str> {
+pub async fn record_join(pool: &SqlitePool, ign: &str, uuid: Option<&str>) -> Result<&'static str> {
     // 1. Already linked to a site user — always allow.
-    let linked: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM player_links WHERE LOWER(ign) = LOWER(?)",
-    )
-    .bind(ign)
-    .fetch_one(pool)
-    .await?;
+    let linked: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM player_links WHERE LOWER(ign) = LOWER(?)")
+            .bind(ign)
+            .fetch_one(pool)
+            .await?;
 
     if linked > 0 {
         return Ok("allow");
@@ -79,7 +74,7 @@ pub async fn record_join(
 
             match p.status.as_str() {
                 "rejected" => Ok("ban"),
-                _          => Ok("kick"), // pending — seen before but not linked
+                _ => Ok("kick"), // pending — seen before but not linked
             }
         }
     }
@@ -94,22 +89,18 @@ pub async fn list_pending(pool: &SqlitePool) -> Result<Vec<PendingPlayer>> {
 }
 
 pub async fn approve(pool: &SqlitePool, ign: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE pending_players SET status = 'approved' WHERE LOWER(ign) = LOWER(?)",
-    )
-    .bind(ign)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE pending_players SET status = 'approved' WHERE LOWER(ign) = LOWER(?)")
+        .bind(ign)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 pub async fn reject(pool: &SqlitePool, ign: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE pending_players SET status = 'rejected' WHERE LOWER(ign) = LOWER(?)",
-    )
-    .bind(ign)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE pending_players SET status = 'rejected' WHERE LOWER(ign) = LOWER(?)")
+        .bind(ign)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -123,11 +114,9 @@ pub async fn list_rejected(pool: &SqlitePool) -> Result<Vec<PendingPlayer>> {
 
 /// Move a rejected player back to pending so they can be re-evaluated.
 pub async fn reinstate(pool: &SqlitePool, ign: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE pending_players SET status = 'pending' WHERE LOWER(ign) = LOWER(?)",
-    )
-    .bind(ign)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE pending_players SET status = 'pending' WHERE LOWER(ign) = LOWER(?)")
+        .bind(ign)
+        .execute(pool)
+        .await?;
     Ok(())
 }

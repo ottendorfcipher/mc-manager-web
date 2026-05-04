@@ -166,6 +166,10 @@ export interface MapPin {
   updated_at: string;
 }
 
+export interface BlueMapSettings {
+  advanced_ui_enabled: boolean;
+}
+
 export interface BackupRun {
   id:         number;
   filename:   string;

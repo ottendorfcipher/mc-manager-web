@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Clock, Cpu, Brain, ServerCrash, Activity } from "lucide-react";
 import { api } from "@/api/client";
@@ -21,6 +21,58 @@ function MetricTile({
   );
 }
 
+/**
+ * Parse a systemctl ActiveEnterTimestamp string (e.g. "Mon 2026-04-28 00:00:00 UTC")
+ * into a Date, or return null if the string is empty / unparseable.
+ */
+function parseUptimeDate(raw: string): Date | null {
+  if (!raw.trim()) return null;
+  // Strip leading day-of-week, swap space→T, replace trailing " UTC" with "Z"
+  const iso = raw
+    .replace(/^\w+\s+/, "")   // "Mon " → ""
+    .replace(" UTC", "Z")      // " UTC" → "Z"
+    .replace(" ", "T");        // "2026-04-28 00:00:00Z" → ISO8601
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Format elapsed seconds as a compact human duration, e.g. "2d 5h 12m". */
+function elapsedLabel(since: Date, now: number): string {
+  const secs = Math.floor((now - since.getTime()) / 1000);
+  if (secs < 0) return "—";
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${secs}s`;
+}
+
+/** Compact "since" label, e.g. "since Apr 28, 00:00". */
+function sinceLabel(since: Date): string {
+  return `since ${since.toLocaleString(undefined, {
+    month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  })}`;
+}
+
+/** Live uptime tile: ticks every 30 s without waiting for a metrics refetch. */
+function UptimeTile({ raw }: { raw: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const since = parseUptimeDate(raw);
+  const value = since ? elapsedLabel(since, now) : "—";
+  const sub   = since ? sinceLabel(since) : undefined;
+
+  return <MetricTile icon={Clock} label="Uptime" value={value} sub={sub} />;
+}
+
 export function DashboardPage() {
   const { data: status } = useQuery<ServerStatus>({
     queryKey: ["server-status"],
@@ -41,7 +93,7 @@ export function DashboardPage() {
     : (status?.service ?? "…");
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="page-wide">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Dashboard</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">
@@ -50,7 +102,7 @@ export function DashboardPage() {
       </div>
 
       {/* Status row */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="card flex items-center gap-3">
           <StatusDot status={vmStatus} />
           <div>
@@ -69,11 +121,10 @@ export function DashboardPage() {
 
       {/* Metrics grid — only shown when live data is available */}
       {metrics ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           <MetricTile icon={Users} label="Online Players"
             value={metrics.players_online != null ? String(metrics.players_online) : "—"} />
-          <MetricTile icon={Clock} label="Uptime"
-            value={metrics.uptime_raw || "—"} />
+          <UptimeTile raw={metrics.uptime_raw} />
           <MetricTile icon={Brain} label="Game Memory"
             value={metrics.jvm_mem_pct != null ? `${metrics.jvm_mem_pct.toFixed(1)}%` : "—"} />
           <MetricTile icon={Cpu}   label="VM CPU"

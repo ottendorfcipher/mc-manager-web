@@ -1,4 +1,8 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use serde::Deserialize;
 
 use crate::{
@@ -13,12 +17,14 @@ use crate::{
 pub struct GiveRequest {
     pub item_id: String,
     #[serde(default = "one")]
-    pub count:   u32,
+    pub count: u32,
     /// Whether the player is currently online. If omitted the backend
     /// checks the live player list automatically.
-    pub online:  Option<bool>,
+    pub online: Option<bool>,
 }
-fn one() -> u32 { 1 }
+fn one() -> u32 {
+    1
+}
 
 /// POST /api/players/:ign/give
 pub async fn give(

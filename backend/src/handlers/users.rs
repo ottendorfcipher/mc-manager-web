@@ -46,18 +46,27 @@ pub async fn invite(
         return Err(AppError::Forbidden(format!(
             "Cannot assign role '{}' (level {}) — your level is {}. \
              You can only invite users to roles strictly below your own.",
-            target_role.name, target_role.level, actor.level()
+            target_role.name,
+            target_role.level,
+            actor.level()
         )));
     }
 
     let user = users::create(&state.pool, &actor.email, body).await?;
-    audit::log(&state.pool, &actor.email, "invite_user", Some(&user.email), None).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "invite_user",
+        Some(&user.email),
+        None,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(user)))
 }
 
 #[derive(Deserialize)]
 pub struct UpdateUser {
-    role:         Option<String>,
+    role: Option<String>,
     display_name: Option<String>,
 }
 
@@ -77,7 +86,9 @@ pub async fn update(
     // DB-backed level check: works for both system and custom roles.
     let target_level = roles::level_for(&state.pool, &target.role).await;
     if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
-        return Err(AppError::Forbidden("Cannot modify a user with equal or higher role".into()));
+        return Err(AppError::Forbidden(
+            "Cannot modify a user with equal or higher role".into(),
+        ));
     }
 
     if let Some(new_role) = &body.role {
@@ -85,7 +96,9 @@ pub async fn update(
             .await?
             .ok_or_else(|| AppError::BadRequest(format!("Role '{new_role}' does not exist")))?;
         if new_role_data.level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
-            return Err(AppError::Forbidden("Cannot assign role equal to or above your own".into()));
+            return Err(AppError::Forbidden(
+                "Cannot assign role equal to or above your own".into(),
+            ));
         }
         users::update_role(&state.pool, &email, new_role).await?;
     }
@@ -110,7 +123,9 @@ pub async fn remove(
 
     let target_level = roles::level_for(&state.pool, &target.role).await;
     if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
-        return Err(AppError::Forbidden("Cannot remove a user with equal or higher role".into()));
+        return Err(AppError::Forbidden(
+            "Cannot remove a user with equal or higher role".into(),
+        ));
     }
     users::remove(&state.pool, &email).await?;
     audit::log(&state.pool, &actor.email, "remove_user", Some(&email), None).await?;
@@ -132,7 +147,9 @@ pub async fn list_players(
 }
 
 #[derive(Deserialize)]
-pub struct ReplacePlayersBody { pub igns: Vec<String> }
+pub struct ReplacePlayersBody {
+    pub igns: Vec<String>,
+}
 
 pub async fn replace_players(
     State(state): State<AppState>,
@@ -160,7 +177,9 @@ pub async fn unlink_player(
 }
 
 #[derive(Deserialize)]
-pub struct SetGamemodeBody { pub gamemode: String }
+pub struct SetGamemodeBody {
+    pub gamemode: String,
+}
 
 pub async fn set_player_gamemode(
     State(state): State<AppState>,

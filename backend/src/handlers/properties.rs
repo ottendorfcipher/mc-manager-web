@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use axum::{extract::State, http::StatusCode, Json};
+use std::collections::HashMap;
 
 use crate::{
     auth::middleware::{require_perm, AuthUser},

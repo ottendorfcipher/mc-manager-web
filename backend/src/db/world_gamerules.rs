@@ -8,8 +8,8 @@ use crate::error::Result;
 #[derive(Debug, Clone, Serialize, TS, sqlx::FromRow)]
 #[ts(export)]
 pub struct GameruleEntry {
-    pub rule:       String,
-    pub value:      String,
+    pub rule: String,
+    pub value: String,
     pub updated_by: String,
     pub updated_at: String,
 }

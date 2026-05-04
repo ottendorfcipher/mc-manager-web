@@ -2,7 +2,10 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::{config::Config, error::{AppError, Result}};
+use crate::{
+    config::Config,
+    error::{AppError, Result},
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -25,11 +28,16 @@ pub async fn run_with_timeout(
     let dest = format!("root@{}", cfg.tailscale_ip);
     let fut = Command::new("ssh")
         .args([
-            "-i", MC_SSH_KEY,
-            "-o", "StrictHostKeyChecking=yes",
-            "-o", &format!("UserKnownHostsFile={MC_KNOWN_HOSTS}"),
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=10",
+            "-i",
+            MC_SSH_KEY,
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            &format!("UserKnownHostsFile={MC_KNOWN_HOSTS}"),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
             &dest,
             command,
         ])
@@ -62,9 +70,10 @@ pub async fn run_with_timeout(
 /// Single quotes in `mc_cmd` are escaped with the POSIX `'\''` idiom so
 /// they cannot break out of the surrounding single-quoted shell string.
 pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
-    let safe_cmd = mc_cmd.replace('\'', r"'\''")
-        .replace('\n', " ")   // newlines would inject extra commands
-        .replace('\r', "");   // strip CR
+    let safe_cmd = mc_cmd
+        .replace('\'', r"'\''")
+        .replace('\n', " ") // newlines would inject extra commands
+        .replace('\r', ""); // strip CR
     let script = format!(
         "FIFO=/opt/minecraft/console.fifo; \
          if [ -p \"$FIFO\" ]; then \
@@ -114,10 +123,22 @@ impl MetricsSnapshot {
             service_active: map.get("active").map(|s| s == "active").unwrap_or(false),
             players_online: map.get("players").and_then(|s| s.parse().ok()).unwrap_or(0),
             uptime_raw: map.get("uptime").cloned().unwrap_or_default(),
-            jvm_mem_pct: map.get("javamem")
-                .and_then(|s| { let s = s.trim(); if s.is_empty() { None } else { s.parse().ok() } }),
-            vm_cpu_pct: map.get("vmcpu")
-                .and_then(|s| { let s = s.trim().trim_end_matches('%').trim(); if s.is_empty() { None } else { s.parse().ok() } }),
+            jvm_mem_pct: map.get("javamem").and_then(|s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    None
+                } else {
+                    s.parse().ok()
+                }
+            }),
+            vm_cpu_pct: map.get("vmcpu").and_then(|s| {
+                let s = s.trim().trim_end_matches('%').trim();
+                if s.is_empty() {
+                    None
+                } else {
+                    s.parse().ok()
+                }
+            }),
         }
     }
 
@@ -137,7 +158,8 @@ mod tests {
 
     #[test]
     fn metrics_parse_active_server() {
-        let output = "ACTIVE:active\nUPTIME:Mon 2026-04-28 00:00:00 UTC\nPLAYERS:3\nJAVAMEM:12.5\nVMCPU:42%";
+        let output =
+            "ACTIVE:active\nUPTIME:Mon 2026-04-28 00:00:00 UTC\nPLAYERS:3\nJAVAMEM:12.5\nVMCPU:42%";
         let m = parse(output);
         assert!(m.service_active);
         assert_eq!(m.players_online, 3);
@@ -153,7 +175,7 @@ mod tests {
         let m = parse(output);
         assert!(!m.service_active);
         assert_eq!(m.players_online, 0);
-        assert_eq!(m.jvm_mem_pct, None,  "empty JAVAMEM should be None");
+        assert_eq!(m.jvm_mem_pct, None, "empty JAVAMEM should be None");
         assert_eq!(m.vm_cpu_pct, Some(5));
     }
 

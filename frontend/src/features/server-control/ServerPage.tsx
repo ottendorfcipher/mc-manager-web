@@ -162,14 +162,15 @@ export function ServerPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-start justify-between">
+    <div className="page">
+      <div className="page-header">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Server Control</h1>
           <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">Manage the VM and world settings</p>
         </div>
         {statusMsg && (
-          <span className="text-xs px-2 py-1 rounded bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0]">
+          <span className="text-xs px-3 py-1.5 rounded-lg bg-[#F0EDE9] dark:bg-[#2A2D38]
+                          text-[#6B6E78] dark:text-[#9BA0B0] self-start">
             {statusMsg}
           </span>
         )}
@@ -303,7 +304,7 @@ export function ServerPage() {
         {/* Time of Day */}
         <div>
           <p className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-2">⏰ Time of Day</p>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {TIME_PRESETS.map(({ label, ticks }) => (
               <button key={label} disabled={!canControl}
                 onClick={() => timeMut.mutate(ticks)}
@@ -317,7 +318,7 @@ export function ServerPage() {
         {/* Weather */}
         <div>
           <p className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-2">🌤️ Weather</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {WEATHER_PRESETS.map(({ label, kind, gif, poster }) => (
               <button
                 key={kind}
@@ -328,7 +329,7 @@ export function ServerPage() {
                 style={{
                   backgroundImage: `url('${hoveredWeather === kind ? gif : poster}')`,
                 }}
-                className="relative h-28 rounded-xl overflow-hidden bg-cover bg-center
+              className="relative h-24 sm:h-28 rounded-xl overflow-hidden bg-cover bg-center
                            border-2 border-transparent hover:border-[#5B9BF0]
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
                            transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"

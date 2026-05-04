@@ -22,37 +22,37 @@ use crate::error::{AppError, Result};
 #[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
 #[ts(export)]
 pub struct Role {
-    pub name:        String,
-    pub label:       String,
+    pub name: String,
+    pub label: String,
     pub description: String,
-    pub color:       String,
-    pub level:       i64,
-    pub is_system:   bool,
-    pub created_by:  String,
-    pub created_at:  String,
+    pub color: String,
+    pub level: i64,
+    pub is_system: bool,
+    pub created_by: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export)]
 pub struct CreateRole {
     /// Slug identifier: `^[a-z][a-z0-9_-]{0,31}$`.
-    pub name:        String,
-    pub label:       String,
+    pub name: String,
+    pub label: String,
     pub description: Option<String>,
     /// 6-digit hex colour, e.g. `#5B9BF0`.
-    pub color:       Option<String>,
+    pub color: Option<String>,
     /// Must be strictly less than the creating actor's role level.
-    pub level:       i64,
+    pub level: i64,
 }
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export)]
 pub struct UpdateRole {
-    pub label:       Option<String>,
+    pub label: Option<String>,
     pub description: Option<String>,
-    pub color:       Option<String>,
+    pub color: Option<String>,
     /// Only honoured for custom (non-system) roles.
-    pub level:       Option<i64>,
+    pub level: Option<i64>,
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────────
@@ -67,7 +67,11 @@ fn validate_name(name: &str) -> Result<()> {
         ));
     }
     let mut chars = name.chars();
-    if !chars.next().map(|c| c.is_ascii_lowercase()).unwrap_or(false) {
+    if !chars
+        .next()
+        .map(|c| c.is_ascii_lowercase())
+        .unwrap_or(false)
+    {
         return Err(AppError::BadRequest(
             "Role name must start with a lowercase letter (a–z)".into(),
         ));
@@ -90,10 +94,7 @@ fn validate_name(name: &str) -> Result<()> {
 
 fn validate_color(color: &str) -> Result<()> {
     let bytes = color.as_bytes();
-    if bytes.len() != 7
-        || bytes[0] != b'#'
-        || !bytes[1..].iter().all(|b| b.is_ascii_hexdigit())
-    {
+    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::BadRequest(
             "Color must be a 6-digit hex value (e.g. #5B9BF0)".into(),
         ));
@@ -186,7 +187,12 @@ pub async fn create(pool: &SqlitePool, actor: &str, req: CreateRole) -> Result<R
 }
 
 /// Update role metadata.  For system roles, `level` changes are rejected.
-pub async fn update(pool: &SqlitePool, name: &str, req: UpdateRole, is_system: bool) -> Result<Role> {
+pub async fn update(
+    pool: &SqlitePool,
+    name: &str,
+    req: UpdateRole,
+    is_system: bool,
+) -> Result<Role> {
     if let Some(c) = &req.color {
         validate_color(c)?;
     }
@@ -198,19 +204,31 @@ pub async fn update(pool: &SqlitePool, name: &str, req: UpdateRole, is_system: b
     // Apply each field that was supplied — partial update semantics.
     if let Some(v) = &req.label {
         sqlx::query("UPDATE roles SET label = ? WHERE name = ?")
-            .bind(v).bind(name).execute(pool).await?;
+            .bind(v)
+            .bind(name)
+            .execute(pool)
+            .await?;
     }
     if let Some(v) = &req.description {
         sqlx::query("UPDATE roles SET description = ? WHERE name = ?")
-            .bind(v).bind(name).execute(pool).await?;
+            .bind(v)
+            .bind(name)
+            .execute(pool)
+            .await?;
     }
     if let Some(v) = &req.color {
         sqlx::query("UPDATE roles SET color = ? WHERE name = ?")
-            .bind(v).bind(name).execute(pool).await?;
+            .bind(v)
+            .bind(name)
+            .execute(pool)
+            .await?;
     }
     if let Some(v) = req.level {
         sqlx::query("UPDATE roles SET level = ? WHERE name = ?")
-            .bind(v).bind(name).execute(pool).await?;
+            .bind(v)
+            .bind(name)
+            .execute(pool)
+            .await?;
     }
     get(pool, name)
         .await?
@@ -248,11 +266,11 @@ mod tests {
 
     #[test]
     fn invalid_names() {
-        assert!(validate_name("").is_err());             // empty
-        assert!(validate_name("Admin").is_err());        // uppercase
-        assert!(validate_name("2cool").is_err());        // digit start
-        assert!(validate_name("has space").is_err());    // space
-        assert!(validate_name("admin").is_err());        // reserved
+        assert!(validate_name("").is_err()); // empty
+        assert!(validate_name("Admin").is_err()); // uppercase
+        assert!(validate_name("2cool").is_err()); // digit start
+        assert!(validate_name("has space").is_err()); // space
+        assert!(validate_name("admin").is_err()); // reserved
         assert!(validate_name("global_admin").is_err()); // reserved
         assert!(validate_name(&"a".repeat(33)).is_err()); // too long
     }
@@ -266,9 +284,9 @@ mod tests {
 
     #[test]
     fn invalid_colors() {
-        assert!(validate_color("5B9BF0").is_err());   // missing #
-        assert!(validate_color("#5B9BF").is_err());   // too short
-        assert!(validate_color("#GG0000").is_err());  // invalid hex
+        assert!(validate_color("5B9BF0").is_err()); // missing #
+        assert!(validate_color("#5B9BF").is_err()); // too short
+        assert!(validate_color("#GG0000").is_err()); // invalid hex
         assert!(validate_color("#5B9BF00").is_err()); // too long
     }
 }

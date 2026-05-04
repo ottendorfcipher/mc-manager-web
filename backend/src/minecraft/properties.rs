@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use crate::{config::Config, error::Result, gcloud::ssh};
+use std::collections::HashMap;
 
 const REMOTE_PROPS: &str = "/opt/minecraft/server.properties";
-const REMOTE_TMP:   &str = "/tmp/server_props_update.properties";
+const REMOTE_TMP: &str = "/tmp/server_props_update.properties";
 
 /// Fetch server.properties as a key-value map.
 pub async fn get_all(cfg: &Config) -> Result<HashMap<String, String>> {
@@ -12,10 +12,7 @@ pub async fn get_all(cfg: &Config) -> Result<HashMap<String, String>> {
 
 /// Apply a map of updates to server.properties and restart the service.
 /// Only keys present in `updates` are modified; all others are preserved.
-pub async fn apply_updates(
-    cfg: &Config,
-    updates: &HashMap<String, String>,
-) -> Result<()> {
+pub async fn apply_updates(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
     // Read existing content
     let (existing, _) = ssh::run(cfg, &format!("cat {REMOTE_PROPS}")).await?;
 
@@ -28,16 +25,12 @@ pub async fn apply_updates(
          sudo chown minecraft:minecraft {dest} && \
          sudo systemctl restart minecraft && echo DONE",
         content = shell_escape(&new_content),
-        tmp  = REMOTE_TMP,
+        tmp = REMOTE_TMP,
         dest = REMOTE_PROPS,
     );
 
-    let (out, _) = ssh::run_with_timeout(
-        cfg,
-        &write_cmd,
-        std::time::Duration::from_secs(60),
-    )
-    .await?;
+    let (out, _) =
+        ssh::run_with_timeout(cfg, &write_cmd, std::time::Duration::from_secs(60)).await?;
 
     if !out.contains("DONE") {
         return Err(crate::error::AppError::ExternalCommand(
@@ -208,12 +201,15 @@ mod tests {
     #[test]
     fn shell_escape_all_specials() {
         // Input built without escape confusion: backslash + apostrophe + newline
-        let input = format!("{}'{}" , "\\", "\n");
+        let input = format!("{}'{}", "\\", "\n");
         let out = shell_escape(&input);
         assert!(out.starts_with("$'") && out.ends_with("'"));
-        assert!(out.contains(r"\\"),   "backslash must be doubled to \\\\");
-        assert!(out.contains(r"\'"),   "apostrophe must become \\'");
-        assert!(out.contains(r"\n"),   "newline must become literal \\n");
-        assert!(!out.contains('\n'), "actual newline must not appear in output");
+        assert!(out.contains(r"\\"), "backslash must be doubled to \\\\");
+        assert!(out.contains(r"\'"), "apostrophe must become \\'");
+        assert!(out.contains(r"\n"), "newline must become literal \\n");
+        assert!(
+            !out.contains('\n'),
+            "actual newline must not appear in output"
+        );
     }
 }

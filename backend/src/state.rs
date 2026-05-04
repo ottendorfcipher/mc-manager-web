@@ -1,12 +1,12 @@
-use sqlx::SqlitePool;
 use crate::config::Config;
+use sqlx::SqlitePool;
 
 /// Shared state cloned into every handler via Axum's `State` extractor.
 #[derive(Clone)]
 pub struct AppState {
-    pub pool:   SqlitePool,
+    pub pool: SqlitePool,
     pub config: Config,
-    pub http:   reqwest::Client,
+    pub http: reqwest::Client,
 }
 
 impl AppState {

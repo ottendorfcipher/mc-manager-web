@@ -7,10 +7,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 
-use crate::{
-    db::kill_switch,
-    state::AppState,
-};
+use crate::{db::kill_switch, state::AppState};
 
 /// Pub/Sub push message envelope.
 ///
@@ -107,8 +104,7 @@ pub async fn webhook(
     );
 
     // Engage at >= 100%. Lower thresholds (e.g. 50/90) only log.
-    let should_engage =
-        alert.alert_threshold_exceeded.unwrap_or(ratio) >= 1.0 || ratio >= 1.0;
+    let should_engage = alert.alert_threshold_exceeded.unwrap_or(ratio) >= 1.0 || ratio >= 1.0;
     if should_engage {
         let reason = format!(
             "Budget exceeded: ${:.2} of ${:.2}",

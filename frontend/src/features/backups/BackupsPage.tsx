@@ -54,8 +54,8 @@ export function BackupsPage() {
   });
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="page">
+      <div className="page-header">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Backups</h1>
           <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
@@ -66,7 +66,7 @@ export function BackupsPage() {
           <button
             onClick={() => createMut.mutate()}
             disabled={createMut.isPending}
-            className="btn-primary flex items-center gap-2 text-sm"
+            className="btn-primary flex items-center gap-2 text-sm flex-shrink-0"
           >
             <Plus className="w-4 h-4" />
             {createMut.isPending ? "Creating…" : "Create Backup"}
@@ -117,24 +117,28 @@ export function BackupsPage() {
       ) : (
         <div className="space-y-2">
           {backups.map((b) => (
-            <div key={b.id} className="card flex items-center gap-4">
-              <Server className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" aria-hidden />
+            <div key={b.id} className="card flex items-center gap-3">
+              <Server className="w-4 h-4 text-[#9B9EA6] flex-shrink-0 hidden sm:block" aria-hidden />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate">{b.filename}</p>
-                <p className="text-xs text-[#9B9EA6] mt-0.5">{humanBytes(b.size_bytes)} · {relativeTime(b.created_at)} · mc-server-1</p>
+                <p className="text-xs text-[#9B9EA6] mt-0.5">{humanBytes(b.size_bytes)} · {relativeTime(b.created_at)}</p>
               </div>
-              <div className="flex gap-1.5 flex-shrink-0">
-                <a href={`/api/backups/${b.id}`} download={b.filename} title="Download" className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]">
-                  <Download className="w-3.5 h-3.5" />
+              <div className="flex flex-shrink-0">
+                <a href={`/api/backups/${b.id}`} download={b.filename}
+                  title="Download"
+                  className="icon-btn">
+                  <Download className="w-4 h-4" />
                 </a>
                 {canRestore && (
-                  <button onClick={() => setRestoreId(b.id)} title="Set as current version" className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#5B9BF0]">
-                    <RotateCcw className="w-3.5 h-3.5" />
+                  <button onClick={() => setRestoreId(b.id)} title="Set as current version"
+                    className="icon-btn text-[#9B9EA6] hover:text-[#5B9BF0]">
+                    <RotateCcw className="w-4 h-4" />
                   </button>
                 )}
                 {canRestore && (
-                  <button onClick={() => deleteMut.mutate(b.id)} title="Delete" className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#F87171]">
-                    <Trash2 className="w-3.5 h-3.5" />
+                  <button onClick={() => deleteMut.mutate(b.id)} title="Delete"
+                    className="icon-btn-danger">
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
               </div>

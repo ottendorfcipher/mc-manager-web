@@ -16,7 +16,7 @@ pub struct McPlayer {
 pub async fn fetch_all(cfg: &Config) -> Result<Vec<McPlayer>> {
     let script = concat!(
         "echo '=CACHE=' && cat /opt/minecraft/usercache.json 2>/dev/null || echo '[]'; ",
-        "echo; ",   // <-- blank line prevents JSON + =ONLINE= merging
+        "echo; ", // <-- blank line prevents JSON + =ONLINE= merging
         "echo '=ONLINE=' && ",
         "grep -E '(joined the game|left the game)' /opt/minecraft/logs/latest.log 2>/dev/null ",
         "  | tail -100"
@@ -40,7 +40,10 @@ fn parse_output(output: &str) -> Vec<McPlayer> {
     for line in output.lines() {
         let s = line.trim();
         match s {
-            "=CACHE=" => { section = "cache"; cache_json.clear(); }
+            "=CACHE=" => {
+                section = "cache";
+                cache_json.clear();
+            }
             "=ONLINE=" => {
                 section = "online";
             }
@@ -96,7 +99,7 @@ mod tests {
         let players = parse_output(output);
         assert_eq!(players.len(), 2);
         let steve = players.iter().find(|p| p.ign == "Steve").unwrap();
-        let alex  = players.iter().find(|p| p.ign == "Alex").unwrap();
+        let alex = players.iter().find(|p| p.ign == "Alex").unwrap();
         assert!(!steve.online);
         assert!(alex.online);
     }
@@ -131,7 +134,10 @@ mod tests {
             "[10:01:00] [Server thread/INFO]: Steve left the game\n",
         );
         let players = parse_output(output);
-        assert!(!players[0].online, "player who joined then left should be offline");
+        assert!(
+            !players[0].online,
+            "player who joined then left should be offline"
+        );
     }
 
     #[test]

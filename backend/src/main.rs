@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let state = lib::AppState::new(pool, cfg.clone());
-    let app   = lib::build_router(state);
+    let app = lib::build_router(state);
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

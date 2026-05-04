@@ -151,7 +151,10 @@ async fn kill_switch_engage_and_release() {
         .await;
     assert_eq!(engage_res.status_code(), StatusCode::OK);
     let body: serde_json::Value = engage_res.json();
-    assert!(body["disabled_at"].is_string(), "disabled_at should be set after engage");
+    assert!(
+        body["disabled_at"].is_string(),
+        "disabled_at should be set after engage"
+    );
     assert_eq!(body["reason"], "integration test");
 
     // Release
@@ -161,7 +164,10 @@ async fn kill_switch_engage_and_release() {
         .await;
     assert_eq!(release_res.status_code(), StatusCode::OK);
     let body: serde_json::Value = release_res.json();
-    assert!(body["disabled_at"].is_null(), "disabled_at should be null after release");
+    assert!(
+        body["disabled_at"].is_null(),
+        "disabled_at should be null after release"
+    );
 }
 
 // ── Kill-switch guard middleware tests ────────────────────────────────────────
@@ -171,13 +177,9 @@ async fn kill_switch_guard_blocks_mutations_when_engaged() {
     let (srv, state) = server().await;
 
     // Engage the kill-switch directly via the DB layer
-    redstonecipher_server::db::kill_switch::engage(
-        &state.pool,
-        "test guard",
-        "test",
-    )
-    .await
-    .expect("engage failed");
+    redstonecipher_server::db::kill_switch::engage(&state.pool, "test guard", "test")
+        .await
+        .expect("engage failed");
 
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
 
@@ -496,7 +498,10 @@ async fn budget_webhook_100pct_alert_engages_kill_switch() {
     let ks = redstonecipher_server::db::kill_switch::status(&state.pool)
         .await
         .expect("status query failed");
-    assert!(ks.is_engaged(), "kill-switch should be engaged after 100% budget alert");
+    assert!(
+        ks.is_engaged(),
+        "kill-switch should be engaged after 100% budget alert"
+    );
 }
 
 #[tokio::test]
@@ -523,7 +528,10 @@ async fn budget_webhook_50pct_alert_does_not_engage_kill_switch() {
     let ks = redstonecipher_server::db::kill_switch::status(&state.pool)
         .await
         .expect("status query failed");
-    assert!(!ks.is_engaged(), "50% alert should NOT engage the kill-switch");
+    assert!(
+        !ks.is_engaged(),
+        "50% alert should NOT engage the kill-switch"
+    );
 }
 
 // ── User management tests ─────────────────────────────────────────────────────
@@ -551,7 +559,10 @@ async fn roles_list_requires_roles_view() {
     let (srv, _) = server().await;
     // Visitor has no roles.view — expect 403
     let cookie = session_cookie("anon@example.com", "nonexistent_role");
-    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
 
@@ -559,7 +570,10 @@ async fn roles_list_requires_roles_view() {
 async fn roles_list_returns_system_roles() {
     let (srv, _) = server().await;
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
-    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     assert_eq!(res.status_code(), StatusCode::OK);
     let roles: Vec<serde_json::Value> = res.json();
     assert!(roles.iter().any(|r| r["name"] == "global_admin"));
@@ -594,7 +608,10 @@ async fn create_custom_role_succeeds() {
     assert_eq!(role["level"], 2);
 
     // Verify it appears in the list
-    let list_res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let list_res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     let roles: Vec<serde_json::Value> = list_res.json();
     assert!(roles.iter().any(|r| r["name"] == "developer"));
 }
@@ -611,7 +628,8 @@ async fn create_role_invalid_name_rejected() {
             .json(&serde_json::json!({ "name": bad_name, "label": "X", "level": 1 }))
             .await;
         assert_eq!(
-            res.status_code(), StatusCode::BAD_REQUEST,
+            res.status_code(),
+            StatusCode::BAD_REQUEST,
             "name '{bad_name}' should be rejected"
         );
     }
@@ -639,7 +657,11 @@ async fn create_role_level_gate_prevents_escalation() {
         .add_header(header::COOKIE, cookie)
         .json(&serde_json::json!({ "name": "superrole", "label": "Super", "level": 4 }))
         .await;
-    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "cannot create role at own level");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "cannot create role at own level"
+    );
 }
 
 #[tokio::test]
@@ -650,7 +672,11 @@ async fn delete_system_role_rejected() {
         .delete("/api/roles/admin")
         .add_header(header::COOKIE, cookie)
         .await;
-    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "system roles cannot be deleted");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "system roles cannot be deleted"
+    );
 }
 
 #[tokio::test]
@@ -665,17 +691,23 @@ async fn delete_role_with_users_rejected() {
         .await;
 
     // Assign a user to it
-    sqlx::query("INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'myteam', 'U', 'test')")
-        .bind("user_on_myteam@example.com")
-        .execute(&state.pool)
-        .await
-        .expect("insert failed");
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'myteam', 'U', 'test')",
+    )
+    .bind("user_on_myteam@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
 
     let res = srv
         .delete("/api/roles/myteam")
         .add_header(header::COOKIE, cookie)
         .await;
-    assert_eq!(res.status_code(), StatusCode::CONFLICT, "role with users must not be deletable");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::CONFLICT,
+        "role with users must not be deletable"
+    );
 }
 
 #[tokio::test]
@@ -836,7 +868,11 @@ async fn delegated_whitelist_invite_works() {
             "role": "visitor"
         }))
         .await;
-    assert_eq!(res.status_code(), StatusCode::CREATED, "admin should be able to whitelist users");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::CREATED,
+        "admin should be able to whitelist users"
+    );
 
     // But admin cannot invite to their own level or higher
     let escalation_res = srv
@@ -877,7 +913,7 @@ async fn users_list_allowed_for_member() {
     let (srv, state) = server().await;
 
     sqlx::query(
-        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')",
     )
     .bind("member2@example.com")
     .execute(&state.pool)
@@ -890,7 +926,11 @@ async fn users_list_allowed_for_member() {
         .get("/api/users")
         .add_header(header::COOKIE, cookie.clone())
         .await;
-    assert_eq!(res.status_code(), StatusCode::OK, "member should be able to list users");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::OK,
+        "member should be able to list users"
+    );
 
     // But member cannot INVITE new users (lacks users.invite)
     let invite_res = srv
@@ -898,5 +938,9 @@ async fn users_list_allowed_for_member() {
         .add_header(header::COOKIE, cookie)
         .json(&serde_json::json!({ "email": "new@example.com", "role": "visitor" }))
         .await;
-    assert_eq!(invite_res.status_code(), StatusCode::FORBIDDEN, "member should NOT be able to invite users");
+    assert_eq!(
+        invite_res.status_code(),
+        StatusCode::FORBIDDEN,
+        "member should NOT be able to invite users"
+    );
 }
