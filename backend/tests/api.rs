@@ -48,12 +48,16 @@ async fn test_state() -> AppState {
         google_client_secret: "test".into(),
         redirect_uri: "https://redstonecipher.com/auth/callback".into(),
         budget_webhook_token: Some("test_budget_token".into()),
-        backup_dir: PathBuf::from("/tmp/test_backups"),
         gcloud_bin: PathBuf::from("/usr/bin/false"), // never actually invoked
         gcp_project: "test-project".into(),
         gcp_zone: "us-central1-a".into(),
         gcp_instance: "test-instance".into(),
         tailscale_ip: "100.0.0.1".into(),
+        mc_backup_dir: "/tmp/test_backups".into(),
+        mc_server_dir: "/tmp/test_server".into(),
+        mc_scripts_dir: "/tmp/test_scripts".into(),
+        map_tiles_dir: "/tmp/test_tiles".into(),
+        watchdog_token: None,
     };
 
     AppState::new(pool, cfg)
