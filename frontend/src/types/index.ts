@@ -166,6 +166,18 @@ export interface MapPin {
   updated_at: string;
 }
 
+export interface ChatMessage {
+  id:         number;
+  /** "mc" | "web" | "server" */
+  source:     "mc" | "web" | "server";
+  /** Raw identifier: email for web, IGN for mc/server. */
+  author:     string;
+  /** Human-readable label shown in the UI. */
+  display_as: string;
+  content:    string;
+  sent_at:    string;
+}
+
 export interface BlueMapSettings {
   advanced_ui_enabled: boolean;
 }

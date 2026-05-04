@@ -21,6 +21,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let state = lib::AppState::new(pool, cfg.clone());
+
+    // Spawn the background task that tails latest.log and feeds the chat channel.
+    lib::minecraft::chat_watcher::spawn(
+        cfg.clone(),
+        state.pool.clone(),
+        state.chat_tx.clone(),
+    );
+
     let app = lib::build_router(state);
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
