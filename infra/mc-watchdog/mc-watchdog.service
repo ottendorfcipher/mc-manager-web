@@ -1,0 +1,29 @@
+[Unit]
+Description=Minecraft Tailscale Admission Watchdog
+Documentation=https://github.com/nweiner/mc-manager-web
+# Start after network is up and the Minecraft service is known to systemd.
+After=network-online.target minecraft.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+
+# All runtime configuration lives in /etc/mc-watchdog.env.
+# Copy infra/mc-watchdog/watchdog.env.example → /etc/mc-watchdog.env and fill in
+# WATCHDOG_TOKEN before starting this service.
+EnvironmentFile=/etc/mc-watchdog.env
+
+ExecStart=/usr/bin/python3 /opt/minecraft/scripts/watchdog.py
+
+# Restart aggressively — the watchdog must always be running.
+Restart=always
+RestartSec=5
+
+# Journal output (view with: journalctl -u mc-watchdog -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mc-watchdog
+
+[Install]
+WantedBy=multi-user.target
