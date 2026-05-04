@@ -173,7 +173,11 @@ pub fn build_router(state: AppState) -> Router {
             get(handlers::bluemap_settings::get).put(handlers::bluemap_settings::update),
         )
         // Permission catalog (read-only; editing is via /roles/:role/permissions)
-        .route("/permissions", get(handlers::permissions::list));
+        .route("/permissions", get(handlers::permissions::list))
+        // Chat
+        .route("/chat/history", get(handlers::chat::history))
+        .route("/chat/stream",  get(handlers::chat::stream))
+        .route("/chat/send",    post(handlers::chat::send));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

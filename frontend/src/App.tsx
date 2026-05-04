@@ -12,6 +12,7 @@ import { MapPage }          from "@/features/map/MapPage";
 import { ConfigurePage }    from "@/features/configure/ConfigurePage";
 import { LoginPage }        from "@/features/auth/LoginPage";
 import { AdminPage }        from "@/features/admin/AdminPage";
+import { ChatPage }         from "@/features/chat/ChatPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -43,6 +44,7 @@ export default function App() {
                       <Route path="/map"                 element={<MapPage />} />
                       <Route path="/backups"             element={<BackupsPage />} />
                       <Route path="/configure"           element={<ConfigurePage />} />
+                      <Route path="/chat"               element={<ChatPage />} />
                       <Route path="/admin"              element={<AdminPage />} />
                       <Route path="/admin/permissions"   element={<AdminPage />} />
                     </Routes>
