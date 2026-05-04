@@ -11,9 +11,9 @@ pub mod roles;
 pub mod users;
 pub mod world_gamerules;
 
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
-use std::str::FromStr;
 use anyhow::Context;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use std::str::FromStr;
 
 /// Initialise the SQLite connection pool and run all pending migrations.
 pub async fn init(database_url: &str) -> anyhow::Result<SqlitePool> {

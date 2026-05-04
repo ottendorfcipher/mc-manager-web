@@ -104,7 +104,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
 
   return (
     <>
-      <div className="absolute top-0 right-0 h-full w-80 bg-white dark:bg-[#1C1E27] border-l border-[#D9D5D0] dark:border-[#363944] flex flex-col z-10 shadow-xl">
+      <div className="absolute top-0 right-0 h-full w-full sm:w-80 bg-white dark:bg-[#1C1E27] border-l border-[#D9D5D0] dark:border-[#363944] flex flex-col z-10 shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#D9D5D0] dark:border-[#363944]">
           <div className="flex items-center gap-2">
@@ -126,7 +126,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
               <button
                 onClick={() => setShowGive(true)}
                 title="Give item"
-                className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#5B9BF0]"
+                className="icon-btn text-[#9B9EA6] hover:text-[#5B9BF0]"
               >
                 <Package className="w-4 h-4" />
               </button>
@@ -135,11 +135,11 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
               onClick={() => refreshMut.mutate()}
               disabled={refreshMut.isPending}
               title="Refresh snapshot"
-              className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+              className="icon-btn"
             >
               <RefreshCw className={`w-4 h-4 ${refreshMut.isPending ? "animate-spin" : ""}`} />
             </button>
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] text-[#9B9EA6] hover:text-[#F87171]">
+            <button onClick={onClose} className="icon-btn hover:text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F]">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -209,6 +209,8 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
               </div>
 
               {/* Main inventory */}
+              {/* Wrap rows so they scroll horizontally if the panel is narrower than 9 slots */}
+              <div className="overflow-x-auto">
               {mainRows.map((row, ri) => (
                 <div key={ri} className="flex gap-1">
                   {row.map((s) => <ItemSlot key={s} slot={s} items={items} />)}
@@ -222,6 +224,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
                 </div>
                 <p className="text-[9px] text-[#9B9EA6] mt-0.5">Hotbar</p>
               </div>
+              </div>{/* end overflow-x-auto */}
             </div>
           </div>
         )}

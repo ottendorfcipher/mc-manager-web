@@ -1,5 +1,5 @@
-use axum::{extract::State, Json};
 use crate::{auth::middleware::AuthUser, error::Result, minecraft::players, state::AppState};
+use axum::{extract::State, Json};
 
 pub async fn list(
     State(state): State<AppState>,

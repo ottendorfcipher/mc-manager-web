@@ -32,10 +32,10 @@ pub struct CreateUser {
 pub fn role_level(role: &str) -> u8 {
     match role {
         "global_admin" => 4,
-        "admin"        => 3,
-        "member"       => 2,
-        "user"         => 1,
-        _              => 0,
+        "admin" => 3,
+        "member" => 2,
+        "user" => 1,
+        _ => 0,
     }
 }
 
@@ -58,11 +58,7 @@ pub async fn get(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
 
 /// Insert a new user.  The caller is responsible for verifying that the
 /// actor's role level exceeds the target role level before calling this.
-pub async fn create(
-    pool: &SqlitePool,
-    actor: &str,
-    req: CreateUser,
-) -> Result<User> {
+pub async fn create(pool: &SqlitePool, actor: &str, req: CreateUser) -> Result<User> {
     if get(pool, &req.email).await?.is_some() {
         return Err(AppError::Conflict(format!("{} already exists", req.email)));
     }
@@ -73,9 +69,13 @@ pub async fn create(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "INSERT INTO users (email, role, display_name, added_by, added_at) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO users (email, role, display_name, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(&req.email).bind(&req.role).bind(&display_name).bind(actor).bind(&now)
+    .bind(&req.email)
+    .bind(&req.role)
+    .bind(&display_name)
+    .bind(actor)
+    .bind(&now)
     .execute(pool)
     .await?;
 
@@ -84,28 +84,22 @@ pub async fn create(
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("insert succeeded but fetch failed")))
 }
 
-pub async fn update_role(
-    pool: &SqlitePool,
-    email: &str,
-    new_role: &str,
-) -> Result<()> {
+pub async fn update_role(pool: &SqlitePool, email: &str, new_role: &str) -> Result<()> {
     if email == GLOBAL_ADMIN {
         return Err(AppError::Forbidden("Global admin role is permanent".into()));
     }
     sqlx::query("UPDATE users SET role = ? WHERE email = ?")
-        .bind(new_role).bind(email)
+        .bind(new_role)
+        .bind(email)
         .execute(pool)
         .await?;
     Ok(())
 }
 
-pub async fn update_display_name(
-    pool: &SqlitePool,
-    email: &str,
-    name: &str,
-) -> Result<()> {
+pub async fn update_display_name(pool: &SqlitePool, email: &str, name: &str) -> Result<()> {
     sqlx::query("UPDATE users SET display_name = ? WHERE email = ?")
-        .bind(name).bind(email)
+        .bind(name)
+        .bind(email)
         .execute(pool)
         .await?;
     Ok(())
@@ -119,7 +113,10 @@ pub async fn update_google_identity(
 ) -> Result<()> {
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     sqlx::query("UPDATE users SET google_sub = ?, avatar_url = ?, last_login = ? WHERE email = ?")
-        .bind(sub).bind(avatar_url).bind(&now).bind(email)
+        .bind(sub)
+        .bind(avatar_url)
+        .bind(&now)
+        .bind(email)
         .execute(pool)
         .await?;
     Ok(())
@@ -146,7 +143,7 @@ fn derive_display_name(email: &str) -> String {
         .map(|w| {
             let mut c = w.chars();
             match c.next() {
-                None    => String::new(),
+                None => String::new(),
                 Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
             }
         })

@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
 use crate::error::Result;
+use sqlx::SqlitePool;
 
 pub async fn get(pool: &SqlitePool, key: &str) -> Result<Option<String>> {
     let row: Option<(String,)> = sqlx::query_as("SELECT value FROM preferences WHERE key = ?")

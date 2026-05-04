@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod backups;
+pub mod bluemap_settings;
 pub mod budget;
 pub mod give_item;
 pub mod kill_switch;

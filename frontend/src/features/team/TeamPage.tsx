@@ -36,7 +36,7 @@ export function TeamPage() {
   );
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="page">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Team</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
@@ -45,7 +45,7 @@ export function TeamPage() {
       </div>
 
       {/* Search + refresh */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <input
           type="search"
           placeholder="Search by name or email…"
@@ -55,7 +55,7 @@ export function TeamPage() {
         />
         <button
           onClick={() => qc.invalidateQueries({ queryKey: ["users", "mc-players"] })}
-          className="btn-secondary p-2"
+          className="icon-btn flex-shrink-0"
           aria-label="Refresh"
         >
           <RefreshCw className="w-4 h-4" />

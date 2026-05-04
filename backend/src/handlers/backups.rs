@@ -30,20 +30,30 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<backups::BackupRun>)> {
     crate::auth::middleware::require_perm(&actor, "backups.create")?;
 
-    let filename = backup::create(&state.config)
-        .await
-        .map_err(|e| { tracing::error!(error = %e, "Backup creation failed"); e })?;
+    let filename = backup::create(&state.config).await.map_err(|e| {
+        tracing::error!(error = %e, "Backup creation failed");
+        e
+    })?;
 
     // Sync to pick up the new file (and any other new cron backups)
     backup::sync_into_db(&state.pool, &state.config).await;
 
     let run = backups::get_by_filename(&state.pool, &filename)
         .await?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!(
-            "Backup was created but not found in DB after sync"
-        )))?;
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "Backup was created but not found in DB after sync"
+            ))
+        })?;
 
-    audit::log(&state.pool, &actor.email, "create_backup", Some(&filename), Some("mc-server-1")).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "create_backup",
+        Some(&filename),
+        Some("mc-server-1"),
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(run)))
 }
 
@@ -59,7 +69,7 @@ pub async fn download(
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
 
     let stream = backup::stream_file(&state.config, &run.file_path)?;
-    let body   = Body::from_stream(stream);
+    let body = Body::from_stream(stream);
 
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/gzip")
@@ -85,7 +95,14 @@ pub async fn delete(
     // Delete the archive from mc-server-1, then remove the DB record
     backup::delete_remote(&state.config, &run.file_path).await?;
     backups::remove(&state.pool, id).await?;
-    audit::log(&state.pool, &actor.email, "delete_backup", Some(&run.filename), None).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "delete_backup",
+        Some(&run.filename),
+        None,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -103,6 +120,13 @@ pub async fn restore(
         .ok_or_else(|| AppError::NotFound(format!("Backup {id} not found")))?;
 
     backup::restore(&state.config, &run.file_path).await?;
-    audit::log(&state.pool, &actor.email, "restore_backup", Some(&run.filename), None).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "restore_backup",
+        Some(&run.filename),
+        None,
+    )
+    .await?;
     Ok(StatusCode::ACCEPTED)
 }

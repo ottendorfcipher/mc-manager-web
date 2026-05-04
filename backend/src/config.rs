@@ -46,11 +46,10 @@ impl Config {
             jwt_secret: require_env("JWT_SECRET"),
             google_client_id: require_env("GOOGLE_CLIENT_ID"),
             google_client_secret: require_env("GOOGLE_CLIENT_SECRET"),
-            redirect_uri: env_or(
-                "REDIRECT_URI",
-                "https://redstonecipher.com/auth/callback",
-            ),
-            budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN").ok().filter(|s| !s.is_empty()),
+            redirect_uri: env_or("REDIRECT_URI", "https://redstonecipher.com/auth/callback"),
+            budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
             gcloud_bin: PathBuf::from(env_or(
                 "GCLOUD_BIN",
                 &format!("{}/google-cloud-sdk/bin/gcloud", home_dir()),
@@ -63,7 +62,9 @@ impl Config {
             mc_server_dir: env_or("MC_SERVER_DIR", "/opt/minecraft/server"),
             mc_scripts_dir: env_or("MC_SCRIPTS_DIR", "/opt/minecraft/scripts"),
             map_tiles_dir: env_or("MAP_TILES_DIR", "/opt/redstonecipher/www/map"),
-            watchdog_token: std::env::var("WATCHDOG_TOKEN").ok().filter(|s| !s.is_empty()),
+            watchdog_token: std::env::var("WATCHDOG_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         }
     }
 }
@@ -89,9 +90,8 @@ where
     std::env::var(key)
         .ok()
         .map(|v| {
-            v.parse::<T>().unwrap_or_else(|e| {
-                panic!("Failed to parse env var '{key}' = '{v}': {e:?}")
-            })
+            v.parse::<T>()
+                .unwrap_or_else(|e| panic!("Failed to parse env var '{key}' = '{v}': {e:?}"))
         })
         .unwrap_or(default)
 }

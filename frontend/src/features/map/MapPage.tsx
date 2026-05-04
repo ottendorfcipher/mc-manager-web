@@ -1,10 +1,10 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin as MapPinIcon, Users, Plus, Globe, Flame, Moon,
          Eye, EyeOff, Trash2, Edit2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
-import type { MapPin, PlayerSnapshot, McPlayer } from "@/types";
+import type { BlueMapSettings, MapPin, PlayerSnapshot, McPlayer } from "@/types";
 import { PlayerDetailPanel } from "./PlayerDetailPanel";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -157,12 +157,14 @@ export function MapPage() {
   const [selectedIgn, setSelectedIgn] = useState<string | null>(null);
   const [showPinForm, setShowPinForm] = useState(false);
   const [editingPin, setEditingPin]   = useState<MapPin | null>(null);
+  // Mobile: sidebar shown as an overlay drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Navigate BlueMap to a coordinate.
   // BlueMap exposes window.bluemap — use its controlsManager API directly
   // (no reload). Falls back to a hash URL reload if the API isn't ready yet.
   // Hash format: mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewType (10 fields)
-  function flyTo(dimension: string, x: number, z: number, distance = 150) {
+  function flyTo(dimension: string, x: number, z: number, distance = 60) {
     const d = DIM_MAP.find((d) => d.id === dimension) ?? DIM_MAP[0];
     const win = iframeRef.current?.contentWindow as (Window & { bluemap?: { mapViewer?: { controlsManager?: { position: { x: number; y: number; z: number }; distance: number; rotation: number; angle: number; tilt: number; ortho: number }; map?: { data: { id: string } } }; switchMap?: (id: string) => Promise<void> } }) | null;
     const bm  = win?.bluemap;
@@ -191,6 +193,92 @@ export function MapPage() {
     }
   }
 
+  function applyBlueMapRestrictions() {
+
+    const win = iframeRef.current?.contentWindow as (Window & {
+      bluemap?: {
+        mapViewer?: {
+          controlsManager?: {
+            angle: number;
+            tilt: number;
+            ortho: number;
+          };
+        };
+      };
+      __redstoneCipherLockBlueMap?: number;
+      __redstoneCipherHideBlueMapUi?: MutationObserver;
+    }) | null;
+    const doc = win?.document;
+    if (!win || !doc?.body || !doc.head) return;
+
+    const styleId = "redstonecipher-bluemap-lockdown";
+    if (blueMapSettings?.advanced_ui_enabled) {
+      doc.getElementById(styleId)?.remove();
+      win.__redstoneCipherHideBlueMapUi?.disconnect();
+      win.__redstoneCipherHideBlueMapUi = undefined;
+      if (win.__redstoneCipherLockBlueMap) {
+        win.clearInterval(win.__redstoneCipherLockBlueMap);
+        win.__redstoneCipherLockBlueMap = undefined;
+      }
+      return;
+    }
+    if (!doc.getElementById(styleId)) {
+      const style = doc.createElement("style");
+      style.id = styleId;
+      style.textContent = `
+        [title*="Menu" i],
+        [aria-label*="Menu" i],
+        [title*="Maps" i],
+        [aria-label*="Maps" i],
+        [title*="Perspective" i],
+        [aria-label*="Perspective" i],
+        [title*="Free" i],
+        [aria-label*="Free" i],
+        .map-menu,
+        .maps-menu,
+        .map-selector,
+        .bm-map-selector,
+        .bm-menu,
+        .bluemap-menu,
+        .bluemap-map-selector {
+          display: none !important;
+          pointer-events: none !important;
+        }
+      `;
+      doc.head.appendChild(style);
+    }
+
+    const hideMatchingControls = () => {
+      doc.querySelectorAll("button, a, [role='button']").forEach((el) => {
+        const text = [
+          el.textContent,
+          el.getAttribute("title"),
+          el.getAttribute("aria-label"),
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (/(^|\s)(menu|maps?|perspective|free[- ]?flight)(\s|$)/.test(text)) {
+          (el as HTMLElement).style.display = "none";
+          (el as HTMLElement).style.pointerEvents = "none";
+        }
+      });
+    };
+
+    hideMatchingControls();
+    win.__redstoneCipherHideBlueMapUi?.disconnect();
+    win.__redstoneCipherHideBlueMapUi = new MutationObserver(hideMatchingControls);
+    win.__redstoneCipherHideBlueMapUi.observe(doc.body, { childList: true, subtree: true });
+
+    if (win.__redstoneCipherLockBlueMap) {
+      win.clearInterval(win.__redstoneCipherLockBlueMap);
+    }
+    win.__redstoneCipherLockBlueMap = win.setInterval(() => {
+      const cm = win.bluemap?.mapViewer?.controlsManager;
+      if (!cm) return;
+      cm.angle = 0;
+      cm.tilt = 0;
+      cm.ortho = 1;
+    }, 500);
+  }
+
   // Keep iframe src in sync when the dimension tab changes
   function changeDim(newDim: string) {
     setDim(newDim);
@@ -214,6 +302,15 @@ export function MapPage() {
     queryKey: ["map-pins"],
     queryFn:  () => api.get("/map/pins"),
   });
+
+  const { data: blueMapSettings } = useQuery<BlueMapSettings>({
+    queryKey: ["bluemap-settings"],
+    queryFn:  () => api.get("/map/settings"),
+  });
+
+  useEffect(() => {
+    applyBlueMapRestrictions();
+  }, [blueMapSettings?.advanced_ui_enabled, mapSrc]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const createPinMut = useMutation({
@@ -254,8 +351,25 @@ export function MapPage() {
 
   return (
     <div className="flex h-full overflow-hidden">
+
+      {/* ── Mobile sidebar scrim ─────────────────────────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-30"
+          aria-hidden
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
-      <aside className="w-72 flex-shrink-0 flex flex-col border-r border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27]">
+      <aside className={`
+        flex flex-col border-r border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27]
+        w-72 flex-shrink-0
+        md:relative md:translate-x-0 md:flex
+        fixed inset-y-0 left-0 z-40 transition-transform duration-200
+        pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+      `}>
         {/* Dimension selector */}
         <div className="p-3 border-b border-[#D9D5D0] dark:border-[#363944] space-y-1">
           <p className="text-[10px] uppercase tracking-wider text-[#9B9EA6] font-semibold px-1">Dimension</p>
@@ -412,12 +526,20 @@ export function MapPage() {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                    {/* Action buttons:
+                         - Fine pointer (mouse): hidden at rest, visible on group hover
+                         - Touch/coarse: always visible at reduced opacity */}
+                    <div className="flex gap-0.5 flex-shrink-0
+                                    opacity-60
+                                    [@media(hover:hover)_and_(pointer:fine)]:opacity-0
+                                    group-hover:opacity-100">
                       {(canManagePins || pin.created_by === user?.email) && (
                         <>
                           <button
                             onClick={(e) => { e.stopPropagation(); setEditingPin(pin); setShowPinForm(false); }}
-                            className="p-1 rounded hover:bg-[#F0EDE9] text-[#9B9EA6] hover:text-[#6B6E78]"
+                            className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center
+                                       rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]
+                                       text-[#9B9EA6] hover:text-[#6B6E78]"
                             title="Edit"
                           >
                             <Edit2 className="w-3 h-3" />
@@ -425,7 +547,9 @@ export function MapPage() {
                           <button
                             onClick={(e) => { e.stopPropagation(); deletePinMut.mutate(pin.id); }}
                             disabled={deletePinMut.isPending}
-                            className="p-1 rounded hover:bg-[#FEE2E2] text-[#9B9EA6] hover:text-[#F87171]"
+                            className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center
+                                       rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F]
+                                       text-[#9B9EA6] hover:text-[#F87171]"
                             title="Delete"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -443,6 +567,19 @@ export function MapPage() {
 
       {/* ── Map iframe ───────────────────────────────────────────────────────── */}
       <div className="flex-1 relative overflow-hidden">
+        {/* Mobile toggle button */}
+        <button
+          onClick={() => setSidebarOpen((v) => !v)}
+          className="md:hidden absolute top-3 left-3 z-20
+                     flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                     bg-white/90 dark:bg-[#1C1E27]/90 backdrop-blur-sm
+                     shadow border border-[#D9D5D0] dark:border-[#363944]
+                     text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]"
+          aria-label={sidebarOpen ? "Close panel" : "Open panel"}
+        >
+          <MapPinIcon className="w-3.5 h-3.5 text-[#5B9BF0]" aria-hidden />
+          {sidebarOpen ? "Close" : "Players & Pins"}
+        </button>
         <iframe
           ref={iframeRef}
           key={mapSrc}
@@ -451,6 +588,7 @@ export function MapPage() {
           className="w-full h-full border-0"
           title="World Map"
           allow="fullscreen"
+          onLoad={applyBlueMapRestrictions}
         />
 
         {/* Player detail panel (slides in from right) */}

@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
 use crate::error::Result;
+use sqlx::SqlitePool;
 
 pub async fn log(
     pool: &SqlitePool,
@@ -9,7 +9,10 @@ pub async fn log(
     detail: Option<&str>,
 ) -> Result<()> {
     sqlx::query("INSERT INTO audit_log (actor, action, target, detail) VALUES (?, ?, ?, ?)")
-        .bind(actor).bind(action).bind(target).bind(detail)
+        .bind(actor)
+        .bind(action)
+        .bind(target)
+        .bind(detail)
         .execute(pool)
         .await?;
     Ok(())

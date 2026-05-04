@@ -16,6 +16,22 @@
   .nav-item { @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#DBD8D3] dark:hover:bg-[#2F323D] transition-colors cursor-pointer; }
   .nav-item-active { @apply bg-[#5B9BF0] text-white hover:bg-[#4080D8]; }
 
+  /* ── Touch-target helpers (Fitts's Law: min 44 × 44 px) ──────────── */
+  .icon-btn {
+    @apply flex items-center justify-center rounded-lg transition-colors
+           min-w-[44px] min-h-[44px]
+           text-[#9B9EA6] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]
+           hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38];
+  }
+  .icon-btn-danger { @apply icon-btn hover:text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F]; }
+
+  /* ── Responsive page wrapper ────────────────────────────── */
+  .page { @apply p-4 sm:p-6 max-w-4xl mx-auto space-y-5 sm:space-y-6; }
+  .page-wide { @apply p-4 sm:p-6 max-w-5xl mx-auto space-y-5 sm:space-y-6; }
+
+  /* ── Page header row (stacks on small screens) ─────────────── */
+  .page-header { @apply flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between; }
+
   /* ── Login splash ─────────────────────────────────── */
   .skip-link {
     @apply absolute left-2 top-2 z-50 px-3 py-1.5 rounded-lg bg-[#5B9BF0] text-white text-sm font-semibold;

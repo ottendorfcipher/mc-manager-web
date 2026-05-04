@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
 use crate::{
@@ -43,8 +43,10 @@ async fn sync_into_db_inner(pool: &sqlx::SqlitePool, cfg: &Config) -> Result<usi
     let mut count = 0usize;
     for line in stdout.lines() {
         let parts: Vec<&str> = line.splitn(3, '\t').collect();
-        if parts.len() != 3 { continue; }
-        let filename   = parts[0];
+        if parts.len() != 3 {
+            continue;
+        }
+        let filename = parts[0];
         let size_bytes: i64 = parts[1].parse().unwrap_or(0);
         let created_at = parts[2];
         let remote_path = format!("{}/{}", cfg.mc_backup_dir, filename);
@@ -83,7 +85,7 @@ pub async fn create(cfg: &Config) -> Result<String> {
     let remote_path = stdout.trim();
     if remote_path.is_empty() {
         return Err(AppError::ExternalCommand(
-            "Backup script ran but no archive found in backup dir".into()
+            "Backup script ran but no archive found in backup dir".into(),
         ));
     }
     // Extract just the filename from the path
@@ -104,16 +106,21 @@ pub fn stream_file(
 ) -> Result<ReaderStream<tokio::process::ChildStdout>> {
     let dest = format!("root@{}", cfg.tailscale_ip);
     // Escape single quotes in path (POSIX shell idiom)
-    let safe_path = remote_path.replace('\'', "'\\''" );
+    let safe_path = remote_path.replace('\'', "'\\''");
     let cat_cmd = format!("cat '{safe_path}'");
 
     let mut child = tokio::process::Command::new("ssh")
         .args([
-            "-i", MC_SSH_KEY,
-            "-o", "StrictHostKeyChecking=yes",
-            "-o", &format!("UserKnownHostsFile={MC_KNOWN_HOSTS}"),
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=10",
+            "-i",
+            MC_SSH_KEY,
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            &format!("UserKnownHostsFile={MC_KNOWN_HOSTS}"),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
             &dest,
             &cat_cmd,
         ])
@@ -122,18 +129,22 @@ pub fn stream_file(
         .spawn()
         .map_err(|e| AppError::ExternalCommand(e.to_string()))?;
 
-    let stdout = child.stdout.take()
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| AppError::ExternalCommand("SSH stdout unavailable".into()))?;
 
     // Reap the child when it completes so we don't accumulate zombies
-    tokio::spawn(async move { let _ = child.wait().await; });
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
 
     Ok(ReaderStream::new(stdout))
 }
 
 /// Delete a backup archive from mc-server-1.
 pub async fn delete_remote(cfg: &Config, remote_path: &str) -> Result<()> {
-    let safe_path = remote_path.replace('\'', "'\\''" );
+    let safe_path = remote_path.replace('\'', "'\\''");
     let cmd = format!("rm -f '{safe_path}'");
     // Non-fatal: log but don't fail if the file is already gone
     if let Err(e) = ssh::run(cfg, &cmd).await {
@@ -145,7 +156,7 @@ pub async fn delete_remote(cfg: &Config, remote_path: &str) -> Result<()> {
 /// Restore a backup that lives on mc-server-1.
 /// Stops the server, wipes world dirs, extracts the archive in-place, restarts.
 pub async fn restore(cfg: &Config, remote_path: &str) -> Result<()> {
-    let safe_path = remote_path.replace('\'', "'\\''" );
+    let safe_path = remote_path.replace('\'', "'\\''");
     let restore_cmd = format!(
         "sudo systemctl stop minecraft && \
          sudo rm -rf {REMOTE_MINECRAFT_DIR}/world \
@@ -157,8 +168,9 @@ pub async fn restore(cfg: &Config, remote_path: &str) -> Result<()> {
     );
     let (out, _) = ssh::run_with_timeout(cfg, &restore_cmd, Duration::from_secs(180)).await?;
     if !out.contains("DONE") {
-        return Err(AppError::ExternalCommand("Restore did not complete cleanly".into()));
+        return Err(AppError::ExternalCommand(
+            "Restore did not complete cleanly".into(),
+        ));
     }
     Ok(())
 }
-

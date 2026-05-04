@@ -31,7 +31,10 @@ use crate::{
 // ── Role catalog ───────────────────────────────────────────────────────────────
 
 /// GET /api/roles — list all roles (system + custom), ordered highest level first.
-pub async fn list(State(state): State<AppState>, actor: AuthUser) -> Result<Json<Vec<roles::Role>>> {
+pub async fn list(
+    State(state): State<AppState>,
+    actor: AuthUser,
+) -> Result<Json<Vec<roles::Role>>> {
     require_perm(&actor, "roles.view")?;
     Ok(Json(roles::list(&state.pool).await?))
 }
@@ -138,7 +141,8 @@ pub async fn delete(
 
     if role.is_system {
         return Err(AppError::Forbidden(
-            "System roles cannot be deleted. You can edit their label, description, and color.".into(),
+            "System roles cannot be deleted. You can edit their label, description, and color."
+                .into(),
         ));
     }
 
@@ -167,7 +171,7 @@ pub async fn delete(
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct RolePermissions {
-    pub role:        String,
+    pub role: String,
     pub permissions: Vec<String>,
 }
 
@@ -236,7 +240,9 @@ pub async fn list_overrides(
     Path(email): Path<String>,
 ) -> Result<Json<Vec<permissions::PermissionOverride>>> {
     require_perm(&actor, "users.permission_overrides.edit")?;
-    Ok(Json(permissions::list_overrides(&state.pool, &email).await?))
+    Ok(Json(
+        permissions::list_overrides(&state.pool, &email).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]

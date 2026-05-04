@@ -22,21 +22,27 @@ pub async fn list(
 
 #[derive(Deserialize)]
 pub struct CreatePin {
-    pub x:          f64,
-    pub z:          f64,
+    pub x: f64,
+    pub z: f64,
     #[serde(default = "default_overworld")]
-    pub dimension:  String,
-    pub label:      String,
-    pub body:       Option<String>,
+    pub dimension: String,
+    pub label: String,
+    pub body: Option<String>,
     #[serde(default = "default_icon")]
-    pub icon:       String,
+    pub icon: String,
     #[serde(default = "default_private")]
     pub visibility: String,
 }
 
-fn default_overworld() -> String { "minecraft:overworld".into() }
-fn default_icon()      -> String { "default".into() }
-fn default_private()   -> String { "private".into() }
+fn default_overworld() -> String {
+    "minecraft:overworld".into()
+}
+fn default_icon() -> String {
+    "default".into()
+}
+fn default_private() -> String {
+    "private".into()
+}
 
 /// POST /api/map/pins
 pub async fn create(
@@ -50,14 +56,16 @@ pub async fn create(
 
     let id = map_pins::insert(
         &state.pool,
-        body.x, body.z,
+        body.x,
+        body.z,
         &body.dimension,
         &body.label,
         body.body.as_deref(),
         &body.icon,
         &body.visibility,
         &actor.email,
-    ).await?;
+    )
+    .await?;
 
     let pin = map_pins::get(&state.pool, id)
         .await?
@@ -68,10 +76,10 @@ pub async fn create(
 
 #[derive(Deserialize)]
 pub struct UpdatePin {
-    pub label:      String,
-    pub body:       Option<String>,
+    pub label: String,
+    pub body: Option<String>,
     #[serde(default = "default_icon")]
-    pub icon:       String,
+    pub icon: String,
     pub visibility: String,
 }
 
@@ -89,7 +97,15 @@ pub async fn update(
     can_modify(&actor, &pin)?;
     validate_visibility(&body.visibility)?;
 
-    map_pins::update(&state.pool, id, &body.label, body.body.as_deref(), &body.icon, &body.visibility).await?;
+    map_pins::update(
+        &state.pool,
+        id,
+        &body.label,
+        body.body.as_deref(),
+        &body.icon,
+        &body.visibility,
+    )
+    .await?;
 
     let updated = map_pins::get(&state.pool, id)
         .await?
@@ -115,12 +131,22 @@ pub async fn delete(
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn can_modify(actor: &AuthUser, pin: &map_pins::MapPin) -> Result<()> {
-    if pin.created_by == actor.email { return Ok(()); }
-    if actor.permissions.contains("map.pin.manage") { return Ok(()); }
-    Err(AppError::Forbidden("Cannot modify another user's pin".into()))
+    if pin.created_by == actor.email {
+        return Ok(());
+    }
+    if actor.permissions.contains("map.pin.manage") {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(
+        "Cannot modify another user's pin".into(),
+    ))
 }
 
 fn validate_visibility(v: &str) -> Result<()> {
-    if v == "private" || v == "team" { return Ok(()); }
-    Err(AppError::BadRequest(format!("visibility must be 'private' or 'team', got '{v}'")))
+    if v == "private" || v == "team" {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        "visibility must be 'private' or 'team', got '{v}'"
+    )))
 }

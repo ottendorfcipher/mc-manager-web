@@ -29,76 +29,151 @@ use tower_http::{
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         // Auth
-        .route("/me",                               get(handlers::auth::me))
+        .route("/me", get(handlers::auth::me))
         // Users
-        .route("/users",                            get(handlers::users::list).post(handlers::users::invite))
-        .route("/users/:email",                     patch(handlers::users::update).delete(handlers::users::remove))
-        .route("/users/:email/players",             get(handlers::users::list_players).put(handlers::users::replace_players))
-        .route("/users/:email/players/:ign",        delete(handlers::users::unlink_player))
-        .route("/users/:email/players/:ign/gamemode", patch(handlers::users::set_player_gamemode))
+        .route(
+            "/users",
+            get(handlers::users::list).post(handlers::users::invite),
+        )
+        .route(
+            "/users/:email",
+            patch(handlers::users::update).delete(handlers::users::remove),
+        )
+        .route(
+            "/users/:email/players",
+            get(handlers::users::list_players).put(handlers::users::replace_players),
+        )
+        .route(
+            "/users/:email/players/:ign",
+            delete(handlers::users::unlink_player),
+        )
+        .route(
+            "/users/:email/players/:ign/gamemode",
+            patch(handlers::users::set_player_gamemode),
+        )
         // Per-user permission overrides
-        .route("/users/:email/permission-overrides",
-                                                    get(handlers::roles::list_overrides)
-                                                        .post(handlers::roles::add_override))
-        .route("/users/:email/permission-overrides/:key",
-                                                    delete(handlers::roles::remove_override))
+        .route(
+            "/users/:email/permission-overrides",
+            get(handlers::roles::list_overrides).post(handlers::roles::add_override),
+        )
+        .route(
+            "/users/:email/permission-overrides/:key",
+            delete(handlers::roles::remove_override),
+        )
         // Roles catalog (dynamic role management)
-        .route("/roles",                            get(handlers::roles::list).post(handlers::roles::create))
-        .route("/roles/:role",                      get(handlers::roles::get)
-                                                        .patch(handlers::roles::update)
-                                                        .delete(handlers::roles::delete))
-        .route("/roles/:role/permissions",          get(handlers::roles::get_permissions)
-                                                        .put(handlers::roles::set_permissions))
+        .route(
+            "/roles",
+            get(handlers::roles::list).post(handlers::roles::create),
+        )
+        .route(
+            "/roles/:role",
+            get(handlers::roles::get)
+                .patch(handlers::roles::update)
+                .delete(handlers::roles::delete),
+        )
+        .route(
+            "/roles/:role/permissions",
+            get(handlers::roles::get_permissions).put(handlers::roles::set_permissions),
+        )
         // Server
-        .route("/server/status",                    get(handlers::server::status))
-        .route("/server/vm/:action",                post(handlers::server::vm_action))
-        .route("/server/service/:action",           post(handlers::server::service_action))
-        .route("/console",                          post(handlers::server::send_console))
+        .route("/server/status", get(handlers::server::status))
+        .route("/server/vm/:action", post(handlers::server::vm_action))
+        .route(
+            "/server/service/:action",
+            post(handlers::server::service_action),
+        )
+        .route("/console", post(handlers::server::send_console))
         // Granular Minecraft server commands
-        .route("/server/whitelist",                 get(handlers::server::list_whitelist))
-        .route("/server/whitelist/:action",         post(handlers::server::whitelist_action))
-        .route("/server/op/:action",                post(handlers::server::op_action))
-        .route("/server/kick",                      post(handlers::server::kick_player))
-        .route("/server/ban/:action",               post(handlers::server::ban_action))
-        .route("/server/announce",                  post(handlers::server::announce))
-        .route("/server/save",                      post(handlers::server::save_world))
+        .route("/server/whitelist", get(handlers::server::list_whitelist))
+        .route(
+            "/server/whitelist/:action",
+            post(handlers::server::whitelist_action),
+        )
+        .route("/server/op/:action", post(handlers::server::op_action))
+        .route("/server/kick", post(handlers::server::kick_player))
+        .route("/server/ban/:action", post(handlers::server::ban_action))
+        .route("/server/announce", post(handlers::server::announce))
+        .route("/server/save", post(handlers::server::save_world))
         // World settings
-        .route("/world/gamerules",                  get(handlers::server::get_gamerules))
-        .route("/world/gamerule/:rule",             post(handlers::server::set_gamerule))
-        .route("/world/time",                       post(handlers::server::set_time))
-        .route("/world/weather",                    post(handlers::server::set_weather))
+        .route("/world/gamerules", get(handlers::server::get_gamerules))
+        .route(
+            "/world/gamerule/:rule",
+            post(handlers::server::set_gamerule),
+        )
+        .route("/world/time", post(handlers::server::set_time))
+        .route("/world/weather", post(handlers::server::set_weather))
         // Live data
-        .route("/metrics",                          get(handlers::metrics::snapshot))
-        .route("/mc/players",                       get(handlers::mc_players::list))
+        .route("/metrics", get(handlers::metrics::snapshot))
+        .route("/mc/players", get(handlers::mc_players::list))
         // server.properties
-        .route("/properties",                       get(handlers::properties::get_all).put(handlers::properties::update))
+        .route(
+            "/properties",
+            get(handlers::properties::get_all).put(handlers::properties::update),
+        )
         // Backups
-        .route("/backups",                          get(handlers::backups::list).post(handlers::backups::create))
-        .route("/backups/:id",                      get(handlers::backups::download).delete(handlers::backups::delete))
-        .route("/backups/:id/restore",              post(handlers::backups::restore))
+        .route(
+            "/backups",
+            get(handlers::backups::list).post(handlers::backups::create),
+        )
+        .route(
+            "/backups/:id",
+            get(handlers::backups::download).delete(handlers::backups::delete),
+        )
+        .route("/backups/:id/restore", post(handlers::backups::restore))
         // Kill-switch
-        .route("/kill-switch",                      get(handlers::kill_switch::get)
-                                                        .post(handlers::kill_switch::engage)
-                                                        .delete(handlers::kill_switch::release))
+        .route(
+            "/kill-switch",
+            get(handlers::kill_switch::get)
+                .post(handlers::kill_switch::engage)
+                .delete(handlers::kill_switch::release),
+        )
         // Pending Minecraft players (admission queue)
-        .route("/players/pending",                  get(handlers::pending_players::list))
-        .route("/players/pending/:ign/approve",     post(handlers::pending_players::approve))
-        .route("/players/pending/:ign",             delete(handlers::pending_players::reject))
+        .route("/players/pending", get(handlers::pending_players::list))
+        .route(
+            "/players/pending/:ign/approve",
+            post(handlers::pending_players::approve),
+        )
+        .route(
+            "/players/pending/:ign",
+            delete(handlers::pending_players::reject),
+        )
         // Rejected players (blocklist)
-        .route("/players/rejected",                 get(handlers::pending_players::list_rejected))
-        .route("/players/rejected/:ign/reinstate",  post(handlers::pending_players::reinstate))
-        .route("/players/rejected/:ign/approve",    post(handlers::pending_players::approve))
+        .route(
+            "/players/rejected",
+            get(handlers::pending_players::list_rejected),
+        )
+        .route(
+            "/players/rejected/:ign/reinstate",
+            post(handlers::pending_players::reinstate),
+        )
+        .route(
+            "/players/rejected/:ign/approve",
+            post(handlers::pending_players::approve),
+        )
         // Player snapshots (inventory + location)
-        .route("/players/snapshots",                get(handlers::player_data::list))
-        .route("/players/snapshots/refresh",        post(handlers::player_data::refresh))
-        .route("/players/snapshots/:ign",           get(handlers::player_data::get))
+        .route("/players/snapshots", get(handlers::player_data::list))
+        .route(
+            "/players/snapshots/refresh",
+            post(handlers::player_data::refresh),
+        )
+        .route("/players/snapshots/:ign", get(handlers::player_data::get))
         // Give items to a player
-        .route("/players/:ign/give",                post(handlers::give_item::give))
+        .route("/players/:ign/give", post(handlers::give_item::give))
         // Map pins
-        .route("/map/pins",                         get(handlers::map_pins::list).post(handlers::map_pins::create))
-        .route("/map/pins/:id",                     patch(handlers::map_pins::update).delete(handlers::map_pins::delete))
+        .route(
+            "/map/pins",
+            get(handlers::map_pins::list).post(handlers::map_pins::create),
+        )
+        .route(
+            "/map/pins/:id",
+            patch(handlers::map_pins::update).delete(handlers::map_pins::delete),
+        )
+        .route(
+            "/map/settings",
+            get(handlers::bluemap_settings::get).put(handlers::bluemap_settings::update),
+        )
         // Permission catalog (read-only; editing is via /roles/:role/permissions)
-        .route("/permissions",                      get(handlers::permissions::list));
+        .route("/permissions", get(handlers::permissions::list));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
@@ -106,11 +181,14 @@ pub fn build_router(state: AppState) -> Router {
     ));
 
     Router::new()
-        .route("/auth/login",    get(handlers::auth::login))
+        .route("/auth/login", get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
-        .route("/auth/logout",   get(handlers::auth::logout))
-        .route("/internal/budget-alert",  post(handlers::budget::webhook))
-        .route("/internal/player-joined",  post(handlers::pending_players::player_joined))
+        .route("/auth/logout", get(handlers::auth::logout))
+        .route("/internal/budget-alert", post(handlers::budget::webhook))
+        .route(
+            "/internal/player-joined",
+            post(handlers::pending_players::player_joined),
+        )
         .nest("/api", api)
         .layer(TraceLayer::new_for_http())
         .layer(

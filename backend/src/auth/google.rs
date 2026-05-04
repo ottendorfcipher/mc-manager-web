@@ -6,16 +6,16 @@ use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 
-const GOOGLE_AUTH_URL: &str  = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const GOOGLE_USERINFO:  &str = "https://www.googleapis.com/oauth2/v3/userinfo";
+const GOOGLE_USERINFO: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
 
 /// PKCE pair returned to the login handler.
 /// The verifier is stored in a temporary cookie; the challenge is sent to Google.
 pub struct PkceChallenge {
-    pub verifier:  String,
+    pub verifier: String,
     pub challenge: String,
-    pub state:     String,
+    pub state: String,
 }
 
 pub fn generate_pkce() -> PkceChallenge {
@@ -30,7 +30,11 @@ pub fn generate_pkce() -> PkceChallenge {
     rand::thread_rng().fill_bytes(&mut state_bytes);
     let state = URL_SAFE_NO_PAD.encode(state_bytes);
 
-    PkceChallenge { verifier, challenge, state }
+    PkceChallenge {
+        verifier,
+        challenge,
+        state,
+    }
 }
 
 pub fn authorization_url(cfg: &Config, challenge: &str, state: &str) -> String {
@@ -38,11 +42,11 @@ pub fn authorization_url(cfg: &Config, challenge: &str, state: &str) -> String {
         "{auth}?client_id={client_id}&redirect_uri={redirect}&response_type=code\
          &scope=openid%20email%20profile&code_challenge={challenge}\
          &code_challenge_method=S256&state={state}&access_type=online",
-        auth        = GOOGLE_AUTH_URL,
-        client_id   = cfg.google_client_id,
-        redirect    = urlencoding::encode(&cfg.redirect_uri),
-        challenge   = challenge,
-        state       = state,
+        auth = GOOGLE_AUTH_URL,
+        client_id = cfg.google_client_id,
+        redirect = urlencoding::encode(&cfg.redirect_uri),
+        challenge = challenge,
+        state = state,
     )
 }
 
@@ -99,9 +103,9 @@ pub fn decode_oauth_state(token: &str, secret: &str) -> anyhow::Result<OAuthStat
 
 #[derive(Debug, Deserialize)]
 pub struct GoogleUser {
-    pub sub:     String,
-    pub email:   String,
-    pub name:    Option<String>,
+    pub sub: String,
+    pub email: String,
+    pub name: Option<String>,
     pub picture: Option<String>,
 }
 
@@ -115,11 +119,11 @@ pub async fn exchange_code(
     let response = http
         .post(GOOGLE_TOKEN_URL)
         .form(&[
-            ("code",          code),
-            ("client_id",     &cfg.google_client_id),
+            ("code", code),
+            ("client_id", &cfg.google_client_id),
             ("client_secret", &cfg.google_client_secret),
-            ("redirect_uri",  &cfg.redirect_uri),
-            ("grant_type",    "authorization_code"),
+            ("redirect_uri", &cfg.redirect_uri),
+            ("grant_type", "authorization_code"),
             ("code_verifier", verifier),
         ])
         .send()

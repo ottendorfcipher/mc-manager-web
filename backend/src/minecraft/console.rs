@@ -16,8 +16,8 @@ pub async fn set_time(cfg: &Config, ticks: u32) -> Result<bool> {
 
 pub async fn set_weather(cfg: &Config, kind: WeatherKind) -> Result<bool> {
     let cmd = match kind {
-        WeatherKind::Clear   => "weather clear 9999999".to_string(),
-        WeatherKind::Rain    => "weather rain".to_string(),
+        WeatherKind::Clear => "weather clear 9999999".to_string(),
+        WeatherKind::Rain => "weather rain".to_string(),
         WeatherKind::Thunder => "weather thunder".to_string(),
     };
     send(cfg, &cmd).await

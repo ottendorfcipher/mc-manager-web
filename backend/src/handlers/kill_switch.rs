@@ -26,7 +26,12 @@ pub async fn engage(
     Json(body): Json<EngageRequest>,
 ) -> Result<Json<KillSwitch>> {
     require_perm(&actor, "killswitch.toggle")?;
-    kill_switch::engage(&state.pool, &body.reason, &format!("manual:{}", actor.email)).await?;
+    kill_switch::engage(
+        &state.pool,
+        &body.reason,
+        &format!("manual:{}", actor.email),
+    )
+    .await?;
     Ok(Json(kill_switch::status(&state.pool).await?))
 }
 

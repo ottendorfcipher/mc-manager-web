@@ -1,4 +1,8 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -14,17 +18,19 @@ use crate::{
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct ServerStatus {
-    pub vm:      instance::VmStatus,
+    pub vm: instance::VmStatus,
     pub service: String,
 }
 
-pub async fn status(
-    State(state): State<AppState>,
-    _: AuthUser,
-) -> Result<Json<ServerStatus>> {
+pub async fn status(State(state): State<AppState>, _: AuthUser) -> Result<Json<ServerStatus>> {
     let vm = instance::status(&state.config).await?;
     let service = if vm.status == "RUNNING" {
-        match ssh::run(&state.config, "systemctl is-active minecraft 2>/dev/null || echo inactive").await {
+        match ssh::run(
+            &state.config,
+            "systemctl is-active minecraft 2>/dev/null || echo inactive",
+        )
+        .await
+        {
             Ok((out, _)) => out,
             Err(e) => {
                 tracing::warn!(error = %e, "SSH to VM failed when checking service status");
@@ -48,7 +54,7 @@ pub async fn vm_action(
     }
     match action.as_str() {
         "start" => instance::start(&state.config).await?,
-        "stop"  => instance::stop(&state.config).await?,
+        "stop" => instance::stop(&state.config).await?,
         "reset" => instance::reset(&state.config).await?,
         _ => return Err(AppError::BadRequest(format!("Unknown action: {action}"))),
     }
@@ -70,7 +76,14 @@ pub async fn service_action(
         return Err(AppError::BadRequest(format!("Unknown action: {action}")));
     }
     ssh::run(&state.config, &format!("sudo systemctl {action} minecraft")).await?;
-    audit::log(&state.pool, &actor.email, "service_action", None, Some(&action)).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "service_action",
+        None,
+        Some(&action),
+    )
+    .await?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -89,12 +102,21 @@ pub async fn send_console(
         return Err(AppError::Forbidden("control_server required".into()));
     }
     let applied = console::send(&state.config, &body.command).await?;
-    audit::log(&state.pool, &actor.email, "console", None, Some(&body.command)).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "console",
+        None,
+        Some(&body.command),
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }
 
 #[derive(Deserialize)]
-pub struct GameruleBody { pub value: String }
+pub struct GameruleBody {
+    pub value: String,
+}
 
 /// GET /api/world/gamerules — return cached gamerule values from DB.
 pub async fn get_gamerules(
@@ -126,7 +148,9 @@ pub async fn set_gamerule(
 }
 
 #[derive(Deserialize)]
-pub struct TimeBody { pub ticks: u32 }
+pub struct TimeBody {
+    pub ticks: u32,
+}
 
 /// POST /api/world/time
 pub async fn set_time(
@@ -142,7 +166,9 @@ pub async fn set_time(
 }
 
 #[derive(Deserialize)]
-pub struct WeatherBody { pub kind: WeatherKind }
+pub struct WeatherBody {
+    pub kind: WeatherKind,
+}
 
 /// POST /api/world/weather
 pub async fn set_weather(
@@ -185,8 +211,7 @@ pub async fn list_whitelist(
         "cat /opt/minecraft/server/whitelist.json 2>/dev/null || echo '[]'",
     )
     .await?;
-    let entries: Vec<WhitelistEntry> =
-        serde_json::from_str(out.trim()).unwrap_or_default();
+    let entries: Vec<WhitelistEntry> = serde_json::from_str(out.trim()).unwrap_or_default();
     Ok(Json(entries))
 }
 
@@ -199,13 +224,26 @@ pub async fn whitelist_action(
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.whitelist.manage")?;
     let cmd = match action.as_str() {
-        "add"    => format!("whitelist add {}", body.player),
+        "add" => format!("whitelist add {}", body.player),
         "remove" => format!("whitelist remove {}", body.player),
-        _ => return Err(AppError::BadRequest(format!("Unknown whitelist action: {action}"))),
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unknown whitelist action: {action}"
+            )))
+        }
     };
     let applied = console::send(&state.config, &cmd).await?;
-    audit::log(&state.pool, &actor.email, "whitelist", Some(&body.player), Some(&action)).await?;
-    Ok(Json(serde_json::json!({ "applied": applied, "action": action, "player": body.player })))
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "whitelist",
+        Some(&body.player),
+        Some(&action),
+    )
+    .await?;
+    Ok(Json(
+        serde_json::json!({ "applied": applied, "action": action, "player": body.player }),
+    ))
 }
 
 /// POST /api/server/op/:action  (op | deop)
@@ -217,13 +255,15 @@ pub async fn op_action(
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.op.manage")?;
     let cmd = match action.as_str() {
-        "op"   => format!("op {}", body.player),
+        "op" => format!("op {}", body.player),
         "deop" => format!("deop {}", body.player),
         _ => return Err(AppError::BadRequest(format!("Unknown op action: {action}"))),
     };
     let applied = console::send(&state.config, &cmd).await?;
     audit::log(&state.pool, &actor.email, &action, Some(&body.player), None).await?;
-    Ok(Json(serde_json::json!({ "applied": applied, "action": action, "player": body.player })))
+    Ok(Json(
+        serde_json::json!({ "applied": applied, "action": action, "player": body.player }),
+    ))
 }
 
 /// POST /api/server/kick
@@ -235,11 +275,20 @@ pub async fn kick_player(
     crate::auth::middleware::require_perm(&actor, "server.kick")?;
     let cmd = match body.reason.as_deref() {
         Some(r) => format!("kick {} {r}", body.player),
-        None    => format!("kick {}", body.player),
+        None => format!("kick {}", body.player),
     };
     let applied = console::send(&state.config, &cmd).await?;
-    audit::log(&state.pool, &actor.email, "kick", Some(&body.player), body.reason.as_deref()).await?;
-    Ok(Json(serde_json::json!({ "applied": applied, "player": body.player })))
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "kick",
+        Some(&body.player),
+        body.reason.as_deref(),
+    )
+    .await?;
+    Ok(Json(
+        serde_json::json!({ "applied": applied, "player": body.player }),
+    ))
 }
 
 /// POST /api/server/ban/:action  (ban | pardon)
@@ -251,20 +300,35 @@ pub async fn ban_action(
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.ban.manage")?;
     let cmd = match action.as_str() {
-        "ban"    => match body.reason.as_deref() {
+        "ban" => match body.reason.as_deref() {
             Some(r) => format!("ban {} {r}", body.player),
-            None    => format!("ban {}", body.player),
+            None => format!("ban {}", body.player),
         },
         "pardon" => format!("pardon {}", body.player),
-        _ => return Err(AppError::BadRequest(format!("Unknown ban action: {action}"))),
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unknown ban action: {action}"
+            )))
+        }
     };
     let applied = console::send(&state.config, &cmd).await?;
-    audit::log(&state.pool, &actor.email, &action, Some(&body.player), body.reason.as_deref()).await?;
-    Ok(Json(serde_json::json!({ "applied": applied, "action": action, "player": body.player })))
+    audit::log(
+        &state.pool,
+        &actor.email,
+        &action,
+        Some(&body.player),
+        body.reason.as_deref(),
+    )
+    .await?;
+    Ok(Json(
+        serde_json::json!({ "applied": applied, "action": action, "player": body.player }),
+    ))
 }
 
 #[derive(Deserialize)]
-pub struct AnnounceBody { pub message: String }
+pub struct AnnounceBody {
+    pub message: String,
+}
 
 /// POST /api/server/announce  (/say)
 pub async fn announce(
@@ -274,7 +338,14 @@ pub async fn announce(
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.announce")?;
     let applied = console::send(&state.config, &format!("say {}", body.message)).await?;
-    audit::log(&state.pool, &actor.email, "announce", None, Some(&body.message)).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "announce",
+        None,
+        Some(&body.message),
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }
 

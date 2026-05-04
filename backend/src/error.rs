@@ -1,4 +1,8 @@
-use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde_json::json;
 use thiserror::Error;
 
@@ -37,23 +41,26 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            AppError::Unauthenticated       => (StatusCode::UNAUTHORIZED,   self.to_string()),
-            AppError::Forbidden(_)          => (StatusCode::FORBIDDEN,      self.to_string()),
-            AppError::NotFound(_)           => (StatusCode::NOT_FOUND,      self.to_string()),
-            AppError::BadRequest(_)         => (StatusCode::BAD_REQUEST,    self.to_string()),
-            AppError::Conflict(_)           => (StatusCode::CONFLICT,       self.to_string()),
-            AppError::Database(e)           => {
+            AppError::Unauthenticated => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
+            AppError::Database(e) => {
                 tracing::error!(error = %e, "Database error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
             }
-            AppError::ExternalCommand(msg)  => (StatusCode::BAD_GATEWAY,    msg.clone()),
-            AppError::Io(e)                 => {
+            AppError::ExternalCommand(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::Io(e) => {
                 tracing::error!(error = %e, "IO error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "IO error".into())
             }
-            AppError::Internal(e)           => {
+            AppError::Internal(e) => {
                 tracing::error!(error = %e, "Internal error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
             }
         };
 

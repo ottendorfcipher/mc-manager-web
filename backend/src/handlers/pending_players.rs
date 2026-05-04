@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Deserialize)]
 pub struct PlayerJoinedBody {
-    pub ign:  String,
+    pub ign: String,
     pub uuid: Option<String>,
 }
 
@@ -50,12 +50,7 @@ pub async fn player_joined(
         return Err(AppError::BadRequest("ign is required".into()));
     }
 
-    let action = pending_players::record_join(
-        &state.pool,
-        &ign,
-        body.uuid.as_deref(),
-    )
-    .await?;
+    let action = pending_players::record_join(&state.pool, &ign, body.uuid.as_deref()).await?;
 
     Ok(Json(PlayerJoinedResponse { action }))
 }
@@ -93,7 +88,14 @@ pub async fn approve(
     // Mark the pending record as approved.
     pending_players::approve(&state.pool, &ign).await?;
 
-    audit::log(&state.pool, &actor.email, "pending_player_approve", Some(&ign), Some(&body.email)).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "pending_player_approve",
+        Some(&ign),
+        Some(&body.email),
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -108,7 +110,14 @@ pub async fn reject(
 
     pending_players::reject(&state.pool, &ign).await?;
 
-    audit::log(&state.pool, &actor.email, "pending_player_reject", Some(&ign), None).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "pending_player_reject",
+        Some(&ign),
+        None,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -132,6 +141,13 @@ pub async fn reinstate(
 
     pending_players::reinstate(&state.pool, &ign).await?;
 
-    audit::log(&state.pool, &actor.email, "pending_player_reinstate", Some(&ign), None).await?;
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "pending_player_reinstate",
+        Some(&ign),
+        None,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

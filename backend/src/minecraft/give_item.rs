@@ -14,12 +14,12 @@ use crate::{
 ///
 /// `uuid` is only required for the offline path.
 pub async fn give(
-    cfg:     &Config,
-    ign:     &str,
-    uuid:    Option<&str>,
+    cfg: &Config,
+    ign: &str,
+    uuid: Option<&str>,
     item_id: &str,
-    count:   u32,
-    online:  bool,
+    count: u32,
+    online: bool,
 ) -> Result<()> {
     // Normalise item id
     let item_id = if item_id.contains(':') {
@@ -40,13 +40,13 @@ pub async fn give(
                 return give_offline(cfg, uuid, &item_id, count).await;
             }
             return Err(AppError::BadRequest(
-                "Server is offline and no UUID was provided for offline delivery".into()
+                "Server is offline and no UUID was provided for offline delivery".into(),
             ));
         }
     } else {
-        let uuid = uuid.ok_or_else(|| AppError::BadRequest(
-            "UUID is required to give items to an offline player".into()
-        ))?;
+        let uuid = uuid.ok_or_else(|| {
+            AppError::BadRequest("UUID is required to give items to an offline player".into())
+        })?;
         give_offline(cfg, uuid, &item_id, count).await?;
     }
 
@@ -61,18 +61,19 @@ async fn give_offline(cfg: &Config, uuid: &str, item_id: &str, count: u32) -> Re
             .and_then(|p| p.to_str())
             .unwrap_or("/opt/minecraft")
     );
-    let safe_uuid    = uuid.replace('\'', "");       // UUIDs contain only hex+dash
-    let safe_item_id = item_id.replace('\'', "");    // item IDs: letters, :, _
+    let safe_uuid = uuid.replace('\'', ""); // UUIDs contain only hex+dash
+    let safe_item_id = item_id.replace('\'', ""); // item IDs: letters, :, _
     let cmd = format!(
         "'{python}' '{scripts}/give-item.py' '{uuid}' '{item}' '{count}'",
-        python  = venv_python,
+        python = venv_python,
         scripts = cfg.mc_scripts_dir,
-        uuid    = safe_uuid,
-        item    = safe_item_id,
-        count   = count,
+        uuid = safe_uuid,
+        item = safe_item_id,
+        count = count,
     );
 
-    let (stdout, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(15)).await
+    let (stdout, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(15))
+        .await
         .map_err(|e| AppError::ExternalCommand(format!("give-item.py: {e}")))?;
 
     if stdout.starts_with("ERROR") {

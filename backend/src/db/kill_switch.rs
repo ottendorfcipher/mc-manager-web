@@ -10,8 +10,8 @@ use crate::error::Result;
 #[ts(export)]
 pub struct KillSwitch {
     pub disabled_at: Option<String>,
-    pub reason:      Option<String>,
-    pub source:      Option<String>,
+    pub reason: Option<String>,
+    pub source: Option<String>,
 }
 
 impl KillSwitch {
@@ -31,14 +31,12 @@ pub async fn status(pool: &SqlitePool) -> Result<KillSwitch> {
 /// Engage the kill-switch. Idempotent: repeated calls refresh the reason/source.
 pub async fn engage(pool: &SqlitePool, reason: &str, source: &str) -> Result<()> {
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    sqlx::query(
-        "UPDATE kill_switch SET disabled_at = ?, reason = ?, source = ? WHERE id = 1",
-    )
-    .bind(&now)
-    .bind(reason)
-    .bind(source)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE kill_switch SET disabled_at = ?, reason = ?, source = ? WHERE id = 1")
+        .bind(&now)
+        .bind(reason)
+        .bind(source)
+        .execute(pool)
+        .await?;
     tracing::warn!(%reason, %source, "Kill-switch engaged");
     Ok(())
 }

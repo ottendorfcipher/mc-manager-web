@@ -5,7 +5,10 @@ use tokio::time::timeout;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::{config::Config, error::{AppError, Result}};
+use crate::{
+    config::Config,
+    error::{AppError, Result},
+};
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
@@ -19,7 +22,10 @@ pub async fn status(cfg: &Config) -> Result<VmStatus> {
     let out = gcloud_run(
         cfg,
         &[
-            "compute", "instances", "describe", &cfg.gcp_instance,
+            "compute",
+            "instances",
+            "describe",
+            &cfg.gcp_instance,
             &format!("--project={}", cfg.gcp_project),
             &format!("--zone={}", cfg.gcp_zone),
             "--format=value(status,networkInterfaces[0].accessConfigs[0].natIP)",
@@ -30,7 +36,10 @@ pub async fn status(cfg: &Config) -> Result<VmStatus> {
 
     let mut parts = out.splitn(2, '\t');
     let vm_status = parts.next().unwrap_or("UNKNOWN").trim().to_string();
-    let external_ip = parts.next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let external_ip = parts
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     Ok(VmStatus {
         status: vm_status,
@@ -39,15 +48,24 @@ pub async fn status(cfg: &Config) -> Result<VmStatus> {
     })
 }
 
-pub async fn start(cfg: &Config)  -> Result<()> { vm_action(cfg, "start").await }
-pub async fn stop(cfg: &Config)   -> Result<()> { vm_action(cfg, "stop").await }
-pub async fn reset(cfg: &Config)  -> Result<()> { vm_action(cfg, "reset").await }
+pub async fn start(cfg: &Config) -> Result<()> {
+    vm_action(cfg, "start").await
+}
+pub async fn stop(cfg: &Config) -> Result<()> {
+    vm_action(cfg, "stop").await
+}
+pub async fn reset(cfg: &Config) -> Result<()> {
+    vm_action(cfg, "reset").await
+}
 
 async fn vm_action(cfg: &Config, action: &str) -> Result<()> {
     gcloud_run(
         cfg,
         &[
-            "compute", "instances", action, &cfg.gcp_instance,
+            "compute",
+            "instances",
+            action,
+            &cfg.gcp_instance,
             &format!("--project={}", cfg.gcp_project),
             &format!("--zone={}", cfg.gcp_zone),
         ],

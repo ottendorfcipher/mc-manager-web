@@ -5,11 +5,7 @@ use axum_extra::extract::CookieJar;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    db::permissions,
-    error::AppError,
-    state::AppState,
-};
+use crate::{db::permissions, error::AppError, state::AppState};
 
 /// The only cookie name Firebase Hosting forwards through Cloud Run rewrites.
 /// All other cookie names are stripped from both requests and responses.
@@ -18,7 +14,7 @@ pub const JWT_EXPIRY_SECS: i64 = 8 * 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,   // email
+    pub sub: String, // email
     pub role: String,
     pub exp: i64,
     pub iat: i64,
@@ -41,7 +37,9 @@ pub struct AuthUser {
 
 impl AuthUser {
     /// Returns this user's role level.
-    pub fn level(&self) -> u8 { self.level }
+    pub fn level(&self) -> u8 {
+        self.level
+    }
 
     /// Check a permission key (e.g. "server.vm.start").
     pub fn has(&self, key: &str) -> bool {
@@ -50,11 +48,21 @@ impl AuthUser {
 
     // Legacy boolean helpers, retained so handler call sites keep compiling.
     // Each now delegates to the permission check.
-    pub fn can_manage_users(&self)   -> bool { self.has("users.invite") || self.has("users.remove") }
-    pub fn can_manage_admins(&self)  -> bool { self.has("users.permissions.edit") }
-    pub fn can_control_server(&self) -> bool { self.has("server.vm.start") || self.has("server.service.start") }
-    pub fn can_write_config(&self)   -> bool { self.has("config.write") }
-    pub fn can_restore_backup(&self) -> bool { self.has("backups.restore") }
+    pub fn can_manage_users(&self) -> bool {
+        self.has("users.invite") || self.has("users.remove")
+    }
+    pub fn can_manage_admins(&self) -> bool {
+        self.has("users.permissions.edit")
+    }
+    pub fn can_control_server(&self) -> bool {
+        self.has("server.vm.start") || self.has("server.service.start")
+    }
+    pub fn can_write_config(&self) -> bool {
+        self.has("config.write")
+    }
+    pub fn can_restore_backup(&self) -> bool {
+        self.has("backups.restore")
+    }
 }
 
 #[async_trait]
@@ -90,8 +98,8 @@ impl FromRequestParts<AppState> for AuthUser {
             .min(255) as u8;
 
         Ok(AuthUser {
-            email:       claims.sub,
-            role:        claims.role,
+            email: claims.sub,
+            role: claims.role,
             level,
             permissions: Arc::new(perms),
         })
@@ -122,11 +130,7 @@ pub fn require_role(actor: &AuthUser, min_level: u8, action: &str) -> crate::err
 }
 
 /// Issue a signed JWT for the given email/role.
-pub fn issue_jwt(
-    email: &str,
-    role: &str,
-    secret: &str,
-) -> anyhow::Result<String> {
+pub fn issue_jwt(email: &str, role: &str, secret: &str) -> anyhow::Result<String> {
     use jsonwebtoken::{encode, EncodingKey, Header};
 
     let now = chrono::Utc::now().timestamp();

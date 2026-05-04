@@ -124,7 +124,8 @@ export function ConfigurePage() {
     const locked = ("locked" in s && s.locked) || !canWrite;
 
     return (
-      <div key={s.key} className="flex items-start gap-4 py-3 first:pt-0 last:pb-0 border-b border-[#D9D5D0] dark:border-[#363944] last:border-0">
+      <div key={s.key} className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4
+                                    py-3 first:pt-0 last:pb-0 border-b border-[#D9D5D0] dark:border-[#363944] last:border-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             {("locked" in s && s.locked) && <span className="text-[10px] text-[#9B9EA6]">🔒</span>}
@@ -152,7 +153,7 @@ export function ConfigurePage() {
             </select>
           )}
           {s.type === "slider" && (
-            <div className="flex items-center gap-2 w-48">
+            <div className="flex items-center gap-2 w-full sm:w-48">
               <input type="range" min={s.min} max={s.max} step={1} value={Number(val) || s.min}
                 disabled={locked}
                 onChange={(e) => set(s.key, e.target.value)}
@@ -164,7 +165,7 @@ export function ConfigurePage() {
             <input type="text" disabled={locked} value={val}
               placeholder={("placeholder" in s && s.placeholder) || ""}
               onChange={(e) => set(s.key, e.target.value)}
-              className="w-56 rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-2 py-1 text-sm disabled:opacity-50" />
+              className="w-full sm:w-56 rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-2 py-1.5 text-sm disabled:opacity-50" />
           )}
         </div>
       </div>
@@ -172,13 +173,13 @@ export function ConfigurePage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="page">
+      <div className="page-header">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Configure</h1>
           <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">Edit server.properties — Save applies changes and restarts the game process</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap justify-end">
           <button onClick={() => refetch()} className="btn-secondary flex items-center gap-1.5 text-sm" aria-label="Reload from server">
             <RefreshCw className="w-3.5 h-3.5" /> Reload
           </button>

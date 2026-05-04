@@ -1,4 +1,8 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 
 use crate::{
     auth::middleware::AuthUser,
@@ -52,7 +56,9 @@ pub async fn get(
             .map(|l| l.ign)
             .collect();
         if !own.iter().any(|i| i.eq_ignore_ascii_case(&ign)) {
-            return Err(AppError::Forbidden("Cannot view another player's snapshot".into()));
+            return Err(AppError::Forbidden(
+                "Cannot view another player's snapshot".into(),
+            ));
         }
     }
 
@@ -71,26 +77,31 @@ pub async fn refresh(
     crate::auth::middleware::require_perm(&actor, "players.view_any")?;
 
     let count = player_data::refresh_snapshots(&state.pool, &state.config).await?;
-    Ok((StatusCode::OK, Json(serde_json::json!({ "updated": count }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "updated": count })),
+    ))
 }
 
 // ── helper re-export ──────────────────────────────────────────────────────────
 
 mod player_links {
-    use sqlx::SqlitePool;
     use crate::error::Result;
+    use sqlx::SqlitePool;
 
-    pub struct LinkRow { pub ign: String }
+    pub struct LinkRow {
+        pub ign: String,
+    }
 
     pub async fn list_by_email(pool: &SqlitePool, email: &str) -> Result<Vec<LinkRow>> {
-        Ok(sqlx::query_as::<_, (String,)>(
-            "SELECT ign FROM player_links WHERE email = ?"
+        Ok(
+            sqlx::query_as::<_, (String,)>("SELECT ign FROM player_links WHERE email = ?")
+                .bind(email)
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(|(ign,)| LinkRow { ign })
+                .collect(),
         )
-        .bind(email)
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|(ign,)| LinkRow { ign })
-        .collect())
     }
 }

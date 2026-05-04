@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2 } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
-import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer } from "@/types";
+import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings } from "@/types";
 import { ROLE_LEVELS } from "@/types";
 
-type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending";
+type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map";
 
 // ── AdminPage ───────────────────────────────────────────────────────────────────
 
 export function AdminPage() {
-  const { hasPerm } = useAuthStore();
+  const { user, hasPerm } = useAuthStore();
   const [tab, setTab] = useState<Tab>("users");
 
   const canSeeUsers      = hasPerm("users.view") || hasPerm("users.invite") || hasPerm("users.remove");
@@ -24,6 +24,7 @@ export function AdminPage() {
   const canEditPerms     = hasPerm("roles.edit") || hasPerm("users.permissions.edit");
   const canManageWl      = hasPerm("server.whitelist.manage");
   const canSeePending    = hasPerm("players.pending.view") || hasPerm("players.pending.manage");
+  const isGlobalAdmin    = user?.role === "global_admin";
 
   const tabs = [
     { id: "users"       as Tab, label: "Users",              Icon: Users,       show: canSeeUsers },
@@ -31,11 +32,12 @@ export function AdminPage() {
     { id: "pairing"     as Tab, label: "Minecraft Pairing",  Icon: Pickaxe,     show: canManage },
     { id: "pending"     as Tab, label: "Pending Players",    Icon: UserPlus,    show: canSeePending },
     { id: "whitelist"   as Tab, label: "MC Whitelist",       Icon: ListChecks,  show: canManageWl },
+    { id: "map"         as Tab, label: "Map",                Icon: MapIcon,     show: isGlobalAdmin },
     { id: "permissions" as Tab, label: "Permissions",         Icon: ShieldCheck, show: canEditPerms },
   ].filter((t) => t.show);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="page-wide">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Admin Settings</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
@@ -43,8 +45,9 @@ export function AdminPage() {
         </p>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944]">
+      {/* Tab bar — scrollable on mobile */}
+      <div className="-mx-4 sm:mx-0 overflow-x-auto">
+      <div className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944] min-w-max sm:min-w-0 px-4 sm:px-0">
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -61,13 +64,68 @@ export function AdminPage() {
           </button>
         ))}
       </div>
+      </div>
 
       {tab === "users"       && <UsersTab />}
       {tab === "roles"       && <RolesTab />}
       {tab === "pairing"     && <MCPairingTab />}
       {tab === "pending"     && <PendingPlayersTab />}
       {tab === "whitelist"   && <MCWhitelistTab />}
+      {tab === "map"         && <MapSettingsTab />}
       {tab === "permissions" && <PermissionsPage />}
+    </div>
+  );
+}
+
+function MapSettingsTab() {
+  const qc = useQueryClient();
+
+  const { data: settings, isLoading } = useQuery<BlueMapSettings>({
+    queryKey: ["bluemap-settings"],
+    queryFn: () => api.get("/map/settings"),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: (advanced_ui_enabled: boolean) =>
+      api.put<BlueMapSettings>("/map/settings", { advanced_ui_enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bluemap-settings"] }),
+  });
+
+  const enabled = settings?.advanced_ui_enabled ?? false;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        Control whether the embedded BlueMap exposes its full interface. When disabled,
+        players only see the locked top-down map view; menu, maps, free-flight, and perspective controls are hidden.
+      </p>
+
+      <div className="card flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+            Enable advanced BlueMap controls
+          </p>
+          <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] mt-1">
+            Re-enable this only when you want everyone on the site to access BlueMap’s menu,
+            map selector, perspective mode, and free-flight controls.
+          </p>
+        </div>
+        <button
+          onClick={() => updateMut.mutate(!enabled)}
+          disabled={isLoading || updateMut.isPending}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+            enabled ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"
+          } disabled:opacity-50`}
+          aria-pressed={enabled}
+          aria-label="Toggle advanced BlueMap controls"
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+              enabled ? "translate-x-5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
     </div>
   );
 }
@@ -214,7 +272,7 @@ function UsersTab() {
       )}
 
       {/* User list + detail panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* List */}
         <div>
           {isLoading ? (

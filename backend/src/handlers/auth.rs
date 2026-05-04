@@ -3,13 +3,18 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use axum_extra::extract::{cookie::{Cookie, SameSite}, CookieJar};
+use axum_extra::extract::{
+    cookie::{Cookie, SameSite},
+    CookieJar,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
     auth::{
-        google::{authorization_url, decode_oauth_state, encode_oauth_state, exchange_code, generate_pkce},
+        google::{
+            authorization_url, decode_oauth_state, encode_oauth_state, exchange_code, generate_pkce,
+        },
         middleware::{issue_jwt, AuthUser, JWT_COOKIE},
     },
     db::{users, users::GLOBAL_ADMIN},
@@ -22,8 +27,8 @@ use crate::{
 mod err_code {
     pub const STATE_MISMATCH: &str = "state_mismatch";
     pub const TOKEN_EXCHANGE: &str = "token_exchange";
-    pub const NOT_INVITED:    &str = "not_invited";
-    pub const OAUTH_DENIED:   &str = "oauth_denied";
+    pub const NOT_INVITED: &str = "not_invited";
+    pub const OAUTH_DENIED: &str = "oauth_denied";
 }
 
 /// Redirect to the login page with an error code.
@@ -44,7 +49,7 @@ pub async fn login(State(state): State<AppState>) -> impl IntoResponse {
     // Embed verifier in a signed JWT used as the OAuth state param.
     // On callback Google echoes it back verbatim, so no browser storage needed.
     let state_jwt = match encode_oauth_state(&pkce.verifier, &state.config.jwt_secret) {
-        Ok(t)  => t,
+        Ok(t) => t,
         Err(e) => {
             tracing::error!(error = %e, "Failed to encode OAuth state");
             return login_error(err_code::STATE_MISMATCH);
@@ -56,7 +61,7 @@ pub async fn login(State(state): State<AppState>) -> impl IntoResponse {
 
 #[derive(Deserialize)]
 pub struct CallbackParams {
-    code:  Option<String>,
+    code: Option<String>,
     state: Option<String>,
     /// Google sends `error=access_denied` when the user dismisses consent.
     error: Option<String>,
@@ -157,11 +162,11 @@ pub async fn logout(jar: CookieJar) -> impl IntoResponse {
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct MeResponse {
-    pub email:        String,
-    pub role:         String,
+    pub email: String,
+    pub role: String,
     pub display_name: String,
-    pub avatar_url:   Option<String>,
-    pub permissions:  Permissions,
+    pub avatar_url: Option<String>,
+    pub permissions: Permissions,
     /// Flat permission-key list (new model). The legacy boolean fields on
     /// `permissions` are retained for one release so existing UI keeps working.
     pub permission_keys: Vec<String>,
@@ -170,18 +175,15 @@ pub struct MeResponse {
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct Permissions {
-    pub can_manage_users:   bool,
+    pub can_manage_users: bool,
     pub can_control_server: bool,
-    pub can_write_config:   bool,
+    pub can_write_config: bool,
     pub can_restore_backup: bool,
-    pub can_manage_admins:  bool,
+    pub can_manage_admins: bool,
 }
 
 /// GET /api/me
-pub async fn me(
-    State(state): State<AppState>,
-    actor: AuthUser,
-) -> Result<Json<MeResponse>> {
+pub async fn me(State(state): State<AppState>, actor: AuthUser) -> Result<Json<MeResponse>> {
     let user = users::get(&state.pool, &actor.email)
         .await?
         .ok_or_else(|| AppError::NotFound("User record not found".into()))?;
@@ -190,18 +192,17 @@ pub async fn me(
     permission_keys.sort();
 
     Ok(Json(MeResponse {
-        email:        user.email,
+        email: user.email,
         display_name: user.display_name,
-        avatar_url:   user.avatar_url,
+        avatar_url: user.avatar_url,
         permissions: Permissions {
-            can_manage_users:   actor.can_manage_users(),
+            can_manage_users: actor.can_manage_users(),
             can_control_server: actor.can_control_server(),
-            can_write_config:   actor.can_write_config(),
+            can_write_config: actor.can_write_config(),
             can_restore_backup: actor.can_restore_backup(),
-            can_manage_admins:  actor.can_manage_admins(),
+            can_manage_admins: actor.can_manage_admins(),
         },
         permission_keys,
         role: user.role,
     }))
 }
-
