@@ -8,6 +8,7 @@ import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { PlayerSnapshot, InventorySlot, McPlayer } from "@/types";
 import { ItemGiveDrawer } from "./ItemGiveDrawer";
+import { McItemImage } from "@/components/McItemImage";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,6 @@ function ItemSlot({
 }) {
   const item = items.find((i) => i.slot === slot);
   const px   = size === "md" ? "w-10 h-10" : "w-8 h-8";
-  const img  = size === "md" ? "w-8 h-8"  : "w-6 h-6";
 
   if (!item) {
     return (
@@ -69,12 +69,7 @@ function ItemSlot({
       className={`relative ${px} border border-[#D9D5D0] dark:border-[#363944] rounded
                   bg-[#F7F5F2] dark:bg-[#13151A] flex items-center justify-center group`}
     >
-      <img
-        src={`https://mc-heads.net/item/${bare}`}
-        alt={bare}
-        className={`${img} object-contain`}
-        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-      />
+      <McItemImage id={bare} size={size === "md" ? 32 : 24} />
       {item.count > 1 && (
         <span className="absolute bottom-0 right-0.5 text-[8px] font-bold text-white drop-shadow leading-none">
           {item.count}
