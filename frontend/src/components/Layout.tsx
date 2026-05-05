@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
-  MoreHorizontal,
+  Backpack, MoreHorizontal,
 } from "lucide-react";
 import { useAuthStore, useThemeStore } from "@/store/auth";
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: "/",          icon: Activity,       label: "Dashboard", perm: "nav.dashboard" },
   { to: "/server",    icon: Server,         label: "Server",    perm: "nav.server" },
   { to: "/team",      icon: Users,          label: "Team",      perm: "nav.team" },
+  { to: "/players",   icon: Backpack,        label: "Inventory", perm: "nav.players" },
   { to: "/chat",      icon: MessageSquare,  label: "Chat",      perm: "nav.chat" },
   { to: "/map",       icon: Map,            label: "Map",       perm: "nav.map" },
   { to: "/backups",   icon: HardDrive,      label: "Backups",   perm: "nav.backups" },
@@ -135,9 +136,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main content ── */}
+      {/* overflow-y-auto here is fine for most pages; full-bleed pages like
+          PlayersPage and MapPage manage their own scroll internally. */}
       <main
         id="main-content"
-        className="flex-1 overflow-y-auto bg-[#F7F5F2] dark:bg-[#13151A]
+        className="flex-1 min-h-0 overflow-y-auto bg-[#F7F5F2] dark:bg-[#13151A]
                    pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0"
       >
         {children}
