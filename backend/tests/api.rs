@@ -844,6 +844,360 @@ async fn override_invalid_key_rejected() {
     assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
+// ── Chat permission tests ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn chat_history_requires_chat_read() {
+    let (srv, state) = server().await;
+    // visitor has no chat.read
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'visitor', 'V', 'test')"
+    )
+    .bind("chat_visitor@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_visitor@example.com", "visitor");
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn chat_history_allowed_for_member() {
+    let (srv, state) = server().await;
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+    )
+    .bind("chat_member@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_member@example.com", "member");
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    // Member has chat.read — should get 200 with empty array
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let msgs: Vec<serde_json::Value> = res.json();
+    assert!(msgs.is_empty(), "fresh DB should have no chat messages");
+}
+
+#[tokio::test]
+async fn chat_send_requires_chat_send_permission() {
+    let (srv, state) = server().await;
+    // user role has no chat.send
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'user', 'U', 'test')"
+    )
+    .bind("chat_user@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_user@example.com", "user");
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "hello", "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn chat_send_rejects_empty_content() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "   ", "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn chat_send_rejects_oversized_content() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let long = "a".repeat(257);
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": long, "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn chat_send_broadcast_persists_message() {
+    let (srv, state) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Send a broadcast (target_ign: null). The SSH FIFO will fail (no real VM)
+    // but the message should still be persisted to the DB.
+    srv.post("/api/chat/send")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "content": "hello world", "target_ign": null }))
+        .await;
+
+    // Confirm it appears in history
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let msgs: Vec<serde_json::Value> = res.json();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["content"], "hello world");
+    assert_eq!(msgs[0]["source"], "web");
+}
+
+#[tokio::test]
+async fn chat_dm_rejected_with_empty_target() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    // target_ign after sanitisation is empty — should be rejected
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "hi", "target_ign": "!@#$" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+// ── Watchdog / player-joined endpoint tests ───────────────────────────────────
+
+#[tokio::test]
+async fn player_joined_rejects_missing_token() {
+    let (srv, _) = server().await;
+    // No Authorization header at all
+    let res = srv
+        .post("/internal/player-joined")
+        .json(&serde_json::json!({ "ign": "TestPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn player_joined_rejects_wrong_token() {
+    let (srv, _) = server().await;
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer wrong_token")
+        .json(&serde_json::json!({ "ign": "TestPlayer" }))
+        .await;
+    // watchdog_token is None in test config, so any token (including wrong ones)
+    // should be rejected — the handler returns 401 when token is empty or mismatch.
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn player_joined_rejects_empty_ign() {
+    // Set up state with a real watchdog token so we can get past auth.
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let cfg = {
+        use std::path::PathBuf;
+        redstonecipher_server::Config {
+            host: "127.0.0.1".into(),
+            port: 8787,
+            database_url: "sqlite::memory:".into(),
+            jwt_secret: TEST_JWT_SECRET.into(),
+            google_client_id: "test".into(),
+            google_client_secret: "test".into(),
+            redirect_uri: "https://example.com/callback".into(),
+            budget_webhook_token: None,
+            gcloud_bin: PathBuf::from("/usr/bin/false"),
+            gcp_project: "test".into(),
+            gcp_zone: "test".into(),
+            gcp_instance: "test".into(),
+            tailscale_ip: "100.0.0.1".into(),
+            mc_backup_dir: "/tmp".into(),
+            mc_server_dir: "/tmp".into(),
+            mc_scripts_dir: "/tmp".into(),
+            map_tiles_dir: "/tmp".into(),
+            watchdog_token: Some("test_watchdog_secret".into()),
+        }
+    };
+    let state = redstonecipher_server::AppState::new(pool, cfg);
+    let app = redstonecipher_server::build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "   " }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn player_joined_first_ever_returns_allow() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let cfg = {
+        use std::path::PathBuf;
+        redstonecipher_server::Config {
+            host: "127.0.0.1".into(),
+            port: 8787,
+            database_url: "sqlite::memory:".into(),
+            jwt_secret: TEST_JWT_SECRET.into(),
+            google_client_id: "test".into(),
+            google_client_secret: "test".into(),
+            redirect_uri: "https://example.com/callback".into(),
+            budget_webhook_token: None,
+            gcloud_bin: PathBuf::from("/usr/bin/false"),
+            gcp_project: "test".into(),
+            gcp_zone: "test".into(),
+            gcp_instance: "test".into(),
+            tailscale_ip: "100.0.0.1".into(),
+            mc_backup_dir: "/tmp".into(),
+            mc_server_dir: "/tmp".into(),
+            mc_scripts_dir: "/tmp".into(),
+            map_tiles_dir: "/tmp".into(),
+            watchdog_token: Some("test_watchdog_secret".into()),
+        }
+    };
+    let state = redstonecipher_server::AppState::new(pool, cfg);
+    let app = redstonecipher_server::build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "NewPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "allow", "first-ever join must be allowed");
+}
+
+#[tokio::test]
+async fn player_joined_second_join_returns_kick() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    let cfg = {
+        use std::path::PathBuf;
+        redstonecipher_server::Config {
+            host: "127.0.0.1".into(),
+            port: 8787,
+            database_url: "sqlite::memory:".into(),
+            jwt_secret: TEST_JWT_SECRET.into(),
+            google_client_id: "test".into(),
+            google_client_secret: "test".into(),
+            redirect_uri: "https://example.com/callback".into(),
+            budget_webhook_token: None,
+            gcloud_bin: PathBuf::from("/usr/bin/false"),
+            gcp_project: "test".into(),
+            gcp_zone: "test".into(),
+            gcp_instance: "test".into(),
+            tailscale_ip: "100.0.0.1".into(),
+            mc_backup_dir: "/tmp".into(),
+            mc_server_dir: "/tmp".into(),
+            mc_scripts_dir: "/tmp".into(),
+            map_tiles_dir: "/tmp".into(),
+            watchdog_token: Some("test_watchdog_secret".into()),
+        }
+    };
+    let state = redstonecipher_server::AppState::new(pool, cfg);
+    let app = redstonecipher_server::build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    // First join — allow
+    srv.post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "PendingPlayer" }))
+        .await;
+
+    // Second join — pending (not linked), must be kicked
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "PendingPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "kick", "unlinked returning player must be kicked");
+}
+
+#[tokio::test]
+async fn player_joined_linked_player_always_allowed() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    // Seed the user first (player_links has FK → users.email)
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES ('linked@example.com', 'member', 'Linked', 'test')"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Pre-link the IGN
+    sqlx::query(
+        "INSERT INTO player_links (email, ign, linked_at) VALUES ('linked@example.com', 'LinkedPlayer', '2026-01-01T00:00:00Z')"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let cfg = {
+        use std::path::PathBuf;
+        redstonecipher_server::Config {
+            host: "127.0.0.1".into(),
+            port: 8787,
+            database_url: "sqlite::memory:".into(),
+            jwt_secret: TEST_JWT_SECRET.into(),
+            google_client_id: "test".into(),
+            google_client_secret: "test".into(),
+            redirect_uri: "https://example.com/callback".into(),
+            budget_webhook_token: None,
+            gcloud_bin: PathBuf::from("/usr/bin/false"),
+            gcp_project: "test".into(),
+            gcp_zone: "test".into(),
+            gcp_instance: "test".into(),
+            tailscale_ip: "100.0.0.1".into(),
+            mc_backup_dir: "/tmp".into(),
+            mc_server_dir: "/tmp".into(),
+            mc_scripts_dir: "/tmp".into(),
+            map_tiles_dir: "/tmp".into(),
+            watchdog_token: Some("test_watchdog_secret".into()),
+        }
+    };
+    let state = redstonecipher_server::AppState::new(pool, cfg);
+    let app = redstonecipher_server::build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "LinkedPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "allow", "linked player must always be allowed");
+}
+
 // ── Whitelist delegation tests ─────────────────────────────────────────────────────
 
 /// Verifies that the whitelist (invite) permission can be delegated:
