@@ -205,19 +205,12 @@ const CATEGORIES: { id: Category; label: string; emoji: string }[] = [
   { id: "misc",      label: "Misc",      emoji: "🎁" },
 ];
 
-// ── Shared item icon ───────────────────────────────────────────────────────────
+// ── Shared item icon ─────────────────────────────────────────────────────────
+
+import { McItemImage } from "@/components/McItemImage";
 
 function ItemIcon({ id, size = 32 }: { id: string; size?: number }) {
-  const bare = id.replace("minecraft:", "");
-  return (
-    <img
-      src={`https://mc-heads.net/item/${bare}`}
-      alt={bare}
-      style={{ width: size, height: size }}
-      className="object-contain flex-shrink-0"
-      onError={(e) => { (e.target as HTMLImageElement).src = `https://mc-heads.net/item/barrier`; }}
-    />
-  );
+  return <McItemImage id={id} size={size} />;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────

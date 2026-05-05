@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { X, Package, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
+import { McItemImage } from "@/components/McItemImage";
 
 // ── Minecraft 1.21 item list ──────────────────────────────────────────────────
 // We use a curated subset of well-known items since the full minecraft-data
@@ -81,15 +82,7 @@ const MC_ITEMS: { id: string; name: string }[] = [
 ];
 
 function ItemIcon({ id }: { id: string }) {
-  const bare = id.replace("minecraft:", "");
-  return (
-    <img
-      src={`https://mc-heads.net/item/${bare}`}
-      alt={bare}
-      className="w-6 h-6 object-contain flex-shrink-0"
-      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-    />
-  );
+  return <McItemImage id={id} size={24} />;
 }
 
 interface Props {

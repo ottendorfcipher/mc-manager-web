@@ -5,6 +5,7 @@ import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { PlayerSnapshot, InventorySlot, McPlayer } from "@/types";
 import { ItemGiveDialog } from "./ItemGiveDialog";
+import { McItemImage } from "@/components/McItemImage";
 
 // ── Slot layout (mirrors the MC inventory UI) ─────────────────────────────────
 // Slots 0-8   = hotbar
@@ -41,12 +42,7 @@ function ItemSlot({ slot, items }: { slot: number; items: InventorySlot[] }) {
   const bare = item.id.replace("minecraft:", "");
   return (
     <div className="relative w-9 h-9 border border-[#D9D5D0] dark:border-[#363944] rounded bg-[#F7F5F2] dark:bg-[#1C1E27] flex items-center justify-center group">
-      <img
-        src={`https://mc-heads.net/item/${bare}`}
-        alt={bare}
-        className="w-7 h-7 object-contain"
-        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-      />
+      <McItemImage id={bare} size={28} />
       {item.count > 1 && (
         <span className="absolute bottom-0 right-0.5 text-[9px] font-bold text-white drop-shadow leading-none">
           {item.count}
