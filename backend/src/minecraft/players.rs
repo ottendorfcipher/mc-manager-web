@@ -12,17 +12,20 @@ pub struct McPlayer {
 }
 
 /// Fetch all players from usercache.json + latest.log online detection.
-/// The echo-separator trick prevents JSON and =ONLINE= merging on one line.
+/// Paths are derived from `cfg.mc_server_dir` so they stay correct if the
+/// Minecraft install is ever moved.
 pub async fn fetch_all(cfg: &Config) -> Result<Vec<McPlayer>> {
-    let script = concat!(
-        "echo '=CACHE=' && cat /opt/minecraft/usercache.json 2>/dev/null || echo '[]'; ",
-        "echo; ", // <-- blank line prevents JSON + =ONLINE= merging
-        "echo '=ONLINE=' && ",
-        "grep -E '(joined the game|left the game)' /opt/minecraft/logs/latest.log 2>/dev/null ",
-        "  | tail -100"
+    let usercache = format!("{}/usercache.json",   cfg.mc_server_dir);
+    let log_path  = format!("{}/logs/latest.log",  cfg.mc_server_dir);
+
+    let script = format!(
+        "echo '=CACHE=' && cat '{usercache}' 2>/dev/null || echo '[]'; \
+         echo; \
+         echo '=ONLINE=' && \
+         grep -E '(joined the game|left the game)' '{log_path}' 2>/dev/null | tail -100"
     );
 
-    let (out, _) = ssh::run(cfg, script).await?;
+    let (out, _) = ssh::run(cfg, &script).await?;
     Ok(parse_output(&out))
 }
 
