@@ -35,8 +35,18 @@ nbt  = nbtlib.load(PLAYERDATA_FILE)
 root = nbt.get("", nbt)
 
 inventory = root.get("Inventory", nbtlib.List[nbtlib.Compound]())
+# A List loaded from NBT has subtype End when empty.
+# Appending a Compound into List[End] raises IncompatibleItemType.
+# Re-create with the correct subtype whenever the list is empty.
+if not inventory:
+    inventory = nbtlib.List[nbtlib.Compound]()
 
-# ── 1. Try to stack onto an existing matching slot ────────────────────────────
+# ── 0. Detect item format (1.20.5+ uses lowercase 'count'/'slot') ────────────
+# Look at an existing item to determine which key style is in use.
+_ref_item = next(iter(inventory), None)
+USE_LOWER = _ref_item is not None and "count" in _ref_item
+
+# ── 1. Try to stack onto an existing matching slot ────────────────────────────────────────────
 for item in inventory:
     stored_id = str(item.get("id", ""))
     if stored_id != item_id:
@@ -54,8 +64,9 @@ for item in inventory:
         print(f"OK stacked onto existing {item_id} slot")
         sys.exit(0)
 
-# ── 2. Find a free slot (main inventory 9-35 preferred, then hotbar 0-8) ─────
-occupied = {int(item.get("Slot", -1)) for item in inventory}
+# ── 2. Find a free slot (main inventory 9-35 preferred, then hotbar 0-8) ─────────
+slot_key = "slot" if USE_LOWER else "Slot"
+occupied = {int(item.get(slot_key, item.get("Slot", item.get("slot", -1)))) for item in inventory}
 target   = next(
     (s for s in list(range(9, 36)) + list(range(0, 9)) if s not in occupied),
     None,
@@ -65,12 +76,20 @@ if target is None:
     print("ERROR: inventory full", file=sys.stderr)
     sys.exit(1)
 
-# ── 3. Append new item compound ───────────────────────────────────────────────
-new_item = nbtlib.Compound({
-    "id":    nbtlib.String(item_id),
-    "Count": nbtlib.Byte(count),
-    "Slot":  nbtlib.Byte(target),
-})
+# ── 3. Append new item compound ───────────────────────────────────────────────────────────────────
+# Match the key/type format already used by the server (pre/post 1.20.5).
+if USE_LOWER:
+    new_item = nbtlib.Compound({
+        "id":    nbtlib.String(item_id),
+        "count": nbtlib.Int(count),
+        "Slot":  nbtlib.Byte(target),
+    })
+else:
+    new_item = nbtlib.Compound({
+        "id":    nbtlib.String(item_id),
+        "Count": nbtlib.Byte(count),
+        "Slot":  nbtlib.Byte(target),
+    })
 inventory.append(new_item)
 root["Inventory"] = inventory
 nbt.save(PLAYERDATA_FILE)
