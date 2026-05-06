@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Heart, MapPin, Package2, AlertTriangle,
@@ -211,11 +211,17 @@ function DetailPanel({
   isOnline,
   canGive,
   onGive,
+  canRefresh,
+  onRefresh,
+  isRefreshing,
 }: {
   snap: PlayerSnapshot;
   isOnline: boolean;
   canGive: boolean;
   onGive: () => void;
+  canRefresh: boolean;
+  onRefresh: () => void;
+  isRefreshing: boolean;
 }) {
   const dim   = dimInfo(snap.dimension);
   const items: InventorySlot[] = useMemo(
@@ -282,10 +288,22 @@ function DetailPanel({
               ))}
             </div>
             <span className="text-xs text-[#9B9EA6]">{snap.health}/20</span>
-            <span className="text-[10px] text-[#9B9EA6] ml-auto">
+            <span className="text-[10px] text-[#9B9EA6] ml-auto flex items-center gap-1">
               Captured {relTime(snap.captured_at)}
               {isStale(snap.captured_at) && (
-                <span className="ml-1 text-[#FBBF24]">· may be stale</span>
+                canRefresh ? (
+                  <button
+                    onClick={onRefresh}
+                    disabled={isRefreshing}
+                    className="ml-1 text-[#FBBF24] hover:text-[#F59E0B] underline underline-offset-2
+                               disabled:opacity-50 flex items-center gap-0.5"
+                  >
+                    <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? "animate-spin" : ""}`} />
+                    refresh
+                  </button>
+                ) : (
+                  <span className="ml-1 text-[#FBBF24]">· stale</span>
+                )
               )}
             </span>
           </div>
@@ -316,7 +334,13 @@ function DetailPanel({
 
       {/* ── Admin: Give Item button ── */}
       {canGive && (
-        <div className="flex-shrink-0 px-4 py-3 border-t border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27]">
+        <div className="flex-shrink-0 px-4 py-3 border-t border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27] space-y-2">
+          {isStale(snap.captured_at) && (
+            <p className="text-[10px] text-[#9B9EA6] text-center">
+              Inventory shown may be outdated.
+              Online/offline status is always live.
+            </p>
+          )}
           <button
             onClick={onGive}
             className="btn-primary w-full flex items-center justify-center gap-2 py-2.5"
@@ -351,15 +375,25 @@ export function PlayersPage() {
     refetchInterval: 60_000,
   });
 
+  const refreshMut = useMutation({
+    mutationFn: () => api.post("/players/snapshots/refresh"),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ["player-snapshots"] }),
+  });
+
+  // Auto-refresh snapshots once on mount (admin only) so the page always
+  // opens with current data rather than whatever was last cached in the DB.
+  const didAutoRefresh = useRef(false);
+  useEffect(() => {
+    if (canViewAny && !didAutoRefresh.current) {
+      didAutoRefresh.current = true;
+      refreshMut.mutate();
+    }
+  }, [canViewAny]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: livePlayers = [] } = useQuery<McPlayer[]>({
     queryKey:  ["mc-players"],
     queryFn:   () => api.get("/mc/players"),
     refetchInterval: 30_000,
-  });
-
-  const refreshMut = useMutation({
-    mutationFn: () => api.post("/players/snapshots/refresh"),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ["player-snapshots"] }),
   });
 
   // ── Derived state ─────────────────────────────────────────────────────────
@@ -511,6 +545,9 @@ export function PlayersPage() {
             isOnline={isOnline}
             canGive={canGive}
             onGive={() => setShowGive(true)}
+            canRefresh={canViewAny}
+            onRefresh={() => refreshMut.mutate()}
+            isRefreshing={refreshMut.isPending}
           />
         )}
       </main>
