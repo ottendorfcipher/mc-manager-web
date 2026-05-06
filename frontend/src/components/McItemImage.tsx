@@ -36,16 +36,23 @@ export function McItemImage({ id, size = 32, className = "" }: Props) {
     null;
 
   if (!src) {
-    // Final fallback: coloured square with 2-char abbreviation
+    // Final fallback: grey square with a question mark and item ID tooltip.
+    // Shown for modded/custom items that have no vanilla texture.
+    const label = bare.replace(/_/g, " ");
     return (
       <div
         style={{ width: size, height: size }}
         className={`rounded flex items-center justify-center
-                    bg-[#D9D5D0] dark:bg-[#2A2D38] flex-shrink-0 ${className}`}
-        title={bare}
+                    bg-[#D9D5D0] dark:bg-[#2A2D38] flex-shrink-0
+                    border border-[#C0BCB7] dark:border-[#363944] ${className}`}
+        title={label}
+        aria-label={label}
       >
-        <span className="text-[8px] font-bold uppercase text-[#6B6E78] dark:text-[#9BA0B0] select-none leading-none">
-          {bare.replace(/_/g, "").slice(0, 2)}
+        <span
+          className="font-bold text-[#9B9EA6] select-none leading-none"
+          style={{ fontSize: Math.max(8, size * 0.35) }}
+        >
+          ?
         </span>
       </div>
     );
