@@ -150,3 +150,50 @@ Minecraft port 25565 is Tailscale-only. The vanilla whitelist is disabled; admis
 4. If **Rejected** → all future join attempts are kicked immediately
 
 See `DEPLOYMENT.md` for the watchdog systemd unit and full server configuration.
+
+---
+
+## Coordinate Display API
+
+Per-player coordinate HUD toggle, surfaced in the **Team** tab.
+
+### How it works
+
+A Minecraft [datapack](scripts/coords-hud/) is deployed to mc-server-1. When active, each player can run `/trigger ch_toggle` in-game chat to toggle a small coordinate readout (`X ___ Y ___ Z ___`) displayed above their hotbar. The display is per-player and invisible to everyone else.
+
+Admins and the player themselves can also toggle the setting from the **Team** tab in the web interface — the badge on each player chip shows green **XYZ** (on) or grey **XYZ** (off).
+
+### API endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET`  | `/api/players/:ign/coord-display` | Member (own IGN) or admin | Returns `{ enabled, online, ign }` |
+| `POST` | `/api/players/:ign/coord-display` | Member (own IGN) or admin | Body: `{ "enabled": true\|false }` |
+
+**GET response:**
+```json
+{ "enabled": false, "online": true, "ign": "ChaoticLuc" }
+```
+
+**POST body:**
+```json
+{ "enabled": true }
+```
+Returns `204 No Content` on success.
+
+### State management
+
+The DB (`preferences` table, key `coord_display:<ign>`) is the source of truth for the web interface. On every POST:
+- **Online player** → instant `tag <ign> add/remove ch_on` via FIFO console pipe (takes effect within one datapack tick, ~50ms)
+- **Offline player** → direct NBT edit of `world/playerdata/<uuid>.dat` via `scripts/coord-display.py` (takes effect on next login)
+
+### Deploying the datapack to a new server
+
+```bash
+# From the repo root:
+scp -r scripts/coords-hud root@<mc-server>:/opt/minecraft/server/world/datapacks/
+# Then in-game or via console:
+/reload
+```
+
+Requires Minecraft 1.20.6+ (Paper). The datapack uses the `function` (singular) tag path introduced in pack format 41.

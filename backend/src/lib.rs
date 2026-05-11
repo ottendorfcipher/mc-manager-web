@@ -177,7 +177,11 @@ pub fn build_router(state: AppState) -> Router {
         // Chat
         .route("/chat/history", get(handlers::chat::history))
         .route("/chat/stream",  get(handlers::chat::stream))
-        .route("/chat/send",    post(handlers::chat::send));
+        .route("/chat/send",    post(handlers::chat::send))
+        .route(
+            "/players/:ign/coord-display",
+            get(handlers::coord_display::get).post(handlers::coord_display::set),
+        );
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
