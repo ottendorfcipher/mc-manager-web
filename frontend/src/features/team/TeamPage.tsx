@@ -1,11 +1,32 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw, UserMinus } from "lucide-react";
+import { X, RefreshCw, UserMinus, MapPin, MapPinOff } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import type { User, PlayerLink, McPlayer, Gamemode } from "@/types";
 import { ROLE_LEVELS } from "@/types";
+
+// ── Coord display hook ────────────────────────────────────────────────────────
+
+interface CoordStatus { enabled: boolean; online: boolean; ign: string; }
+
+function useCoordDisplay(ign: string, canAccess: boolean) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<CoordStatus>({
+    queryKey: ["coord-display", ign],
+    queryFn:  () => api.get(`/players/${encodeURIComponent(ign)}/coord-display`),
+    enabled:  canAccess,
+    retry:    false,
+    staleTime: 30_000,
+  });
+  const toggleMut = useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.post(`/players/${encodeURIComponent(ign)}/coord-display`, { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["coord-display", ign] }),
+  });
+  return { data, isLoading, toggle: (v: boolean) => toggleMut.mutate(v), isPending: toggleMut.isPending };
+}
 
 const GAMEMODES: Gamemode[] = ["survival", "creative", "adventure", "spectator"];
 const GM_ICONS: Record<Gamemode, string> = { survival: "⚔️", creative: "✨", adventure: "🧭", spectator: "👁" };
@@ -36,7 +57,7 @@ export function TeamPage() {
   );
 
   return (
-    <div className="page">
+    <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Team</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
@@ -45,7 +66,7 @@ export function TeamPage() {
       </div>
 
       {/* Search + refresh */}
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-2">
         <input
           type="search"
           placeholder="Search by name or email…"
@@ -55,7 +76,7 @@ export function TeamPage() {
         />
         <button
           onClick={() => qc.invalidateQueries({ queryKey: ["users", "mc-players"] })}
-          className="icon-btn flex-shrink-0"
+          className="btn-secondary p-2"
           aria-label="Refresh"
         >
           <RefreshCw className="w-4 h-4" />
@@ -86,6 +107,36 @@ export function TeamPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function CoordToggleButton({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean; canAdmin: boolean }) {
+  const canAccess = isSelf || canAdmin;
+  const { data, isLoading, toggle, isPending } = useCoordDisplay(ign, canAccess);
+  const canToggle = isSelf || canAdmin;
+
+  if (!canAccess) return null;
+  if (isLoading) return <span className="text-[9px] text-[#9B9EA6] ml-1">…</span>;
+
+  const on = data?.enabled ?? false;
+  return (
+    <button
+      onClick={() => canToggle && toggle(!on)}
+      disabled={isPending || !canToggle}
+      title={on ? "Coords HUD: ON — click to turn off" : "Coords HUD: OFF — click to turn on"}
+      aria-label={`${ign} coordinate display ${on ? "on" : "off"}`}
+      className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium
+                  transition-colors disabled:opacity-40 ${
+        on
+          ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E] hover:bg-[#D1FAE5]"
+          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6] hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
+      }`}
+    >
+      {on
+        ? <MapPin    className="w-2.5 h-2.5" />
+        : <MapPinOff className="w-2.5 h-2.5" />}
+      <span>{on ? "XYZ" : "XYZ"}</span>
+    </button>
   );
 }
 
@@ -213,6 +264,11 @@ function UserCard({
                   {link.ign}
                 </span>
                 <span className="text-[#9B9EA6]">{GM_ICONS[link.gamemode]}</span>
+                <CoordToggleButton
+                  ign={link.ign}
+                  isSelf={isSelf}
+                  canAdmin={isGlobalAdmin || (ROLE_LEVELS[user.role] ?? 0) < myLevel}
+                />
                 {isSelf && (
                   <select
                     value={link.gamemode}
