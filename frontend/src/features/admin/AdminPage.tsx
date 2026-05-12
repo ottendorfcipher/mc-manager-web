@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -8,9 +8,10 @@ import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
 import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings } from "@/types";
+import { WorldsTab } from "./WorldsTab";
 import { ROLE_LEVELS } from "@/types";
 
-type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map";
+type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds";
 
 // ── AdminPage ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export function AdminPage() {
   const canEditPerms     = hasPerm("roles.edit") || hasPerm("users.permissions.edit");
   const canManageWl      = hasPerm("server.whitelist.manage");
   const canSeePending    = hasPerm("players.pending.view") || hasPerm("players.pending.manage");
+  const canSeeWorlds     = hasPerm("worlds.view");
   const isGlobalAdmin    = user?.role === "global_admin";
 
   const tabs = [
@@ -32,8 +34,9 @@ export function AdminPage() {
     { id: "pairing"     as Tab, label: "Minecraft Pairing",  Icon: Pickaxe,     show: canManage },
     { id: "pending"     as Tab, label: "Pending Players",    Icon: UserPlus,    show: canSeePending },
     { id: "whitelist"   as Tab, label: "MC Whitelist",       Icon: ListChecks,  show: canManageWl },
+    { id: "worlds"      as Tab, label: "Worlds",             Icon: Globe,       show: canSeeWorlds },
     { id: "map"         as Tab, label: "Map",                Icon: MapIcon,     show: isGlobalAdmin },
-    { id: "permissions" as Tab, label: "Permissions",         Icon: ShieldCheck, show: canEditPerms },
+    { id: "permissions" as Tab, label: "Permissions",        Icon: ShieldCheck, show: canEditPerms },
   ].filter((t) => t.show);
 
   return (
@@ -71,6 +74,7 @@ export function AdminPage() {
       {tab === "pairing"     && <MCPairingTab />}
       {tab === "pending"     && <PendingPlayersTab />}
       {tab === "whitelist"   && <MCWhitelistTab />}
+      {tab === "worlds"      && <WorldsTab />}
       {tab === "map"         && <MapSettingsTab />}
       {tab === "permissions" && <PermissionsPage />}
     </div>

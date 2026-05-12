@@ -16,3 +16,4 @@ pub mod properties;
 pub mod roles;
 pub mod server;
 pub mod users;
+pub mod worlds;

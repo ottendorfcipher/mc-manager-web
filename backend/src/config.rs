@@ -31,6 +31,12 @@ pub struct Config {
     /// Shared secret for the mc-server-1 watchdog webhook.
     /// When `None` the endpoint returns 401 for every request.
     pub watchdog_token: Option<String>,
+    /// Root directory on mc-server-1 where inactive worlds are stored.
+    /// Default: /opt/minecraft/worlds
+    pub mc_worlds_dir: String,
+    /// Root directory on mc-server-1 under which per-world backup subdirs live.
+    /// Default: /opt/minecraft/backups
+    pub mc_backups_base_dir: String,
 }
 
 impl Config {
@@ -65,6 +71,8 @@ impl Config {
             watchdog_token: std::env::var("WATCHDOG_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            mc_worlds_dir: env_or("MC_WORLDS_DIR", "/opt/minecraft/worlds"),
+            mc_backups_base_dir: env_or("MC_BACKUPS_BASE_DIR", "/opt/minecraft/backups"),
         }
     }
 }

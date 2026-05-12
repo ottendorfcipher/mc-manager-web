@@ -7,6 +7,7 @@ use crate::{
     db::backups,
     error::{AppError, Result},
     gcloud::ssh,
+    minecraft::world_switch,
 };
 
 const BACKUP_SCRIPT: &str = "/opt/minecraft/backup.sh";
@@ -140,6 +141,61 @@ pub fn stream_file(
     });
 
     Ok(ReaderStream::new(stdout))
+}
+
+/// Scan the backup directory for a specific world, registering any new archives
+/// in the DB with world_id and world_slug set.
+/// Non-fatal: SSH failures are logged and 0 is returned.
+pub async fn sync_world_backup_into_db(
+    pool: &sqlx::SqlitePool,
+    cfg: &Config,
+    world_id: i64,
+    world_slug: &str,
+) -> usize {
+    match sync_world_backup_inner(pool, cfg, world_id, world_slug).await {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(
+                world_slug,
+                error = %e,
+                "Could not sync world backups from mc-server-1"
+            );
+            0
+        }
+    }
+}
+
+async fn sync_world_backup_inner(
+    pool: &sqlx::SqlitePool,
+    cfg: &Config,
+    world_id: i64,
+    world_slug: &str,
+) -> Result<usize> {
+    let files = world_switch::list_world_backup_files(cfg, world_slug).await?;
+    let mut count = 0usize;
+    for (filename, remote_path, size_bytes, mtime) in files {
+        if backups::exists_by_filename(pool, &filename).await? {
+            continue;
+        }
+        backups::insert_for_world(
+            pool,
+            &filename,
+            &remote_path,
+            size_bytes,
+            "mc-server-1",
+            world_id,
+            world_slug,
+        )
+        .await?;
+        // Patch created_at to the file's actual mtime
+        sqlx::query("UPDATE backup_runs SET created_at = ? WHERE filename = ?")
+            .bind(&mtime)
+            .bind(&filename)
+            .execute(pool)
+            .await?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 /// Delete a backup archive from mc-server-1.
