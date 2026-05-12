@@ -181,6 +181,25 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),
+        )
+        // Worlds
+        .route(
+            "/worlds",
+            get(handlers::worlds::list).post(handlers::worlds::create),
+        )
+        .route("/worlds/:id", delete(handlers::worlds::delete))
+        .route("/worlds/:id/activate", post(handlers::worlds::activate))
+        .route(
+            "/worlds/:id/members",
+            get(handlers::worlds::list_members).put(handlers::worlds::set_members),
+        )
+        .route(
+            "/worlds/:id/backups",
+            get(handlers::worlds::list_backups).post(handlers::worlds::create_backup),
+        )
+        .route(
+            "/worlds/:id/backups/:backup_id",
+            get(handlers::worlds::download_backup),
         );
 
     let api = api.layer(axum::middleware::from_fn_with_state(

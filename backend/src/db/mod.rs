@@ -11,6 +11,7 @@ pub mod prefs;
 pub mod roles;
 pub mod users;
 pub mod world_gamerules;
+pub mod worlds;
 
 use anyhow::Context;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};

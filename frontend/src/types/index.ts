@@ -191,6 +191,27 @@ export interface BackupRun {
   created_by: string;
   created_at: string;
   notes:      string | null;
+  /** Set for world-scoped backups; null for legacy global backups. */
+  world_id:   number | null;
+  world_slug: string | null;
+}
+
+export interface World {
+  id:          number;
+  name:        string;
+  /** Directory-safe identifier on mc-server-1. */
+  slug:        string;
+  description: string | null;
+  seed:        string | null;
+  is_active:   boolean;
+  created_at:  string;
+  created_by:  string;
+}
+
+export interface WorldMember {
+  world_id:   number;
+  user_email: string;
+  added_at:   string;
 }
 
 export type RoleLevel = 1 | 2 | 3 | 4;

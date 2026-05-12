@@ -120,7 +120,14 @@ export function BackupsPage() {
             <div key={b.id} className="card flex items-center gap-3">
               <Server className="w-4 h-4 text-[#9B9EA6] flex-shrink-0 hidden sm:block" aria-hidden />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate">{b.filename}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate">{b.filename}</p>
+                  {b.world_slug && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0] flex-shrink-0">
+                      {b.world_slug}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-[#9B9EA6] mt-0.5">{humanBytes(b.size_bytes)} · {relativeTime(b.created_at)}</p>
               </div>
               <div className="flex flex-shrink-0">
