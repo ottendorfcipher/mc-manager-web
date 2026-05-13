@@ -21,6 +21,7 @@ Public internet
 - **Tailscale VPN** — all admin traffic (SSH, RCON, MC console) flows over the WireGuard mesh; Minecraft port 25565 is Tailscale-only
 - **mc-server-1** — Hetzner VPS (75 GB), PaperMC, port 25565 restricted to `tailscale0` interface via UFW
 - **Player admission queue** — watchdog service on mc-server-1 detects first-time Tailscale joins, registers them as pending, and enforces approval via the site
+- **Multi-world management** — admins create named world slots, switch the active world (server saves current, loads target, restarts), and manage per-world backups and player group assignments from the Admin → Worlds tab
 
 ## Quick Start
 
@@ -118,24 +119,37 @@ ssh mc-server-1 "systemctl is-active mc-player-watchdog"
 ```
 backend/              Rust Axum server — API, auth, SSH/MC integration
   migrations/         SQLite schema migrations (sqlx)
+    0017_worlds.sql   Multi-world: worlds, world_members, backup tagging
   src/
     auth/             Google OAuth PKCE + JWT middleware
     config.rs         All config loaded from environment variables
     db/               SQLite access layer
+      backups.rs      Backup metadata — now includes world_id / world_slug
       pending_players.rs  Tailscale admission queue
       players.rs          IGN ↔ site user linking (player_links table)
       users.rs            Invite-only user management
+      worlds.rs           World CRUD + world_members management
     handlers/         Axum route handlers
+      backups.rs          Legacy global backups (POST /api/backups)
       pending_players.rs  POST /internal/player-joined (watchdog) + admin queue APIs
       server.rs           Whitelist, op, kick, ban, gamerule, console
+      worlds.rs           Full world management API (see below)
+    minecraft/
+      backup.rs           Backup sync — legacy flat dir + per-world dirs
+      world_switch.rs     SSH orchestration for world switching and backups
     gcloud/
-      ssh.rs          SSH to mc-server-1 over Tailscale (replaces gcloud IAP)
+      ssh.rs          SSH to mc-server-1 over Tailscale
 frontend/             React + TypeScript SPA
   src/
     features/
-      admin/          AdminPage — Users, Roles, Pairing, Pending Players, Whitelist
+      admin/          AdminPage — Users, Roles, Pairing, Pending Players, Whitelist, Worlds
+        WorldsTab.tsx World cards, create modal, switch confirmation, members, per-world backups
+      backups/        BackupsPage — legacy backups with world_slug badge
       server-control/ ServerPage — VM control, whitelist, gamerules, weather/time
     types/index.ts    TypeScript types mirroring Rust structs
+scripts/
+  world-switch.sh     Deployed to mc-server-1 — atomic world swap with safety guarantees
+  world-backup.sh     Deployed to mc-server-1 — per-world backup to /opt/minecraft/backups/<slug>/
 README.md             This file
 DEPLOYMENT.md         Detailed server layout, runbooks, and service dependencies
 ```
@@ -150,6 +164,81 @@ Minecraft port 25565 is Tailscale-only. The vanilla whitelist is disabled; admis
 4. If **Rejected** → all future join attempts are kicked immediately
 
 See `DEPLOYMENT.md` for the watchdog systemd unit and full server configuration.
+
+---
+
+## World Management
+
+Admins can create named world slots, switch the active world, and manage per-world backups and player group assignments from **Admin → Worlds**.
+
+### How it works
+
+- **Active world** always lives in `/opt/minecraft/server/world*` on mc-server-1 — unchanged from vanilla Minecraft's perspective.
+- **Inactive worlds** are stored in `/opt/minecraft/worlds/{slug}/` as live directories (not archives).
+- **Switching worlds** (via `POST /api/worlds/:id/activate`) runs `scripts/world-switch.sh` over SSH:
+  1. RCON flushes saves, server is stopped
+  2. Current world `rsync`-ed out to `/opt/minecraft/worlds/{current_slug}/` — **current world is always saved first**
+  3. Target world `rsync`-ed into `server/world*` (or left empty for fresh Minecraft generation)
+  4. Server restarts and health-checks; the DB `is_active` flag is only updated after `DONE` is received
+  5. A failed switch leaves DB state unchanged and world files intact
+- **Backups** are stored in `/opt/minecraft/backups/{slug}/daily/` — 7 daily + 4 weekly retained per world. Legacy flat backups in `/opt/minecraft/backups/daily/` remain accessible.
+
+### API endpoints
+
+| Method | Path | Permission | Description |
+|--------|------|------------|-------------|
+| `GET` | `/api/worlds` | `worlds.view` | List all worlds |
+| `POST` | `/api/worlds` | `worlds.create` | Create a new world slot |
+| `DELETE` | `/api/worlds/:id` | `worlds.delete` | Delete a non-active world (DB record only) |
+| `POST` | `/api/worlds/:id/activate` | `worlds.switch` | Switch the active world (restarts MC) |
+| `GET` | `/api/worlds/:id/members` | `worlds.view` | List users assigned to this world |
+| `PUT` | `/api/worlds/:id/members` | `worlds.members.manage` | Replace the member list |
+| `GET` | `/api/worlds/:id/backups` | `worlds.view` | List backups for this world |
+| `POST` | `/api/worlds/:id/backups` | `worlds.backups.create` | Create a backup for this world |
+| `GET` | `/api/worlds/:id/backups/:backup_id` | `worlds.view` | Download a world backup |
+
+**Create world body:**
+```json
+{ "name": "Creative", "slug": "creative", "description": "Build server", "seed": "12345" }
+```
+`slug` must be lowercase alphanumeric + hyphens/underscores; used as the directory name on mc-server-1.
+
+**List worlds response:**
+```json
+[
+  { "id": 1, "name": "Survival", "slug": "survival", "is_active": true,
+    "description": "The main survival world", "seed": null,
+    "created_at": "2026-05-12T04:55:12Z", "created_by": "system" }
+]
+```
+
+**List backups response:**
+```json
+[
+  { "id": 5, "filename": "2026-05-12_04-00.tar.gz",
+    "file_path": "/opt/minecraft/backups/survival/daily/2026-05-12_04-00.tar.gz",
+    "size_bytes": 89234567, "created_at": "2026-05-12T04:00:00Z",
+    "world_id": 1, "world_slug": "survival", "notes": null, "created_by": "mc-server-1" }
+]
+```
+
+### Deploying the world management scripts
+
+Required when `scripts/world-switch.sh` or `scripts/world-backup.sh` change:
+
+```bash
+# Copy scripts to mc-server-1
+ssh redstonecipher-web "
+  scp -i /opt/redstonecipher/mc_ssh_key \
+      /tmp/world-switch.sh /tmp/world-backup.sh \
+      root@100.64.0.2:/opt/minecraft/scripts/
+  ssh -i /opt/redstonecipher/mc_ssh_key root@100.64.0.2 \
+    'chmod +x /opt/minecraft/scripts/world-switch.sh /opt/minecraft/scripts/world-backup.sh'
+"
+
+# Ensure directory structure exists on mc-server-1 (one-time)
+ssh mc-server 'mkdir -p /opt/minecraft/worlds /opt/minecraft/backups/survival/{daily,weekly}'
+```
 
 ---
 
