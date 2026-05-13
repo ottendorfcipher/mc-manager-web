@@ -109,7 +109,7 @@ export function RolesTab() {
     <div className="space-y-4">
       {/* Header row */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
           Roles control what each user can do.
           Custom roles let you delegate specific capabilities without granting full admin access.
         </p>
@@ -159,17 +159,17 @@ export function RolesTab() {
                     <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
                       {role.label}
                     </span>
-                    <span className="font-mono text-xs text-[#9B9EA6]">({role.name})</span>
+                    <span className="font-mono text-xs text-meta">({role.name})</span>
                     {role.is_system && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#9BA0B0] font-medium uppercase tracking-wide">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#A8AEBB] font-medium uppercase tracking-wide">
                         System
                       </span>
                     )}
                     {/* Level indicator */}
-                    <span className="text-[10px] text-[#9B9EA6]">Level {role.level}</span>
+                    <span className="text-[10px] text-meta">Level {role.level}</span>
                   </div>
                   {role.description && (
-                    <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5 truncate">
+                    <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-0.5 truncate">
                       {role.description}
                     </p>
                   )}
@@ -255,10 +255,10 @@ export function RolesTab() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Delete role?</h2>
               <button onClick={() => setConfirmDelete(null)} aria-label="Cancel">
-                <X className="w-4 h-4 text-[#9B9EA6]" />
+                <X className="w-4 h-4 text-meta" />
               </button>
             </div>
-            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               Deleting <strong className="font-mono">{confirmDelete}</strong> is permanent.
               Make sure no users are assigned this role first.
             </p>
@@ -316,13 +316,13 @@ function CreateRoleModal({
       <div className="card max-w-md w-full mx-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Create Custom Role</h2>
-          <button onClick={onCancel} aria-label="Close"><X className="w-4 h-4 text-[#9B9EA6]" /></button>
+          <button onClick={onCancel} aria-label="Close"><X className="w-4 h-4 text-meta" /></button>
         </div>
 
         <div className="space-y-3">
           {/* Name field */}
           <div>
-            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">
+            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">
               ID (slug) <span className="text-[#F87171]">*</span>
             </label>
             <input
@@ -346,7 +346,7 @@ function CreateRoleModal({
 
           {/* Label field */}
           <div>
-            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">
+            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">
               Display Name <span className="text-[#F87171]">*</span>
             </label>
             <input
@@ -361,7 +361,7 @@ function CreateRoleModal({
 
           {/* Description field */}
           <div>
-            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">
+            <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">
               Description
             </label>
             <input
@@ -376,7 +376,7 @@ function CreateRoleModal({
           {/* Colour + level row */}
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">
+              <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">
                 Colour
               </label>
               <div className="flex flex-wrap gap-1.5">
@@ -398,7 +398,7 @@ function CreateRoleModal({
             </div>
 
             <div className="w-24">
-              <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">
+              <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">
                 Level (0–{maxLevel})
               </label>
               <input
@@ -453,7 +453,7 @@ function MetaEditor({
     <div className="space-y-3">
       <div className="flex gap-3">
         <div className="flex-1">
-          <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">Display Name</label>
+          <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">Display Name</label>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -462,7 +462,7 @@ function MetaEditor({
         </div>
       </div>
       <div>
-        <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">Description</label>
+        <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">Description</label>
         <input
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
@@ -470,7 +470,7 @@ function MetaEditor({
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#9BA0B0] mb-1">Colour</label>
+        <label className="block text-xs font-medium text-[#6B6E78] dark:text-[#A8AEBB] mb-1">Colour</label>
         <div className="flex flex-wrap gap-1.5">
           {COLOR_PRESETS.map((c) => (
             <button

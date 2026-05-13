@@ -130,7 +130,7 @@ export function ItemGiveDialog({ ign, online, onClose }: Props) {
           <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
             Give item to <span className="font-mono">{ign}</span>
           </h2>
-          <button onClick={onClose} className="text-[#9B9EA6] hover:text-[#F87171]">
+          <button onClick={onClose} className="text-meta hover:text-[#F87171]">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -159,17 +159,17 @@ export function ItemGiveDialog({ ign, online, onClose }: Props) {
             >
               <ItemIcon id={item.id} />
               <span className="flex-1">{item.name}</span>
-              <span className="text-[10px] text-[#9B9EA6] font-mono">{item.id}</span>
+              <span className="text-[10px] text-meta font-mono">{item.id}</span>
             </button>
           ))}
           {filtered.length === 0 && (
-            <p className="text-sm text-[#9B9EA6] text-center py-8">No items found</p>
+            <p className="text-sm text-meta text-center py-8">No items found</p>
           )}
         </div>
 
         {/* Count + status */}
         <div className="flex items-center gap-3">
-          <label className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] flex-shrink-0">Count</label>
+          <label className="text-sm text-[#6B6E78] dark:text-[#A8AEBB] flex-shrink-0">Count</label>
           <input
             type="number"
             min={1}
@@ -181,7 +181,7 @@ export function ItemGiveDialog({ ign, online, onClose }: Props) {
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
             online
               ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E]"
-              : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6]"
+              : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta"
           }`}>
             {online ? "online — instant" : "offline — on next login"}
           </span>

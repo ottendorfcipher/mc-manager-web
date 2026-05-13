@@ -35,13 +35,35 @@ const STATUS_COLORS: Record<string, string> = {
   STAGING:    "#FBBF24",
 };
 
+// Non-color cues for colorblind users (meets WCAG 1.4.1)
+const STATUS_ICONS: Record<string, string> = {
+  RUNNING:    "▶",
+  TERMINATED: "■",
+  STOPPING:   "◐",
+  STAGING:    "◐",
+};
+
 export function StatusDot({ status }: StatusDotProps) {
   const color = STATUS_COLORS[status] ?? "#9B9EA6";
+  const icon  = STATUS_ICONS[status] ?? "●";
   return (
-    <span
-      className="inline-block w-2 h-2 rounded-full"
-      style={{ backgroundColor: color }}
-      aria-label={status}
-    />
+    <span className="inline-flex items-center gap-1" aria-label={status}>
+      {/* Color dot */}
+      <span
+        className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+        style={{ backgroundColor: color }}
+        aria-hidden
+      />
+      {/* Shape/symbol for colorblind users */}
+      <span
+        className="text-[9px] leading-none font-bold"
+        style={{ color }}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      {/* Screen-reader text */}
+      <span className="sr-only">{status.toLowerCase()}</span>
+    </span>
   );
 }

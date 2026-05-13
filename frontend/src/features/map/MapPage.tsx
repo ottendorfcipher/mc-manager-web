@@ -372,7 +372,7 @@ export function MapPage() {
       `}>
         {/* Dimension selector */}
         <div className="p-3 border-b border-[#D9D5D0] dark:border-[#363944] space-y-1">
-          <p className="text-[10px] uppercase tracking-wider text-[#9B9EA6] font-semibold px-1">Dimension</p>
+          <p className="text-[10px] uppercase tracking-wider text-meta font-semibold px-1">Dimension</p>
           {DIM_MAP.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -380,7 +380,7 @@ export function MapPage() {
               className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${
                 dim === id
                   ? "bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0]"
-                  : "text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
+                  : "text-[#6B6E78] dark:text-[#A8AEBB] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -398,7 +398,7 @@ export function MapPage() {
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
                 activeTab === tab
                   ? "border-b-2 border-[#5B9BF0] text-[#5B9BF0]"
-                  : "text-[#9B9EA6] hover:text-[#6B6E78]"
+                  : "text-meta hover:text-[#6B6E78]"
               }`}
             >
               {tab === "players" ? <Users className="w-3 h-3" /> : <MapPinIcon className="w-3 h-3" />}
@@ -412,7 +412,7 @@ export function MapPage() {
           {activeTab === "players" && (
             <div className="space-y-0.5 p-2">
               {snapshots.length === 0 ? (
-                <p className="text-xs text-[#9B9EA6] text-center py-6 px-3">
+                <p className="text-xs text-meta text-center py-6 px-3">
                   No snapshots yet. Use the Refresh button on any player.
                 </p>
               ) : snapshots.map((s) => {
@@ -439,13 +439,13 @@ export function MapPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-mono text-xs text-[#1C1E27] dark:text-[#EAECF0] truncate">{s.ign}</p>
                       {inDim && (
-                        <p className="text-[9px] text-[#9B9EA6]">
+                        <p className="text-[9px] text-meta">
                           {s.x.toFixed(0)}, {s.y.toFixed(0)}, {s.z.toFixed(0)}
                         </p>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {!inDim && <span className="text-[9px] text-[#9B9EA6]">other dim</span>}
+                      {!inDim && <span className="text-[9px] text-meta">other dim</span>}
                       <span className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`} />
                     </div>
                   </button>
@@ -494,7 +494,7 @@ export function MapPage() {
 
               <div className="space-y-0.5 p-2">
                 {dimPins.length === 0 && !showPinForm && (
-                  <p className="text-xs text-[#9B9EA6] text-center py-6 px-3">
+                  <p className="text-xs text-meta text-center py-6 px-3">
                     No pins in {dimEntry.label}.
                     {canCreatePin && " Add one above."}
                   </p>
@@ -512,7 +512,7 @@ export function MapPage() {
                       <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
                         {pin.label}
                       </p>
-                      <p className="text-[9px] text-[#9B9EA6] font-mono">
+                      <p className="text-[9px] text-meta font-mono">
                         {pin.x.toFixed(0)}, {pin.z.toFixed(0)}
                         &nbsp;·&nbsp;
                         {pin.visibility === "team"
@@ -521,7 +521,7 @@ export function MapPage() {
                         }
                       </p>
                       {pin.body && (
-                        <p className="text-[10px] text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5 line-clamp-2">
+                        <p className="text-[10px] text-[#6B6E78] dark:text-[#A8AEBB] mt-0.5 line-clamp-2">
                           {pin.body}
                         </p>
                       )}
@@ -539,7 +539,7 @@ export function MapPage() {
                             onClick={(e) => { e.stopPropagation(); setEditingPin(pin); setShowPinForm(false); }}
                             className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center
                                        rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]
-                                       text-[#9B9EA6] hover:text-[#6B6E78]"
+                                       text-meta hover:text-[#6B6E78]"
                             title="Edit"
                           >
                             <Edit2 className="w-3 h-3" />
@@ -549,7 +549,7 @@ export function MapPage() {
                             disabled={deletePinMut.isPending}
                             className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center
                                        rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F]
-                                       text-[#9B9EA6] hover:text-[#F87171]"
+                                       text-meta hover:text-[#F87171]"
                             title="Delete"
                           >
                             <Trash2 className="w-3 h-3" />

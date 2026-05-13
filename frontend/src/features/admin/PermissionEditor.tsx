@@ -99,7 +99,7 @@ export function PermissionEditor({ roleName, readOnly = false, onSaved }: Props)
 
   if (loadingCatalog || loadingPerms || !pending) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-[#9B9EA6]">
+      <div className="flex items-center gap-2 py-4 text-sm text-meta">
         <div className="w-4 h-4 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
         Loading permissions…
       </div>
@@ -139,13 +139,13 @@ export function PermissionEditor({ roleName, readOnly = false, onSaved }: Props)
             >
               <div className="flex items-center gap-2">
                 {isOpen
-                  ? <ChevronDown className="w-4 h-4 text-[#9B9EA6]" aria-hidden />
-                  : <ChevronRight className="w-4 h-4 text-[#9B9EA6]" aria-hidden />}
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#6B6E78] dark:text-[#9BA0B0]">
+                  ? <ChevronDown className="w-4 h-4 text-meta" aria-hidden />
+                  : <ChevronRight className="w-4 h-4 text-meta" aria-hidden />}
+                <span className="text-xs font-semibold uppercase tracking-wider text-[#6B6E78] dark:text-[#A8AEBB]">
                   {cat}
                 </span>
               </div>
-              <span className="text-xs text-[#9B9EA6]">
+              <span className="text-xs text-meta">
                 {grantedCount}/{perms.length}
               </span>
             </button>
@@ -185,7 +185,7 @@ export function PermissionEditor({ roleName, readOnly = false, onSaved }: Props)
                         <span className="font-mono text-xs text-[#1C1E27] dark:text-[#EAECF0] block truncate">
                           {p.key}
                         </span>
-                        <span className="text-xs text-[#9B9EA6] block truncate">{p.description}</span>
+                        <span className="text-xs text-meta block truncate">{p.description}</span>
                       </span>
                     </label>
                   );

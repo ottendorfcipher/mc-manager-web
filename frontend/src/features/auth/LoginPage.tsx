@@ -61,14 +61,14 @@ export function LoginPage() {
                   <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
                     {error.title}
                   </p>
-                  <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">
+                  <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-0.5">
                     {error.detail}
                   </p>
                 </div>
                 <button
                   onClick={dismissError}
                   aria-label="Dismiss error"
-                  className="text-[#9B9EA6] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+                  className="text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
                 >
                   <X className="w-4 h-4" aria-hidden />
                 </button>
@@ -86,14 +86,23 @@ export function LoginPage() {
             <h1 className="text-xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">
               redstoneCipher
             </h1>
-            <p className="mt-1 text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="mt-1 text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               Forge your cipher. The server awaits.
             </p>
           </div>
 
           <LoginButton soundOn={soundOn} />
 
-          <div className="flex items-center justify-between text-xs text-[#9B9EA6] dark:text-[#626878]">
+          {/* Privacy notice link */}
+          <p className="text-xs text-center text-meta">
+            By signing in you agree to our{" "}
+            <a href="/privacy" className="underline hover:text-[#5B9BF0] transition-colors">
+              Privacy Notice
+            </a>
+            .
+          </p>
+
+          <div className="flex items-center justify-between text-xs text-meta">
             <span
               className="mc-badge"
               title="Access is restricted. Ask an admin to invite your Google account."

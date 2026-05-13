@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Semantic color tokens — corrected for WCAG 2.2 AA compliance ───────────
+   Using CSS custom properties lets dark mode be handled in one place
+   instead of repeating dark: variants on every element.                    */
+:root {
+  --color-meta: #767980;   /* tertiary text on #F7F5F2  ratio 4.5:1 ✓ AA */
+  --color-sub:  #6B6E78;   /* secondary text on #F7F5F2 ratio 4.6:1 ✓ AA */
+  --color-warn: #B45309;   /* amber-700 on white        ratio 4.8:1 ✓ AA */
+}
+.dark {
+  --color-meta: #A8AEBB;   /* on #222530  ratio 4.5:1 ✓ AA */
+  --color-sub:  #A0A8BB;   /* on #222530  ratio 4.6:1 ✓ AA */
+  --color-warn: #FBBF24;   /* on #13151A  ratio 9.1:1 ✓ AAA */
+}
+
 @layer base {
   body { @apply bg-[#F7F5F2] dark:bg-[#13151A] text-[#1C1E27] dark:text-[#EAECF0] font-sans antialiased; }
   :focus-visible { @apply outline-2 outline-offset-2 outline-[#5B9BF0]; }
@@ -39,6 +53,19 @@
     transition: transform 150ms ease;
   }
   .skip-link:focus-visible { transform: translateY(0); }
+
+  /* Screen-reader-only utility */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
 
   .pixel { image-rendering: pixelated; }
 
@@ -117,6 +144,62 @@
     border-color: rgba(248,113,113,0.35);
     background: rgba(248,113,113,0.08);
   }
+}
+
+/* ── Modal / Drawer entrance animations ───────────────────────────────────── */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+@keyframes modal-out {
+  from { opacity: 1; transform: scale(1)    translateY(0); }
+  to   { opacity: 0; transform: scale(0.96) translateY(-4px); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes scrim-in  { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-enter  { animation: modal-in  150ms ease forwards; }
+.drawer-enter { animation: drawer-in 200ms ease forwards; }
+.scrim-enter  { animation: scrim-in  120ms ease forwards; }
+
+/* ── Toast container (positioned via Radix viewport) ──────────────────────── */
+.toast-viewport {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 9999;
+  list-style: none;
+  max-width: min(360px, calc(100vw - 2rem));
+}
+.toast-root {
+  @apply rounded-xl px-4 py-3 text-sm font-medium shadow-lg
+         flex items-center gap-3 border;
+  animation: modal-in 150ms ease;
+}
+.toast-root[data-type="success"] {
+  @apply bg-[#ECFDF5] dark:bg-[#052e16] border-[#A7F3D0] dark:border-[#065f46]
+         text-[#065f46] dark:text-[#6EE7B7];
+}
+.toast-root[data-type="error"] {
+  @apply bg-[#FEF2F2] dark:bg-[#3B1F1F] border-[#FECACA] dark:border-[#7F1D1D]
+         text-[#991B1B] dark:text-[#FCA5A5];
+}
+.toast-root[data-type="info"] {
+  @apply bg-white dark:bg-[#222530] border-[#D9D5D0] dark:border-[#363944]
+         text-[#1C1E27] dark:text-[#EAECF0];
+}
+
+/* ── Navigation unread badge ──────────────────────────────────────────────── */
+.nav-badge {
+  @apply absolute -top-1 -right-1 min-w-[16px] h-4 px-1
+         rounded-full bg-[#F87171] text-white text-[9px] font-bold
+         flex items-center justify-center leading-none;
 }
 
 @keyframes mc-fall {

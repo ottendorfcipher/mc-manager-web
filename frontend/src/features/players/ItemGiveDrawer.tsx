@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useMutation } from "@tanstack/react-query";
 import { X, Minus, Plus, Package, CheckCircle2, Loader2, ChevronRight } from "lucide-react";
 import { api } from "@/api/client";
@@ -637,12 +638,28 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
   const [count,    setCount]    = useState(1);
   const [success,  setSuccess]  = useState(false);
   const searchRef  = useRef<HTMLInputElement>(null);
+  const trapRef    = useFocusTrap(true, onClose) as React.RefObject<HTMLDivElement>;
 
   // Focus search on mount
   useEffect(() => { searchRef.current?.focus(); }, []);
 
   // Clear success state if player changes
   useEffect(() => { setSuccess(false); setSelected(null); setCount(1); }, [ign]);
+
+  const categoryTabId  = (id: Category) => `item-cat-${id}`;
+  const categoryPanelId = (id: Category) => `item-cat-panel-${id}`;
+
+  const handleCategoryKey = useCallback((e: React.KeyboardEvent, idx: number) => {
+    if (e.key === "ArrowRight") {
+      const next = CATEGORIES[(idx + 1) % CATEGORIES.length];
+      setCategory(next.id); setQuery("");
+      document.getElementById(categoryTabId(next.id))?.focus();
+    } else if (e.key === "ArrowLeft") {
+      const prev = CATEGORIES[(idx - 1 + CATEGORIES.length) % CATEGORIES.length];
+      setCategory(prev.id); setQuery("");
+      document.getElementById(categoryTabId(prev.id))?.focus();
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     let items = category === "all" ? CATALOG : CATALOG.filter((i) => i.category === category);
@@ -685,11 +702,13 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
 
       {/* Drawer */}
       <div
+        ref={trapRef}
         role="dialog"
+        aria-modal="true"
         aria-label={`Give item to ${ign}`}
         className="fixed inset-y-0 right-0 z-50 flex flex-col
                    w-full sm:w-[420px] max-w-full
-                   bg-white dark:bg-[#1C1E27] shadow-2xl"
+                   bg-white dark:bg-[#1C1E27] shadow-2xl drawer-enter"
       >
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-4 py-3
@@ -705,7 +724,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                 online
                   ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E]"
-                  : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6]"
+                  : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta"
               }`}>
                 {online ? "Online — instant delivery" : "Offline — queued for login"}
               </span>
@@ -714,7 +733,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-2 rounded-lg text-[#9B9EA6] hover:text-[#F87171]
+            className="p-2 rounded-lg text-meta hover:text-[#F87171]
                        hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] transition-colors"
           >
             <X className="w-4 h-4" />
@@ -736,30 +755,45 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
           />
         </div>
 
-        {/* ── Category tabs ── */}
-        <div className="flex gap-0.5 px-3 overflow-x-auto flex-shrink-0 pb-2"
-             style={{ scrollbarWidth: "none" }}>
-          {CATEGORIES.map((cat) => (
+        {/* ── Category tabs (role=tablist for AT navigation) ── */}
+        <div
+          role="tablist"
+          aria-label="Item categories"
+          className="flex gap-0.5 px-3 overflow-x-auto flex-shrink-0 pb-2"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {CATEGORIES.map((cat, idx) => (
             <button
               key={cat.id}
+              id={categoryTabId(cat.id)}
+              role="tab"
+              aria-selected={category === cat.id && !query}
+              aria-controls={categoryPanelId(cat.id)}
+              tabIndex={category === cat.id && !query ? 0 : -1}
               onClick={() => { setCategory(cat.id); setQuery(""); }}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium
+              onKeyDown={(e) => handleCategoryKey(e, idx)}
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium
                           whitespace-nowrap transition-colors flex-shrink-0 ${
                 category === cat.id && !query
                   ? "bg-[#5B9BF0] text-white"
-                  : "text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
+                  : "text-sub hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
               }`}
             >
-              <span>{cat.emoji}</span>
+              <span aria-hidden>{cat.emoji}</span>
               <span>{cat.label}</span>
             </button>
           ))}
         </div>
 
         {/* ── Item grid (scrollable) ── */}
-        <div className="flex-1 overflow-y-auto px-3 min-h-0">
+        <div
+          role="tabpanel"
+          id={categoryPanelId(category)}
+          aria-label={`${category} items`}
+          className="flex-1 overflow-y-auto px-3 min-h-0"
+        >
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-[#9B9EA6]">
+            <div className="flex flex-col items-center justify-center py-12 text-meta">
               <Package className="w-8 h-8 mb-2 opacity-40" />
               <p className="text-sm">No items match "{query}"</p>
             </div>
@@ -780,10 +814,10 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
                     }`}
                   >
                     <ItemIcon id={item.id} size={32} />
-                    <span className={`text-[9px] leading-tight break-words w-full font-medium ${
+                    <span className={`text-xs leading-tight break-words w-full font-medium ${
                       isSelected
                         ? "text-[#5B9BF0]"
-                        : "text-[#6B6E78] dark:text-[#9BA0B0]"
+                        : "text-[#6B6E78] dark:text-[#A8AEBB]"
                     }`}>
                       {item.name}
                     </span>
@@ -807,7 +841,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
                 <p className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] truncate">
                   {selected ? selected.name : "Select an item"}
                 </p>
-                <p className="text-xs text-[#9B9EA6]">
+                <p className="text-xs text-meta">
                   {selected
                     ? `minecraft:${selected.id} × ${count}`
                     : "Tap an item above to select it"
@@ -815,7 +849,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
                 </p>
               </div>
               {selected && (
-                <ChevronRight className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-meta flex-shrink-0" />
               )}
             </div>
           </div>
@@ -823,14 +857,14 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
           {/* Count stepper */}
           <div className="px-4 pb-3">
             <div className="flex items-center gap-2 justify-between">
-              <span className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] font-medium">Quantity</span>
+              <span className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] font-medium">Quantity</span>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => adjustCount(-10)}
                   disabled={count <= 1}
                   className="w-8 h-8 rounded-lg flex items-center justify-center
                              border border-[#D9D5D0] dark:border-[#363944]
-                             text-[#6B6E78] dark:text-[#9BA0B0]
+                             text-[#6B6E78] dark:text-[#A8AEBB]
                              hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]
                              disabled:opacity-30 disabled:cursor-not-allowed transition-colors
                              text-[10px] font-bold"
@@ -871,7 +905,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
                   disabled={count === 64}
                   className="h-8 px-2 rounded-lg text-[10px] font-bold
                              border border-[#D9D5D0] dark:border-[#363944]
-                             text-[#6B6E78] dark:text-[#9BA0B0]
+                             text-[#6B6E78] dark:text-[#A8AEBB]
                              hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]
                              disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >×64</button>
@@ -887,7 +921,7 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
                 success
                   ? "bg-[#36B37E] text-white"
                   : !selected
-                  ? "bg-[#D9D5D0] dark:bg-[#363944] text-[#9B9EA6] cursor-not-allowed"
+                  ? "bg-[#D9D5D0] dark:bg-[#363944] text-meta cursor-not-allowed"
                   : "btn-primary"
               }`}
             >

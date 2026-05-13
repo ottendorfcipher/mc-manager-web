@@ -6,6 +6,7 @@ import {
   Backpack, MoreHorizontal,
 } from "lucide-react";
 import { useAuthStore, useThemeStore } from "@/store/auth";
+import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 
 const NAV = [
   { to: "/",          icon: Activity,       label: "Dashboard", perm: "nav.dashboard" },
@@ -32,6 +33,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, hasPerm } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
   const [moreOpen, setMoreOpen] = useState(false);
+  const chatUnread = useChatUnread((s) => s.count);
+
+  // Register navigation keyboard shortcuts (active on every authenticated page)
+  useNavigationHotkeys();
 
   const nav = NAV.filter((n) => hasPerm(n.perm));
   const hasMobileOverflow = nav.length > MOBILE_PRIMARY_COUNT;
@@ -40,6 +45,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-full overflow-hidden">
+      {/* Skip to main content — available on every authenticated page */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
 
       {/* ── Sidebar: hidden on mobile, icon-only on md, full on lg ── */}
       <aside
@@ -59,7 +66,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav links */}
         <nav className="flex-1 px-1.5 lg:px-2 py-3 space-y-0.5 overflow-y-auto" role="navigation">
-          <p className="hidden lg:block text-[10px] uppercase tracking-wider text-[#9B9EA6]
+          <p className="hidden lg:block text-[10px] uppercase tracking-wider text-meta
                         px-3 py-1.5 font-semibold">
             Navigation
           </p>
@@ -76,7 +83,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 }`
               }
             >
-              <Icon className="w-4 h-4 flex-shrink-0" aria-hidden />
+              <span className="relative flex-shrink-0">
+                <Icon className="w-4 h-4" aria-hidden />
+                {/* Unread badge on Chat icon */}
+                {to === "/chat" && chatUnread > 0 && (
+                  <span className="nav-badge" aria-label={`${chatUnread} unread message${chatUnread !== 1 ? "s" : ""}` }>
+                    {chatUnread > 9 ? "9+" : chatUnread}
+                  </span>
+                )}
+              </span>
               <span className="hidden lg:block flex-1">{label}</span>
             </NavLink>
           ))}
@@ -96,7 +111,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   min-h-[44px] ${
                     theme === t
                       ? "bg-[#5B9BF0] text-white"
-                      : "text-[#9B9EA6] hover:bg-[#DBD8D3] dark:hover:bg-[#2F323D]"
+                      : "text-meta hover:bg-[#DBD8D3] dark:hover:bg-[#2F323D]"
                   }`}
               >
                 <Icon className="w-3.5 h-3.5" aria-hidden />
@@ -118,7 +133,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
                   {user.display_name}
                 </p>
-                <p className="text-[10px] text-[#9B9EA6] truncate capitalize">
+                <p className="text-[10px] text-meta truncate capitalize">
                   {user.role.replace("_", " ")}
                 </p>
               </div>
@@ -126,7 +141,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 href="/auth/logout"
                 title="Sign out"
                 aria-label="Sign out"
-                className="hidden lg:block text-[#9B9EA6] hover:text-[#F87171] transition-colors p-1"
+                className="hidden lg:block text-meta hover:text-[#F87171] transition-colors p-1"
               >
                 <LogOut className="w-3.5 h-3.5" aria-hidden />
               </a>
@@ -136,10 +151,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main content ── */}
-      {/* overflow-y-auto here is fine for most pages; full-bleed pages like
-          PlayersPage and MapPage manage their own scroll internally. */}
       <main
         id="main-content"
+        tabIndex={-1}
         className="flex-1 min-h-0 overflow-y-auto bg-[#F7F5F2] dark:bg-[#13151A]
                    pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0"
       >
@@ -160,17 +174,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
             key={to}
             to={to}
             end={to === "/"}
-            aria-label={label}
+            aria-label={to === "/chat" && chatUnread > 0 ? `Chat — ${chatUnread} unread` : label}
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center justify-center gap-0.5
                min-h-[56px] px-1 py-2 text-[10px] font-medium transition-colors ${
                 isActive
                   ? "text-[#5B9BF0]"
-                  : "text-[#9B9EA6] hover:text-[#6B6E78]"
+                  : "text-meta hover:text-[#6B6E78]"
               }`
             }
           >
-            <Icon className="w-5 h-5" aria-hidden />
+            <span className="relative">
+              <Icon className="w-5 h-5" aria-hidden />
+              {to === "/chat" && chatUnread > 0 && (
+                <span className="nav-badge" aria-hidden>
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+            </span>
             {label}
           </NavLink>
         ))}
@@ -182,7 +203,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             aria-expanded={moreOpen}
             className="flex-1 flex flex-col items-center justify-center gap-0.5
                        min-h-[56px] px-1 py-2 text-[10px] font-medium
-                       text-[#9B9EA6] hover:text-[#6B6E78] transition-colors"
+                       text-meta hover:text-[#6B6E78] transition-colors"
           >
             <MoreHorizontal className="w-5 h-5" aria-hidden />
             More
@@ -224,7 +245,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                      min-h-[52px] transition-colors ${
                       isActive
                         ? "bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0]"
-                        : "text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
+                        : "text-[#6B6E78] dark:text-[#A8AEBB] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
                     }`
                   }
                 >
@@ -250,14 +271,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
                       {user.display_name}
                     </p>
-                    <p className="text-xs text-[#9B9EA6] capitalize">
+                    <p className="text-xs text-meta capitalize">
                       {user.role.replace("_", " ")}
                     </p>
                   </div>
                   <a
                     href="/auth/logout"
                     aria-label="Sign out"
-                    className="p-2.5 rounded-lg text-[#9B9EA6] hover:text-[#F87171]
+                    className="p-2.5 rounded-lg text-meta hover:text-[#F87171]
                                hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] transition-colors"
                   >
                     <LogOut className="w-4 h-4" aria-hidden />
@@ -275,7 +296,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       min-h-[44px] ${
                         theme === t
                           ? "bg-[#5B9BF0] text-white"
-                          : "text-[#9B9EA6] hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
+                          : "text-meta hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38]"
                       }`}
                   >
                     <Icon className="w-4 h-4" aria-hidden />

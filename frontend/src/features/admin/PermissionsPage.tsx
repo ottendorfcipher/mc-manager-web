@@ -131,7 +131,7 @@ export function PermissionsPage() {
 
   if (loadingCatalog || loadingRoles || loadingPerms || !pending) {
     return (
-      <div className="flex items-center gap-2 text-sm text-[#9B9EA6] py-4">
+      <div className="flex items-center gap-2 text-sm text-meta py-4">
         <div className="w-4 h-4 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
         Loading permissions…
       </div>
@@ -145,7 +145,7 @@ export function PermissionsPage() {
           <ShieldCheck className="w-5 h-5 text-[#5B9BF0]" aria-hidden />
           <div>
             <h2 className="text-lg font-bold text-[#1C1E27] dark:text-[#EAECF0]">Permission Matrix</h2>
-            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               Cross-role view. Unsaved changes are highlighted.
             </p>
           </div>
@@ -164,7 +164,7 @@ export function PermissionsPage() {
       <div className="card overflow-x-auto" data-testid="permissions-grid">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wider text-[#9B9EA6]">
+            <tr className="text-left text-xs uppercase tracking-wider text-meta">
               <th className="py-2 px-2 min-w-[180px]">Permission</th>
               {apiRoles.map((r) => (
                 <th key={r.name} className="py-2 px-2 text-center whitespace-nowrap">
@@ -193,7 +193,7 @@ export function PermissionsPage() {
                   <tr key={p.key} className="border-t border-[#D9D5D0] dark:border-[#363944]">
                     <td className="py-2 px-2">
                       <div className="font-mono text-xs">{p.key}</div>
-                      <div className="text-xs text-[#9B9EA6]">{p.description}</div>
+                      <div className="text-xs text-meta">{p.description}</div>
                     </td>
                     {apiRoles.map((r) => {
                       const cs = cellState(r.name, p.key);
@@ -228,7 +228,7 @@ export function PermissionsPage() {
       </div>
 
       {hasDiff && (
-        <p className="text-xs text-[#9B9EA6]">
+        <p className="text-xs text-meta">
           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-200 dark:bg-green-900 mr-1" />
           Added &nbsp;
           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 dark:bg-red-900 mr-1 ml-2" />

@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Send, MessageSquare, Lock, Globe } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
+import { useChatUnread } from "@/hooks/useHotkeys";
+import { useLocation } from "react-router-dom";
 import type { ChatMessage, McPlayer } from "@/types";
 
 // ── ChatPage ───────────────────────────────────────────────────────────────────
@@ -13,11 +15,16 @@ export function ChatPage() {
   const canSend = hasPerm("chat.send");
 
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [targetIgn, setTargetIgn] = useState<string>(""); // "" = broadcast
-  const [sseError, setSseError] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const [input, setInput]       = useState("");
+  const [targetIgn, setTargetIgn] = useState<string>("");
+  const [sseError, setSseError]  = useState(false);
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  const esRef      = useRef<EventSource | null>(null);
+  const { clear: clearUnread } = useChatUnread();
+  const location = useLocation();
+
+  // Clear unread count whenever we land on /chat
+  useEffect(() => { clearUnread(); }, [location.pathname, clearUnread]);
 
   // ── History (seed) ──────────────────────────────────────────────────────────
 
@@ -46,8 +53,11 @@ export function ChatPage() {
       try {
         const msg: ChatMessage = JSON.parse(e.data);
         setLiveMessages((prev) => {
-          // Deduplicate by id in case history and stream overlap on reconnect.
           if (prev.some((m) => m.id === msg.id)) return prev;
+          // Increment unread badge when user is not looking at the chat page
+          if (document.visibilityState === "hidden" || !window.location.pathname.startsWith("/chat")) {
+            useChatUnread.getState().increment();
+          }
           return [...prev, msg];
         });
       } catch {
@@ -121,7 +131,7 @@ export function ChatPage() {
         <MessageSquare className="w-5 h-5 text-[#5B9BF0]" aria-hidden />
         <div>
           <h1 className="text-xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Chat</h1>
-          <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">
+          <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">
             Web ↔ Minecraft · broadcast messages and join/leave events
             {sseError && (
               <span className="ml-2 text-[#F87171]">· reconnecting…</span>
@@ -130,14 +140,24 @@ export function ChatPage() {
         </div>
       </div>
 
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto card p-0 min-h-0">
+      {/* Message list — role=log aria-live so screen readers receive new messages */}
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Chat messages"
+        aria-relevant="additions"
+        className="flex-1 overflow-y-auto card p-0 min-h-0"
+      >
         {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="w-5 h-5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
+          <div
+            role="status"
+            aria-label="Loading chat history"
+            className="flex items-center justify-center h-32"
+          >
+            <div className="w-5 h-5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" aria-hidden />
           </div>
         ) : allMessages.length === 0 ? (
-          <p className="text-sm text-[#9B9EA6] text-center py-12">
+          <p className="text-sm text-meta text-center py-12">
             No messages yet. Say something!
           </p>
         ) : (
@@ -154,7 +174,7 @@ export function ChatPage() {
       {canSend ? (
         <div className="flex-shrink-0 card p-3 space-y-2">
           {/* Target selector row */}
-          <div className="flex items-center gap-2 text-xs text-[#6B6E78] dark:text-[#9BA0B0]">
+          <div className="flex items-center gap-2 text-xs text-[#6B6E78] dark:text-[#A8AEBB]">
             <span>Send as <span className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">{sendAs}</span> to</span>
             <div className="relative">
               <select
@@ -169,13 +189,13 @@ export function ChatPage() {
                 ))}
               </select>
               {targetIgn ? (
-                <Lock className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#9B9EA6] pointer-events-none" aria-hidden />
+                <Lock className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-meta pointer-events-none" aria-hidden />
               ) : (
-                <Globe className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#9B9EA6] pointer-events-none" aria-hidden />
+                <Globe className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-meta pointer-events-none" aria-hidden />
               )}
             </div>
             {targetIgn && (
-              <span className="text-[#FBBF24] text-[10px]">DMs are not saved to history</span>
+              <span className="text-warn text-[10px]">DMs are not saved to history</span>
             )}
           </div>
 
@@ -203,10 +223,10 @@ export function ChatPage() {
               <Send className="w-4 h-4" aria-hidden />
             </button>
           </div>
-          <p className="text-[10px] text-[#9B9EA6] text-right">{input.length}/256 · Enter to send</p>
+          <p className="text-[10px] text-meta text-right">{input.length}/256 · Enter to send</p>
         </div>
       ) : (
-        <div className="flex-shrink-0 card p-3 text-sm text-[#9B9EA6] text-center">
+        <div className="flex-shrink-0 card p-3 text-sm text-meta text-center">
           You have read-only access to chat.
         </div>
       )}
@@ -220,7 +240,7 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
   if (msg.source === "server") {
     return (
       <div className="py-2 px-4 text-center">
-        <span className="text-xs text-[#9B9EA6] italic">{msg.content}</span>
+        <span className="text-xs text-meta italic">{msg.content}</span>
       </div>
     );
   }
@@ -258,7 +278,7 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
               web
             </span>
           )}
-          <span className="text-[10px] text-[#9B9EA6] ml-auto flex-shrink-0">
+          <span className="text-[10px] text-meta ml-auto flex-shrink-0">
             {formatTime(msg.sent_at)}
           </span>
         </div>

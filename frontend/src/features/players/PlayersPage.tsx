@@ -102,7 +102,7 @@ function InventoryGrid({ items }: { items: InventorySlot[] }) {
         <div className="space-y-1">
           {ARMOR_SLOTS.map((s, i) => (
             <div key={s} className="flex items-center gap-1.5">
-              <span className="text-[9px] text-[#9B9EA6] w-[58px] text-right leading-none">
+              <span className="text-[9px] text-meta w-[58px] text-right leading-none">
                 {ARMOR_LABELS[i]}
               </span>
               <ItemSlot slot={s} items={items} size="md" />
@@ -110,7 +110,7 @@ function InventoryGrid({ items }: { items: InventorySlot[] }) {
           ))}
         </div>
         <div className="self-end space-y-1">
-          <span className="text-[9px] text-[#9B9EA6] block text-center">Offhand</span>
+          <span className="text-[9px] text-meta block text-center">Offhand</span>
           <ItemSlot slot={OFFHAND_SLOT} items={items} size="md" />
         </div>
       </div>
@@ -132,7 +132,7 @@ function InventoryGrid({ items }: { items: InventorySlot[] }) {
           <div className="flex gap-1">
             {hotbar.map((s) => <ItemSlot key={s} slot={s} items={items} />)}
           </div>
-          <p className="text-[9px] text-[#9B9EA6] mt-0.5">Hotbar</p>
+          <p className="text-[9px] text-meta mt-0.5">Hotbar</p>
         </div>
       </div>
     </div>
@@ -187,7 +187,7 @@ function PlayerRosterCard({
             {snap.ign}
           </span>
           {stale && (
-            <AlertTriangle className="w-3 h-3 text-[#FBBF24] flex-shrink-0" aria-label="Stale snapshot" />
+            <AlertTriangle className="w-3 h-3 text-warn flex-shrink-0" aria-label="Stale snapshot" />
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
@@ -197,7 +197,7 @@ function PlayerRosterCard({
           >
             {dim.label}
           </span>
-          <span className="text-[10px] text-[#9B9EA6]">{relTime(snap.captured_at)}</span>
+          <span className="text-[10px] text-meta">{relTime(snap.captured_at)}</span>
         </div>
       </div>
     </button>
@@ -249,7 +249,7 @@ function DetailPanel({
             <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
               isOnline
                 ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E]"
-                : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6]"
+                : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta"
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`} />
               {isOnline ? "Online" : "Offline"}
@@ -258,7 +258,7 @@ function DetailPanel({
 
           {/* Location + dimension */}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <span className="flex items-center gap-1 text-xs text-[#6B6E78] dark:text-[#9BA0B0] font-mono">
+            <span className="flex items-center gap-1 text-xs text-[#6B6E78] dark:text-[#A8AEBB] font-mono">
               <MapPin className="w-3 h-3 flex-shrink-0" />
               X {snap.x.toFixed(0)} · Y {snap.y.toFixed(0)} · Z {snap.z.toFixed(0)}
             </span>
@@ -287,22 +287,22 @@ function DetailPanel({
                 />
               ))}
             </div>
-            <span className="text-xs text-[#9B9EA6]">{snap.health}/20</span>
-            <span className="text-[10px] text-[#9B9EA6] ml-auto flex items-center gap-1">
+            <span className="text-xs text-meta">{snap.health}/20</span>
+            <span className="text-[10px] text-meta ml-auto flex items-center gap-1">
               Captured {relTime(snap.captured_at)}
               {isStale(snap.captured_at) && (
                 canRefresh ? (
                   <button
                     onClick={onRefresh}
                     disabled={isRefreshing}
-                    className="ml-1 text-[#FBBF24] hover:text-[#F59E0B] underline underline-offset-2
+                    className="ml-1 text-warn hover:text-[#F59E0B] underline underline-offset-2
                                disabled:opacity-50 flex items-center gap-0.5"
                   >
                     <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? "animate-spin" : ""}`} />
                     refresh
                   </button>
                 ) : (
-                  <span className="ml-1 text-[#FBBF24]">· stale</span>
+                  <span className="ml-1 text-warn">· stale</span>
                 )
               )}
             </span>
@@ -317,13 +317,13 @@ function DetailPanel({
             <Backpack className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
             Inventory
           </h3>
-          <span className="text-xs text-[#9B9EA6]">
+          <span className="text-xs text-meta">
             {filledCount} / 41 slots filled
           </span>
         </div>
 
         {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-[#9B9EA6]">
+          <div className="flex flex-col items-center justify-center py-12 text-meta">
             <Package2 className="w-10 h-10 mb-2 opacity-30" />
             <p className="text-sm">Inventory is empty or not yet captured</p>
           </div>
@@ -336,7 +336,7 @@ function DetailPanel({
       {canGive && (
         <div className="flex-shrink-0 px-4 py-3 border-t border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27] space-y-2">
           {isStale(snap.captured_at) && (
-            <p className="text-[10px] text-[#9B9EA6] text-center">
+            <p className="text-[10px] text-meta text-center">
               Inventory shown may be outdated.
               Online/offline status is always live.
             </p>
@@ -450,7 +450,7 @@ export function PlayersPage() {
             <h1 className="text-base font-bold text-[#1C1E27] dark:text-[#EAECF0]">
               Inventory
             </h1>
-            <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">
               {onlineSet.size > 0
                 ? `${onlineSet.size} online · ${sorted.length} tracked`
                 : `${sorted.length} player${sorted.length !== 1 ? "s" : ""} tracked`}
@@ -461,7 +461,7 @@ export function PlayersPage() {
               onClick={() => refreshMut.mutate()}
               disabled={refreshMut.isPending}
               title="Refresh all snapshots"
-              className="p-2 rounded-lg text-[#9B9EA6] hover:text-[#5B9BF0]
+              className="p-2 rounded-lg text-meta hover:text-[#5B9BF0]
                          hover:bg-[#EFF6FF] dark:hover:bg-[#1E3A5F] transition-colors
                          disabled:opacity-40"
             >
@@ -478,9 +478,9 @@ export function PlayersPage() {
             </div>
           ) : noLinked ? (
             <div className="text-center py-10 px-4">
-              <Backpack className="w-8 h-8 mx-auto mb-2 text-[#9B9EA6] opacity-40" />
-              <p className="text-sm text-[#9B9EA6]">No player data yet.</p>
-              <p className="text-xs text-[#9B9EA6] mt-1">
+              <Backpack className="w-8 h-8 mx-auto mb-2 text-meta opacity-40" />
+              <p className="text-sm text-meta">No player data yet.</p>
+              <p className="text-xs text-meta mt-1">
                 {canViewAny
                   ? "Click ↻ to capture a snapshot."
                   : "Ask an admin to link your Minecraft account in Admin → Pairing."}
@@ -524,7 +524,7 @@ export function PlayersPage() {
 
         {!selectedSnap ? (
           /* No snapshot yet — empty right panel */
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[#9B9EA6] p-8">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-meta p-8">
             <Backpack className="w-16 h-16 opacity-20" />
             <p className="text-base font-medium">Select a player to view their inventory</p>
             {canViewAny && snapshots.length === 0 && (
