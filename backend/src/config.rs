@@ -32,11 +32,20 @@ pub struct Config {
     /// When `None` the endpoint returns 401 for every request.
     pub watchdog_token: Option<String>,
     /// Root directory on mc-server-1 where inactive worlds are stored.
-    /// Default: /opt/minecraft/worlds
     pub mc_worlds_dir: String,
     /// Root directory on mc-server-1 under which per-world backup subdirs live.
-    /// Default: /opt/minecraft/backups
     pub mc_backups_base_dir: String,
+    // ── Onboarding / invite ────────────────────────────────────────────────────
+    /// Resend API key for sending invite emails.
+    /// When `None`, email sending is skipped (invite still created in DB).
+    pub resend_api_key: Option<String>,
+    /// Tailscale API key for creating tailnet user invites.
+    /// When `None`, the Tailscale invite step is omitted.
+    pub tailscale_api_key: Option<String>,
+    /// Tailscale tailnet identifier (e.g. "example.com" or admin email).
+    pub tailscale_tailnet: String,
+    /// Public base URL of this site — used in invite email links.
+    pub site_url: String,
 }
 
 impl Config {
@@ -73,6 +82,14 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             mc_worlds_dir: env_or("MC_WORLDS_DIR", "/opt/minecraft/worlds"),
             mc_backups_base_dir: env_or("MC_BACKUPS_BASE_DIR", "/opt/minecraft/backups"),
+            resend_api_key: std::env::var("RESEND_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            tailscale_api_key: std::env::var("TAILSCALE_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            tailscale_tailnet: env_or("TAILSCALE_TAILNET", "your-tailnet"),
+            site_url: env_or("SITE_URL", "https://redstonecipher.com"),
         }
     }
 }

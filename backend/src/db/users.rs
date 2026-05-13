@@ -105,6 +105,27 @@ pub async fn update_display_name(pool: &SqlitePool, email: &str, name: &str) -> 
     Ok(())
 }
 
+/// Mark that an invite email was sent to this user right now.
+pub async fn set_invited_at(pool: &SqlitePool, email: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET invited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE email = ?",
+    )
+    .bind(email)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_last_login(pool: &SqlitePool, email: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET last_login = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE email = ?",
+    )
+    .bind(email)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_google_identity(
     pool: &SqlitePool,
     email: &str,
