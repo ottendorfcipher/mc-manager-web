@@ -15,5 +15,6 @@ pub mod player_data;
 pub mod properties;
 pub mod roles;
 pub mod server;
+pub mod onboarding;
 pub mod users;
 pub mod worlds;

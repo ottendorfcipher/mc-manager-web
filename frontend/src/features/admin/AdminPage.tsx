@@ -8,8 +8,9 @@ import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
 import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings } from "@/types";
-import { WorldsTab } from "./WorldsTab";
-import { ROLE_LEVELS } from "@/types";
+import { WorldsTab }    from "./WorldsTab";
+import { InvitePortal } from "./InvitePortal";
+import { ROLE_LEVELS }  from "@/types";
 
 type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds";
 
@@ -183,9 +184,6 @@ function UsersTab() {
   const { user: me, hasPerm } = useAuthStore();
   const qc = useQueryClient();
   const [showInvite, setShowInvite] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("member");
-  const [error, setError] = useState("");
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   // Staged role — reset to the user's actual role whenever the selected user changes.
   const [stagedRole, setStagedRole] = useState("");
@@ -202,7 +200,7 @@ function UsersTab() {
     queryFn: () => api.get("/users"),
   });
 
-  // Load API roles for the invite / change-role dropdowns
+  // Load API roles for the change-role dropdown
   const { data: apiRoles = [] } = useQuery<RoleRecord[]>({
     queryKey: ["roles"],
     queryFn: () => api.get<RoleRecord[]>("/roles"),
@@ -210,17 +208,6 @@ function UsersTab() {
 
   // Only show roles the actor can assign (level strictly below theirs)
   const assignableRoles = apiRoles.filter((r) => r.level < myLevel);
-
-  const inviteMut = useMutation({
-    mutationFn: () => api.post("/users", { email: inviteEmail, role: inviteRole }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["users"] });
-      setShowInvite(false);
-      setInviteEmail("");
-      setError("");
-    },
-    onError: (e: Error) => setError(e.message),
-  });
 
   const removeMut = useMutation({
     mutationFn: (email: string) =>
@@ -247,76 +234,23 @@ function UsersTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
-          Whitelist users by email — they sign in with their Google account to activate access.
-          Click a user row to manage their role and permission overrides.
+        <p className="text-sm text-sub">
+          Invite team members — one action creates their portal account, whitelists
+          their Minecraft IGN, generates a Tailscale invite, and sends a welcome email.
         </p>
         {canInvite && (
           <button
             onClick={() => setShowInvite(true)}
-            className="btn-primary flex items-center gap-2 text-sm flex-shrink-0"
+            className="btn-primary flex items-center gap-2 text-sm flex-shrink-0 ml-4"
             data-testid="invite-user-btn"
           >
-            <UserPlus className="w-4 h-4" aria-hidden /> Whitelist User
+            <UserPlus className="w-4 h-4" aria-hidden /> Invite Member
           </button>
         )}
       </div>
 
-      {/* Invite dialog */}
-      {showInvite && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          role="dialog"
-          aria-modal
-          aria-label="Whitelist user"
-        >
-          <div className="card max-w-md w-full mx-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
-                Whitelist a user
-              </h2>
-              <button onClick={() => setShowInvite(false)} aria-label="Close">
-                <X className="w-4 h-4 text-meta" />
-              </button>
-            </div>
-            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
-              Enter their Gmail address. They'll be able to sign in with that Google account once added.
-              Users not on this list are rejected at login.
-            </p>
-            <div className="space-y-3">
-              <input
-                type="email"
-                placeholder="user@gmail.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
-              />
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-                className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm"
-              >
-                {assignableRoles.map((r) => (
-                  <option key={r.name} value={r.name}>{r.label}</option>
-                ))}
-              </select>
-              {error && <p className="text-xs text-[#F87171]">{error}</p>}
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowInvite(false)} className="btn-secondary text-sm">
-                Cancel
-              </button>
-              <button
-                onClick={() => inviteMut.mutate()}
-                disabled={!inviteEmail.includes("@") || inviteMut.isPending}
-                className="btn-primary text-sm"
-              >
-                {inviteMut.isPending ? "Adding…" : "Add to Whitelist"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Unified invite portal */}
+      {showInvite && <InvitePortal onClose={() => setShowInvite(false)} />}
 
       {/* User list + detail panel */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

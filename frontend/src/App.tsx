@@ -17,6 +17,7 @@ import { AdminPage }        from "@/features/admin/AdminPage";
 import { ChatPage }         from "@/features/chat/ChatPage";
 import { PlayersPage }      from "@/features/players/PlayersPage";
 import { Loader2 }          from "lucide-react";
+import { OnboardingWizard, isOnboardingComplete } from "@/features/onboarding/OnboardingWizard";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -92,9 +93,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const [ageConfirmed, setAgeConfirmed] = useState(() =>
     localStorage.getItem(AGE_KEY) === "1"
   );
-
-  // Show age gate only on first-ever sign-in (google_sub was just linked)
   const needsAgeGate = !ageConfirmed && !!user;
+
+  // Determine wizard visibility once user is known
+  const shouldShowWizard =
+    !!user &&
+    user.role === "member" &&
+    !isOnboardingComplete();
 
   const handleAgeConfirm = () => {
     localStorage.setItem(AGE_KEY, "1");
@@ -111,6 +116,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return (
     <>
       {needsAgeGate && <AgeGate onConfirm={handleAgeConfirm} />}
+      {!needsAgeGate && shouldShowWizard && (
+        <OnboardingWizard onDismiss={() => {}} />
+      )}
       {children}
     </>
   );

@@ -208,6 +208,14 @@ export interface World {
   created_by:  string;
 }
 
+export interface InviteResult {
+  user:                 User;
+  email_sent:           boolean;
+  whitelist_added:      boolean;
+  tailscale_invite_url: string | null;
+  warnings:             string[];
+}
+
 export interface WorldMember {
   world_id:   number;
   user_email: string;

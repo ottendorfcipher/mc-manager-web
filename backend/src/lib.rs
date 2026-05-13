@@ -200,7 +200,9 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/worlds/:id/backups/:backup_id",
             get(handlers::worlds::download_backup),
-        );
+        )
+        // Onboarding
+        .route("/onboarding/invite", post(handlers::onboarding::invite));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
