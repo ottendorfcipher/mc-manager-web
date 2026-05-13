@@ -60,7 +60,7 @@ export function TeamPage() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Team</h1>
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
           See who's on the team and manage your linked Minecraft accounts
         </p>
       </div>
@@ -116,7 +116,7 @@ function CoordToggleButton({ ign, isSelf, canAdmin }: { ign: string; isSelf: boo
   const canToggle = isSelf || canAdmin;
 
   if (!canAccess) return null;
-  if (isLoading) return <span className="text-[9px] text-[#9B9EA6] ml-1">…</span>;
+  if (isLoading) return <span className="text-[9px] text-meta ml-1">…</span>;
 
   const on = data?.enabled ?? false;
   return (
@@ -129,7 +129,7 @@ function CoordToggleButton({ ign, isSelf, canAdmin }: { ign: string; isSelf: boo
                   transition-colors disabled:opacity-40 ${
         on
           ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E] hover:bg-[#D1FAE5]"
-          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#9B9EA6] hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
+          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
       }`}
     >
       {on
@@ -209,7 +209,7 @@ function UserCard({
             <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
               Remove {user.display_name}?
             </h2>
-            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               This will revoke their access immediately. Their linked Minecraft accounts will also be unlinked. This cannot be undone.
             </p>
             <div className="flex gap-2 justify-end">
@@ -243,10 +243,10 @@ function UserCard({
           <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
             {user.display_name}
           </span>
-          {isSelf && <span className="text-xs text-[#9B9EA6]">(you)</span>}
+          {isSelf && <span className="text-xs text-meta">(you)</span>}
           <RoleBadge role={user.role} />
         </div>
-        <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{user.email}</p>
+        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{user.email}</p>
 
         {/* Player links — self-service gamemode + unlink */}
         <div className="flex flex-wrap gap-2 mt-1">
@@ -263,7 +263,7 @@ function UserCard({
                 <span className="font-mono text-[#1C1E27] dark:text-[#EAECF0]">
                   {link.ign}
                 </span>
-                <span className="text-[#9B9EA6]">{GM_ICONS[link.gamemode]}</span>
+                <span className="text-meta">{GM_ICONS[link.gamemode]}</span>
                 <CoordToggleButton
                   ign={link.ign}
                   isSelf={isSelf}
@@ -275,7 +275,7 @@ function UserCard({
                     onChange={(e) =>
                       gmMut.mutate({ ign: link.ign, gamemode: e.target.value })
                     }
-                    className="text-xs bg-transparent text-[#9B9EA6] focus:outline-none"
+                    className="text-xs bg-transparent text-meta focus:outline-none"
                     aria-label={`${link.ign} gamemode`}
                   >
                     {GAMEMODES.map((m) => (
@@ -296,7 +296,7 @@ function UserCard({
             );
           })}
           {links.length === 0 && (
-            <span className="text-xs text-[#9B9EA6]">⛏ No linked players</span>
+            <span className="text-xs text-meta">⛏ No linked players</span>
           )}
         </div>
       </div>
@@ -306,7 +306,7 @@ function UserCard({
         <button
           onClick={() => setConfirmRemove(true)}
           title={`Remove ${user.display_name} from the team`}
-          className="flex-shrink-0 self-start p-1.5 rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] text-[#9B9EA6] hover:text-[#F87171] transition-colors"
+          className="flex-shrink-0 self-start p-1.5 rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] text-meta hover:text-[#F87171] transition-colors"
         >
           <UserMinus className="w-4 h-4" />
         </button>

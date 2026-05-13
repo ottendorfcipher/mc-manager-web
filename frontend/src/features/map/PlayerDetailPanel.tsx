@@ -113,7 +113,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
               <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0] font-mono">{ign}</p>
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`} />
-                <span className="text-[10px] text-[#9B9EA6]">{isOnline ? "Online" : "Offline"}</span>
+                <span className="text-[10px] text-meta">{isOnline ? "Online" : "Offline"}</span>
               </div>
             </div>
           </div>
@@ -122,7 +122,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
               <button
                 onClick={() => setShowGive(true)}
                 title="Give item"
-                className="icon-btn text-[#9B9EA6] hover:text-[#5B9BF0]"
+                className="icon-btn text-meta hover:text-[#5B9BF0]"
               >
                 <Package className="w-4 h-4" />
               </button>
@@ -146,14 +146,14 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
             <div className="w-6 h-6 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : !snap ? (
-          <div className="flex-1 flex items-center justify-center text-sm text-[#9B9EA6] p-6 text-center">
+          <div className="flex-1 flex items-center justify-center text-sm text-meta p-6 text-center">
             No snapshot yet. Click Refresh to capture current state.
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* Location */}
             <div className="space-y-1">
-              <p className="text-xs font-medium text-[#9B9EA6] uppercase tracking-wide">Location</p>
+              <p className="text-xs font-medium text-meta uppercase tracking-wide">Location</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sm text-[#1C1E27] dark:text-[#EAECF0]">
                   X {snap.x.toFixed(0)} &nbsp;Y {snap.y.toFixed(0)} &nbsp;Z {snap.z.toFixed(0)}
@@ -165,7 +165,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
                   {dimInfo!.label}
                 </span>
               </div>
-              <p className="text-[10px] text-[#9B9EA6]">Last captured {relTime(snap.captured_at)}</p>
+              <p className="text-[10px] text-meta">Last captured {relTime(snap.captured_at)}</p>
             </div>
 
             {/* Health */}
@@ -184,20 +184,20 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
                     }`}
                   />
                 ))}
-                <span className="text-xs text-[#9B9EA6] ml-1">{snap.health}/20</span>
+                <span className="text-xs text-meta ml-1">{snap.health}/20</span>
               </div>
             </div>
 
             {/* Inventory */}
             <div className="space-y-2">
-              <p className="text-xs font-medium text-[#9B9EA6] uppercase tracking-wide">Inventory</p>
+              <p className="text-xs font-medium text-meta uppercase tracking-wide">Inventory</p>
 
               {/* Armor column */}
               <div className="flex gap-1 items-start">
                 <div className="space-y-1">
                   {ARMOR_SLOTS.map((s, i) => (
                     <div key={s} className="flex items-center gap-1">
-                      <span className="text-[9px] text-[#9B9EA6] w-14 text-right">{ARMOR_LABELS[i]}</span>
+                      <span className="text-[9px] text-meta w-14 text-right">{ARMOR_LABELS[i]}</span>
                       <ItemSlot slot={s} items={items} />
                     </div>
                   ))}
@@ -218,7 +218,7 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
                 <div className="flex gap-1">
                   {hotbarRow.map((s) => <ItemSlot key={s} slot={s} items={items} />)}
                 </div>
-                <p className="text-[9px] text-[#9B9EA6] mt-0.5">Hotbar</p>
+                <p className="text-[9px] text-meta mt-0.5">Hotbar</p>
               </div>
               </div>{/* end overflow-x-auto */}
             </div>

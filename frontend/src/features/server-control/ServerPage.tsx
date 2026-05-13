@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
+import { toast } from "@/components/Toast";
 import type { ServerStatus, WhitelistEntry } from "@/types";
 
 const GAMERULES = [
@@ -28,11 +30,23 @@ const WEATHER_PRESETS = [
   { label: "⛈️ Thunder", kind: "thunder", gif: "/weather/stormy.gif", poster: "/weather/stormy.png" },
 ];
 
-/** Human-readable copy for each VM action while its request is in-flight. */
-const VM_PROGRESS: Record<string, string> = {
-  start: "Starting VM… This takes 1–2 minutes.",
-  stop:  "Stopping VM… All player sessions will end.",
-  reset: "Resetting VM… The OS is rebooting.",
+/** Time-based step sequences for each VM action (Option B from UX review). */
+const VM_STEPS: Record<string, { after: number; text: string }[]> = {
+  start: [
+    { after: 0,  text: "Requesting VM start…" },
+    { after: 5,  text: "VM is booting…" },
+    { after: 30, text: "Starting Minecraft service…" },
+    { after: 75, text: "Almost ready…" },
+  ],
+  stop: [
+    { after: 0,  text: "Saving world and stopping…" },
+    { after: 10, text: "Shutting down Minecraft service…" },
+    { after: 25, text: "Stopping VM…" },
+  ],
+  reset: [
+    { after: 0, text: "Restarting Minecraft process…" },
+    { after: 5, text: "Waiting for service to come up…" },
+  ],
 };
 
 function ActionButton({
@@ -64,12 +78,14 @@ export function ServerPage() {
   const qc = useQueryClient();
   const canControl = user?.permissions.can_control_server ?? false;
   const canManageWhitelist = hasPerm("server.whitelist.manage");
-  const [statusMsg, setStatusMsg] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [grStates, setGrStates] = useState<Record<string, boolean>>(defaultGrState);
+  const [vmStepText, setVmStepText] = useState("");
+  const [grStates, setGrStates]     = useState<Record<string, boolean>>(defaultGrState);
+  const [grFlash, setGrFlash]       = useState<Record<string, boolean>>({});
   const [hoveredWeather, setHoveredWeather] = useState<string | null>(null);
   const [wlInput, setWlInput] = useState("");
   const wlInputRef = useRef<HTMLInputElement>(null);
+  const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const { data: whitelist, isLoading: wlLoading } = useQuery<WhitelistEntry[]>({
     queryKey: ["whitelist"],
@@ -80,21 +96,21 @@ export function ServerPage() {
   const wlAddMut = useMutation({
     mutationFn: (player: string) => api.post("/server/whitelist/add", { player }),
     onSuccess:  (_, player) => {
-      setStatusMsg(`✓ ${player} added to whitelist`);
+      toast.success(`${player} added to whitelist`);
       setWlInput("");
       wlInputRef.current?.focus();
       qc.invalidateQueries({ queryKey: ["whitelist"] });
     },
-    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const wlRemoveMut = useMutation({
     mutationFn: (player: string) => api.post("/server/whitelist/remove", { player }),
     onSuccess:  (_, player) => {
-      setStatusMsg(`✓ ${player} removed from whitelist`);
+      toast.success(`${player} removed from whitelist`);
       qc.invalidateQueries({ queryKey: ["whitelist"] });
     },
-    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const { data: serverStatus } = useQuery<ServerStatus>({
@@ -123,36 +139,50 @@ export function ServerPage() {
   const vmMut = useMutation({
     mutationFn: (action: string) => {
       setPendingAction(action);
+      // Start time-based step sequence
+      const steps = VM_STEPS[action] ?? [];
+      stepTimersRef.current.forEach(clearTimeout);
+      stepTimersRef.current = steps.map(({ after, text }) =>
+        setTimeout(() => setVmStepText(text), after * 1000)
+      );
       return api.post(`/server/vm/${action}`);
     },
     onSuccess: (_, action) => {
-      setStatusMsg(`✓ VM ${action} sent`);
+      stepTimersRef.current.forEach(clearTimeout);
+      toast.success(`VM ${action} request sent`);
       setPendingAction(null);
+      setVmStepText("");
       qc.invalidateQueries({ queryKey: ["server-status"] });
     },
     onError: (e: Error) => {
-      setStatusMsg(`✗ ${e.message}`);
+      stepTimersRef.current.forEach(clearTimeout);
+      toast.error(e.message);
       setPendingAction(null);
+      setVmStepText("");
     },
   });
 
   const grMut = useMutation({
     mutationFn: ({ rule, value }: { rule: string; value: string }) =>
       api.post(`/world/gamerule/${rule}`, { value }),
-    onSuccess: (_, { rule, value }) => setStatusMsg(`✓ ${rule} → ${value}`),
-    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+    onSuccess: (_, { rule }) => {
+      // Inline flash on the toggle row — no header status message needed
+      setGrFlash((p) => ({ ...p, [rule]: true }));
+      setTimeout(() => setGrFlash((p) => ({ ...p, [rule]: false })), 1500);
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const timeMut = useMutation({
     mutationFn: (ticks: number) => api.post("/world/time", { ticks }),
-    onSuccess: (_, t) => setStatusMsg(`✓ Time set to ${t}`),
-    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+    onSuccess: () => toast.success("Time updated"),
+    onError:   (e: Error) => toast.error(e.message),
   });
 
   const wxMut = useMutation({
     mutationFn: (kind: string) => api.post("/world/weather", { kind }),
-    onSuccess: (_, k) => setStatusMsg(`✓ Weather: ${k}`),
-    onError: (e: Error) => setStatusMsg(`✗ ${e.message}`),
+    onSuccess: (_, k) => toast.success(`Weather: ${k}`),
+    onError:   (e: Error) => toast.error(e.message),
   });
 
   function toggleGr(key: string, rule: string, onVal: string, offVal: string) {
@@ -166,20 +196,14 @@ export function ServerPage() {
       <div className="page-header">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Server Control</h1>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">Manage the VM and world settings</p>
+          <p className="text-sm text-meta mt-0.5">Manage the VM and world settings</p>
         </div>
-        {statusMsg && (
-          <span className="text-xs px-3 py-1.5 rounded-lg bg-[#F0EDE9] dark:bg-[#2A2D38]
-                          text-[#6B6E78] dark:text-[#9BA0B0] self-start">
-            {statusMsg}
-          </span>
-        )}
       </div>
 
       {/* VM Status */}
       <div className="card space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">Server (Hetzner)</p>
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        <p className="text-xs font-semibold uppercase tracking-wider text-meta">Server (Hetzner)</p>
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
           Stop ends all player sessions but preserves the world. Force Reset restarts the Minecraft process — use only if the server is unresponsive.
         </p>
         <div className="flex gap-2 flex-wrap items-center">
@@ -204,21 +228,25 @@ export function ServerPage() {
               />
             </>
           )}
-          <span className="text-xs text-[#9B9EA6]">
+          <span className="text-xs text-meta">
             Status: {serverStatus?.vm.status ?? "…"}
           </span>
         </div>
 
-        {/* In-progress indicator */}
+        {/* In-progress indicator with step text */}
         {vmMut.isPending && pendingAction && (
-          <div className="space-y-1.5">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label={`VM ${pendingAction} in progress`}
+            className="space-y-1.5"
+          >
             <div className="flex items-center gap-2 text-sm text-[#5B9BF0]">
-              <div className="w-3.5 h-3.5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin flex-shrink-0" />
-              {VM_PROGRESS[pendingAction] ?? `VM ${pendingAction} in progress…`}
+              <div className="w-3.5 h-3.5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin flex-shrink-0" aria-hidden />
+              <span>{vmStepText || `VM ${pendingAction} in progress…`}</span>
             </div>
-            {/* Indeterminate progress bar */}
-            <div className="h-1 w-full rounded-full bg-[#E5E2DE] dark:bg-[#363944] overflow-hidden">
-              <div className="h-full w-1/3 rounded-full bg-[#5B9BF0] animate-[progress_1.4s_ease-in-out_infinite]" />
+            <div role="progressbar" aria-label="Operation progress" className="h-1 w-full rounded-full bg-[#E5E2DE] dark:bg-[#363944] overflow-hidden">
+              <div className="h-full w-1/3 rounded-full bg-[#5B9BF0] animate-[progress_1.4s_ease-in-out_infinite]" aria-hidden />
             </div>
           </div>
         )}
@@ -227,7 +255,7 @@ export function ServerPage() {
       {/* Whitelist */}
       {canManageWhitelist && (
         <div className="card space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">🛡️ Whitelist</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-meta">🛡️ Whitelist</p>
 
           {/* Add player */}
           <form
@@ -246,7 +274,7 @@ export function ServerPage() {
               className="flex-1 rounded-lg border border-[#D9D5D0] dark:border-[#363944]
                          bg-white dark:bg-[#1E2028] text-sm px-3 py-1.5
                          text-[#1C1E27] dark:text-[#EAECF0]
-                         placeholder:text-[#9B9EA6]
+                         placeholder:text-meta
                          focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
               aria-label="Player username to whitelist"
               autoComplete="off"
@@ -263,9 +291,9 @@ export function ServerPage() {
 
           {/* Current list */}
           {wlLoading ? (
-            <p className="text-sm text-[#9B9EA6]">Loading…</p>
+            <p className="text-sm text-meta">Loading…</p>
           ) : !whitelist?.length ? (
-            <p className="text-sm text-[#9B9EA6] italic">No players whitelisted.</p>
+            <p className="text-sm text-meta italic">No players whitelisted.</p>
           ) : (
             <ul className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
               {whitelist.map((entry) => (
@@ -299,7 +327,7 @@ export function ServerPage() {
 
       {/* World Settings */}
       <div className="card space-y-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6]">🎮 World Settings</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-meta">🎮 World Settings</p>
 
         {/* Time of Day */}
         <div>
@@ -350,11 +378,19 @@ export function ServerPage() {
             <div key={key} className="flex items-center gap-4 py-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">{label}</p>
-                <p className="text-xs text-[#9B9EA6]">{desc}</p>
+                <p className="text-xs text-meta">{desc}</p>
               </div>
+              {/* Inline success flash — no page-level status message needed */}
+              {grFlash[key] && (
+                <CheckCircle2
+                  className="w-4 h-4 text-[#36B37E] flex-shrink-0 animate-[modal-in_150ms_ease]"
+                  aria-hidden
+                />
+              )}
               <button
                 role="switch"
                 aria-checked={grStates[key]}
+                aria-label={label}
                 disabled={!canControl}
                 onClick={() => toggleGr(key, key, onVal, offVal)}
                 className={`relative inline-flex h-5 w-9 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[#5B9BF0] ${

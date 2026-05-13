@@ -49,7 +49,7 @@ export function McItemImage({ id, size = 32, className = "" }: Props) {
         aria-label={label}
       >
         <span
-          className="font-bold text-[#9B9EA6] select-none leading-none"
+          className="font-bold text-meta select-none leading-none"
           style={{ fontSize: Math.max(8, size * 0.35) }}
         >
           ?

@@ -11,12 +11,12 @@ function MetricTile({
 }: { icon: React.ElementType; label: string; value: string; sub?: string }) {
   return (
     <div className="card flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-[#9B9EA6] text-xs font-medium">
+      <div className="flex items-center gap-2 text-meta text-xs font-medium">
         <Icon className="w-3.5 h-3.5" aria-hidden />
         {label}
       </div>
       <p className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">{value}</p>
-      {sub && <p className="text-xs text-[#9B9EA6]">{sub}</p>}
+      {sub && <p className="text-xs text-meta">{sub}</p>}
     </div>
   );
 }
@@ -96,7 +96,7 @@ export function DashboardPage() {
     <div className="page-wide">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Dashboard</h1>
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0] mt-0.5">
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB] mt-0.5">
           Live overview of your Minecraft server
         </p>
       </div>
@@ -106,14 +106,14 @@ export function DashboardPage() {
         <div className="card flex items-center gap-3">
           <StatusDot status={vmStatus} />
           <div>
-            <p className="text-xs text-[#9B9EA6]">Server</p>
+            <p className="text-xs text-meta">Server</p>
             <p className="font-semibold text-[#1C1E27] dark:text-[#EAECF0] text-sm">{vmStatus}</p>
           </div>
         </div>
         <div className="card flex items-center gap-3">
           <StatusDot status={gameActive ? "RUNNING" : "TERMINATED"} />
           <div>
-            <p className="text-xs text-[#9B9EA6]">Minecraft</p>
+            <p className="text-xs text-meta">Minecraft</p>
             <p className="font-semibold text-[#1C1E27] dark:text-[#EAECF0] text-sm capitalize">{mcServiceLabel}</p>
           </div>
         </div>
@@ -131,12 +131,12 @@ export function DashboardPage() {
             value={metrics.vm_cpu_pct  != null ? `${metrics.vm_cpu_pct.toFixed(1)}%`  : "—"} />
         </div>
       ) : vmStatus === "RUNNING" ? (
-        <div className="card flex items-center gap-3 text-[#9B9EA6]">
+        <div className="card flex items-center gap-3 text-meta">
           <Activity className="w-4 h-4 animate-pulse" />
           <span className="text-sm">Connecting to game metrics…</span>
         </div>
       ) : (
-        <div className="card flex items-center gap-3 text-[#9B9EA6]">
+        <div className="card flex items-center gap-3 text-meta">
           <ServerCrash className="w-4 h-4" />
           <span className="text-sm">Metrics unavailable — VM is offline</span>
         </div>
@@ -145,9 +145,9 @@ export function DashboardPage() {
       {/* Tailscale address */}
       {status?.vm?.tailscale_ip && (
         <div className="card">
-          <p className="text-xs text-[#9B9EA6] mb-1">Connect in Minecraft</p>
+          <p className="text-xs text-meta mb-1">Connect in Minecraft</p>
           <code className="text-[#5B9BF0] font-mono font-semibold">{status.vm.tailscale_ip}</code>
-          <p className="text-xs text-[#9B9EA6] mt-1">Requires Tailscale — Java Edition port 25565</p>
+          <p className="text-xs text-meta mt-1">Requires Tailscale — Java Edition port 25565</p>
         </div>
       )}
     </div>

@@ -166,12 +166,12 @@ export function ConfigurePage() {
                                     py-3 first:pt-0 last:pb-0 border-b border-[#D9D5D0] dark:border-[#363944] last:border-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            {("locked" in s && s.locked) && <span className="text-[10px] text-[#9B9EA6]">🔒</span>}
+            {("locked" in s && s.locked) && <span className="text-[10px] text-meta">🔒</span>}
             <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">{s.label}</p>
             {edits[s.key] !== undefined && <span className="w-1.5 h-1.5 rounded-full bg-[#FBBF24]" />}
           </div>
-          <p className="text-xs text-[#9B9EA6] mt-0.5">{s.desc}</p>
-          {("locked" in s && s.locked && "lockMsg" in s) && <p className="text-xs text-[#FBBF24] mt-0.5">{(s as any).lockMsg}</p>}
+          <p className="text-xs text-meta mt-0.5">{s.desc}</p>
+          {("locked" in s && s.locked && "lockMsg" in s) && <p className="text-xs text-warn mt-0.5">{(s as any).lockMsg}</p>}
         </div>
         <div className="flex-shrink-0">
           {s.type === "toggle" && (
@@ -196,7 +196,7 @@ export function ConfigurePage() {
                 disabled={locked}
                 onChange={(e) => set(s.key, e.target.value)}
                 className="flex-1 accent-[#5B9BF0]" />
-              <span className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] w-8 text-right">{val || s.min}</span>
+              <span className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] w-8 text-right">{val || s.min}</span>
             </div>
           )}
           {s.type === "text" && (
@@ -215,7 +215,7 @@ export function ConfigurePage() {
       <div className="page-header">
         <div>
           <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Configure</h1>
-          <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">Edit server.properties — Save applies changes and restarts the game process</p>
+          <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">Edit server.properties — Save applies changes and restarts the game process</p>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           <button onClick={() => refetch()} className="btn-secondary flex items-center gap-1.5 text-sm" aria-label="Reload from server">

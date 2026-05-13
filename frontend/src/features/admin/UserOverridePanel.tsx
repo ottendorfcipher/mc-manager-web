@@ -72,7 +72,7 @@ export function UserOverridePanel({ email, roleName, canEdit }: Props) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide">
+        <p className="text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
           Permission Overrides
         </p>
         {!adding && available.length > 0 && (
@@ -86,7 +86,7 @@ export function UserOverridePanel({ email, roleName, canEdit }: Props) {
         )}
       </div>
 
-      <p className="text-xs text-[#9B9EA6]">
+      <p className="text-xs text-meta">
         Grants extra permissions on top of the user's role. Cannot revoke role permissions.
       </p>
 
@@ -94,7 +94,7 @@ export function UserOverridePanel({ email, roleName, canEdit }: Props) {
       {isLoading ? (
         <div className="w-4 h-4 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
       ) : overrides.length === 0 ? (
-        <p className="text-xs text-[#9B9EA6] italic">No overrides — all permissions come from the role.</p>
+        <p className="text-xs text-meta italic">No overrides — all permissions come from the role.</p>
       ) : (
         <div className="space-y-1">
           {overrides.map((o) => (
@@ -106,7 +106,7 @@ export function UserOverridePanel({ email, roleName, canEdit }: Props) {
               <span className="font-mono text-xs text-[#1C1E27] dark:text-[#EAECF0] flex-1 truncate">
                 {o.permission_key}
               </span>
-              <span className="text-[10px] text-[#9B9EA6] hidden sm:block">
+              <span className="text-[10px] text-meta hidden sm:block">
                 by {o.granted_by.split("@")[0]}
               </span>
               <button

@@ -43,23 +43,37 @@ export function AdminPage() {
     <div className="page-wide">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Admin Settings</h1>
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
           Manage users, roles, Minecraft accounts, and permissions
         </p>
       </div>
 
-      {/* Tab bar — scrollable on mobile */}
+      {/* Tab bar — scrollable on mobile; role=tablist with Arrow-key navigation */}
       <div className="-mx-4 sm:mx-0 overflow-x-auto">
-      <div className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944] min-w-max sm:min-w-0 px-4 sm:px-0">
+      <div
+        role="tablist"
+        aria-label="Admin sections"
+        className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944] min-w-max sm:min-w-0 px-4 sm:px-0"
+        onKeyDown={(e) => {
+          const idx = tabs.findIndex((t) => t.id === tab);
+          if (e.key === "ArrowRight") setTab(tabs[(idx + 1) % tabs.length].id);
+          else if (e.key === "ArrowLeft") setTab(tabs[(idx - 1 + tabs.length) % tabs.length].id);
+        }}
+      >
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`tabpanel-${id}`}
+            id={`tab-${id}`}
             onClick={() => setTab(id)}
             data-testid={`tab-${id}`}
+            tabIndex={tab === id ? 0 : -1}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === id
                 ? "border-[#5B9BF0] text-[#5B9BF0]"
-                : "border-transparent text-[#6B6E78] dark:text-[#9BA0B0] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+                : "border-transparent text-sub hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
             }`}
           >
             <Icon className="w-4 h-4" aria-hidden />
@@ -69,14 +83,43 @@ export function AdminPage() {
       </div>
       </div>
 
-      {tab === "users"       && <UsersTab />}
-      {tab === "roles"       && <RolesTab />}
-      {tab === "pairing"     && <MCPairingTab />}
-      {tab === "pending"     && <PendingPlayersTab />}
-      {tab === "whitelist"   && <MCWhitelistTab />}
-      {tab === "worlds"      && <WorldsTab />}
-      {tab === "map"         && <MapSettingsTab />}
-      {tab === "permissions" && <PermissionsPage />}
+      <div role="tabpanel" id="tabpanel-users"       aria-labelledby="tab-users"       hidden={tab !== "users"}><UsersTab /></div>
+      <div role="tabpanel" id="tabpanel-roles"       aria-labelledby="tab-roles"       hidden={tab !== "roles"}><RolesTab /></div>
+      <div role="tabpanel" id="tabpanel-pairing"     aria-labelledby="tab-pairing"     hidden={tab !== "pairing"}><MCPairingTab /></div>
+      <div role="tabpanel" id="tabpanel-pending"     aria-labelledby="tab-pending"     hidden={tab !== "pending"}>
+        {tab === "pending" && (
+          <details className="mb-3" open={false}>
+            <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
+              How it works
+            </summary>
+            <p className="mt-2 text-xs text-meta leading-relaxed">
+              Players who connect via Tailscale for the first time are placed in this queue.
+              Their first session is allowed; subsequent join attempts are blocked until an admin
+              links their in-game name (IGN) to a portal account. Once linked, they can join freely.
+            </p>
+          </details>
+        )}
+        <PendingPlayersTab />
+      </div>
+      <div role="tabpanel" id="tabpanel-whitelist"   aria-labelledby="tab-whitelist"   hidden={tab !== "whitelist"}><MCWhitelistTab /></div>
+      <div role="tabpanel" id="tabpanel-worlds"      aria-labelledby="tab-worlds"      hidden={tab !== "worlds"}>
+        {tab === "worlds" && (
+          <details className="mb-3" open={false}>
+            <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
+              How it works
+            </summary>
+            <p className="mt-2 text-xs text-meta leading-relaxed">
+              Each world is a named slot stored in <code className="font-mono">/opt/minecraft/worlds/&#123;slug&#125;/</code> on the game
+              server. Only one world is active at a time. Switching saves the current world first,
+              then loads the target — the Minecraft service restarts briefly (1–3 min). Backups
+              are stored per-world under <code className="font-mono">/opt/minecraft/backups/&#123;slug&#125;/daily/</code>.
+            </p>
+          </details>
+        )}
+        <WorldsTab />
+      </div>
+      <div role="tabpanel" id="tabpanel-map"         aria-labelledby="tab-map"         hidden={tab !== "map"}><MapSettingsTab /></div>
+      <div role="tabpanel" id="tabpanel-permissions" aria-labelledby="tab-permissions" hidden={tab !== "permissions"}><PermissionsPage /></div>
     </div>
   );
 }
@@ -99,7 +142,7 @@ function MapSettingsTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+      <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
         Control whether the embedded BlueMap exposes its full interface. When disabled,
         players only see the locked top-down map view; menu, maps, free-flight, and perspective controls are hidden.
       </p>
@@ -109,7 +152,7 @@ function MapSettingsTab() {
           <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
             Enable advanced BlueMap controls
           </p>
-          <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0] mt-1">
+          <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-1">
             Re-enable this only when you want everyone on the site to access BlueMap’s menu,
             map selector, perspective mode, and free-flight controls.
           </p>
@@ -204,7 +247,7 @@ function UsersTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
           Whitelist users by email — they sign in with their Google account to activate access.
           Click a user row to manage their role and permission overrides.
         </p>
@@ -233,10 +276,10 @@ function UsersTab() {
                 Whitelist a user
               </h2>
               <button onClick={() => setShowInvite(false)} aria-label="Close">
-                <X className="w-4 h-4 text-[#9B9EA6]" />
+                <X className="w-4 h-4 text-meta" />
               </button>
             </div>
-            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               Enter their Gmail address. They'll be able to sign in with that Google account once added.
               Users not on this list are rejected at login.
             </p>
@@ -322,7 +365,7 @@ function UsersTab() {
                             {u.display_name}
                           </span>
                           {u.email === me?.email && (
-                            <span className="text-xs text-[#9B9EA6]">(you)</span>
+                            <span className="text-xs text-meta">(you)</span>
                           )}
                           <RoleBadge
                             role={u.role}
@@ -335,10 +378,10 @@ function UsersTab() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{u.email}</p>
+                        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{u.email}</p>
                       </div>
 
-                      <ChevronRight className="w-4 h-4 text-[#9B9EA6] flex-shrink-0" aria-hidden />
+                      <ChevronRight className="w-4 h-4 text-meta flex-shrink-0" aria-hidden />
                     </button>
                   );
                 })}
@@ -354,15 +397,15 @@ function UsersTab() {
                 {selectedUser.display_name}
               </span>
               <button onClick={() => setSelectedUser(null)} aria-label="Close panel">
-                <X className="w-4 h-4 text-[#9B9EA6]" />
+                <X className="w-4 h-4 text-meta" />
               </button>
             </div>
-            <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{selectedUser.email}</p>
+            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{selectedUser.email}</p>
 
             {/* Role assignment */}
             {canEdit(selectedUser) && (
               <div className="space-y-2">
-                <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide">
+                <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
                   Role
                 </label>
                 <div className="flex gap-2">
@@ -388,7 +431,7 @@ function UsersTab() {
                   </button>
                 </div>
                 {stagedRole !== selectedUser.role && (
-                  <p className="text-xs text-[#9B9EA6]">
+                  <p className="text-xs text-meta">
                     Changing from <span className="font-medium">{selectedUser.role}</span> to <span className="font-medium text-[#5B9BF0]">{stagedRole}</span>
                   </p>
                 )}
@@ -444,13 +487,13 @@ function MCPairingTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+      <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
         Link portal users to their Minecraft in-game names (IGNs).
         Players currently online are shown with a green dot.
         Pending (uninvited) users are excluded — they must sign in with Google first.
       </p>
       {activatedUsers.length === 0 ? (
-        <p className="text-sm text-[#9B9EA6] py-6 text-center">No activated users yet.</p>
+        <p className="text-sm text-meta py-6 text-center">No activated users yet.</p>
       ) : (
         <div className="space-y-3">
           {activatedUsers.map((u) => (
@@ -528,7 +571,7 @@ function PendingPlayersTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+      <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
         Players who connected over Tailscale for the first time. Their first session
         was allowed; subsequent attempts are blocked until linked to a team member.
       </p>
@@ -539,7 +582,7 @@ function PendingPlayersTab() {
         </div>
       ) : pending.length === 0 ? (
         <div className="card py-10 text-center">
-          <p className="text-sm text-[#9B9EA6]">No pending players — the queue is clear.</p>
+          <p className="text-sm text-meta">No pending players — the queue is clear.</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -556,7 +599,7 @@ function PendingPlayersTab() {
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">{p.ign}</p>
-                <p className="text-xs text-[#9B9EA6]">
+                <p className="text-xs text-meta">
                   First seen {fmt(p.first_seen)}
                   {p.attempt_count > 1 && (
                     <span className="ml-2 px-1.5 py-0.5 rounded bg-[#FEF3C7] dark:bg-[#3D2A00] text-[#92400E] dark:text-[#FCD34D]">
@@ -592,10 +635,10 @@ function PendingPlayersTab() {
       {/* ── Blocklist ── */}
       {(rejected.length > 0 || rejectedLoading) && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9EA6] pt-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-meta pt-2">
             Blocklist
           </p>
-          <p className="text-xs text-[#9B9EA6]">
+          <p className="text-xs text-meta">
             These players were rejected. Reinstate to move them back to the pending queue, or approve to link them directly.
           </p>
           {rejectedLoading ? (
@@ -614,7 +657,7 @@ function PendingPlayersTab() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">{p.ign}</p>
-                    <p className="text-xs text-[#9B9EA6]">
+                    <p className="text-xs text-meta">
                       Last attempt {fmt(p.last_attempted)}
                       <span className="ml-2 px-1.5 py-0.5 rounded bg-[#FEE2E2] dark:bg-[#3D0000] text-[#B91C1C] dark:text-[#FCA5A5]">
                         rejected
@@ -659,10 +702,10 @@ function PendingPlayersTab() {
                 Approve <span className="font-mono">{approvingIgn}</span>
               </h2>
               <button onClick={() => setApprovingIgn(null)} aria-label="Close">
-                <X className="w-4 h-4 text-[#9B9EA6]" />
+                <X className="w-4 h-4 text-meta" />
               </button>
             </div>
-            <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+            <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
               Link this Minecraft account to a team member. They will be able to
               rejoin the server freely from now on.
             </p>
@@ -733,14 +776,14 @@ function MCWhitelistTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[#6B6E78] dark:text-[#9BA0B0]">
+      <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
         Manage which Minecraft accounts can join the server.
         Requires a valid Mojang/Microsoft username. Changes take effect immediately.
       </p>
 
       {/* Add form */}
       <div className="card space-y-3">
-        <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide">
+        <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
           Add player
         </label>
         <div className="flex gap-2">
@@ -766,10 +809,10 @@ function MCWhitelistTab() {
       {/* Current whitelist */}
       <div className="card space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-[#6B6E78] dark:text-[#9BA0B0] uppercase tracking-wide">
+          <span className="text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
             Whitelisted players
           </span>
-          <span className="text-xs text-[#9B9EA6]">{entries.length} total</span>
+          <span className="text-xs text-meta">{entries.length} total</span>
         </div>
 
         {isLoading ? (
@@ -777,7 +820,7 @@ function MCWhitelistTab() {
             <div className="w-5 h-5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : entries.length === 0 ? (
-          <p className="text-sm text-[#9B9EA6] py-4 text-center">
+          <p className="text-sm text-meta py-4 text-center">
             Whitelist is empty — no players can join until you add them.
           </p>
         ) : (
@@ -786,12 +829,12 @@ function MCWhitelistTab() {
               <div key={e.uuid} className="flex items-center justify-between py-2">
                 <div>
                   <span className="font-mono text-sm text-[#1C1E27] dark:text-[#EAECF0]">{e.name}</span>
-                  <p className="text-xs text-[#9B9EA6] font-mono">{e.uuid}</p>
+                  <p className="text-xs text-meta font-mono">{e.uuid}</p>
                 </div>
                 <button
                   onClick={() => removeMut.mutate(e.name)}
                   disabled={removeMut.isPending && removeMut.variables === e.name}
-                  className="p-1 text-[#9B9EA6] hover:text-[#F87171] transition-colors"
+                  className="p-1 text-meta hover:text-[#F87171] transition-colors"
                   aria-label={`Remove ${e.name} from whitelist`}
                 >
                   <Trash2 className="w-4 h-4" />
@@ -863,7 +906,7 @@ function UserPairingCard({
           <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
             {user.display_name}
           </span>
-          <p className="text-xs text-[#6B6E78] dark:text-[#9BA0B0]">{user.email}</p>
+          <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{user.email}</p>
         </div>
         <RoleBadge role={user.role} />
       </div>
@@ -890,7 +933,7 @@ function UserPairingCard({
           );
         })}
         {links.length === 0 && (
-          <span className="text-xs text-[#9B9EA6]">⛏ No linked players</span>
+          <span className="text-xs text-meta">⛏ No linked players</span>
         )}
       </div>
 
