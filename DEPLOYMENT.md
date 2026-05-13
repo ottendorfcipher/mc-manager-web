@@ -1,6 +1,6 @@
 # redstoneCipher — Deployment Reference
 
-Last updated: 2026-05-03
+Last updated: 2026-05-13
 
 > **Migration note**: This project was migrated from Google Cloud (Firebase Hosting +
 > Cloud Run + GCE) to Hetzner-hosted bare servers in May 2026. All GCP projects
@@ -92,12 +92,23 @@ The web server reaches the MC server over Tailscale SSH.
 
 | Path | Purpose |
 |---|---|
-| `/opt/minecraft/server/` | Server root |
+| `/opt/minecraft/server/` | Active world root (always the running world) |
+| `/opt/minecraft/server/world/` | Active overworld data |
+| `/opt/minecraft/server/world_nether/` | Active nether data |
+| `/opt/minecraft/server/world_the_end/` | Active end data |
 | `/opt/minecraft/server/server.properties` | Server configuration |
 | `/opt/minecraft/server/whitelist.json` | Whitelist entries |
 | `/opt/minecraft/server/ops.json` | Operator list |
 | `/opt/minecraft/server/logs/latest.log` | Live server log |
 | `/opt/minecraft/console.fifo` | FIFO for RCON command bridge |
+| `/opt/minecraft/worlds/` | **Inactive world storage** — one subdir per world slug |
+| `/opt/minecraft/worlds/{slug}/` | Stored inactive world (`world/`, `world_nether/`, `world_the_end/`) |
+| `/opt/minecraft/backups/` | Backup root |
+| `/opt/minecraft/backups/{slug}/daily/` | Per-world daily backups (7 retained) |
+| `/opt/minecraft/backups/{slug}/weekly/` | Per-world weekly backups (4 retained) |
+| `/opt/minecraft/backups/daily/` | Legacy flat backups (pre-world-management) |
+| `/opt/minecraft/scripts/world-switch.sh` | World-switch script (see World Management) |
+| `/opt/minecraft/scripts/world-backup.sh` | Per-world backup script |
 | `/usr/local/bin/mcrcon` | RCON client |
 
 **Backup**
@@ -106,6 +117,9 @@ The web server reaches the MC server over Tailscale SSH.
 |---|---|
 | Schedule | Daily at **04:00 UTC** (systemd timer: `minecraft-backup.timer`) |
 | Timer state | Persistent (catches up missed runs) |
+| Storage | `/opt/minecraft/backups/{world_slug}/daily/` per world |
+| Retention | 7 daily + 4 weekly per world |
+| Legacy path | `/opt/minecraft/backups/daily/` (pre-migration backups, still accessible) |
 
 ---
 
@@ -175,19 +189,126 @@ ssh mc-server 'systemctl restart minecraft'
 
 ### Deploy a new backend build
 
+> The web server is x86_64 Linux — always build natively on the server.
+
 ```bash
-# Build on the local machine, then:
-cargo build --release -p redstonecipher-server
-scp target/release/redstonecipher-server redstonecipher-web:/opt/redstonecipher/redstonecipher-server
-ssh redstonecipher-web 'systemctl restart redstonecipher'
+# 1. Sync source and migrations
+rsync -az --exclude target --exclude .git \
+  backend/src/       redstonecipher-web:/opt/redstonecipher/src/src/
+rsync -az backend/migrations/ redstonecipher-web:/opt/redstonecipher/src/migrations/
+
+# 2. Build on the server
+ssh redstonecipher-web 'cd /opt/redstonecipher/src && cargo build --release'
+
+# 3. Swap binary and restart (migrations apply automatically on startup)
+ssh redstonecipher-web '
+  cp /opt/redstonecipher/src/target/release/redstonecipher-server \
+     /opt/redstonecipher/redstonecipher-server && \
+  systemctl restart redstonecipher
+'
 ```
 
 ### Deploy a new frontend build
 
 ```bash
-# From mc-manager-web/frontend:
-npm run build
-rsync -av dist/ redstonecipher-web:/opt/redstonecipher/www/
+# From the repo root — builds and rsyncs in one step:
+bash scripts/deploy-frontend.sh
+```
+
+Or manually:
+```bash
+cd frontend && npm run build
+rsync -az --delete --exclude /map dist/ redstonecipher-web:/opt/redstonecipher/www/
+```
+
+### Deploy world management scripts (mc-server-1)
+
+Required when `scripts/world-switch.sh` or `scripts/world-backup.sh` change:
+
+```bash
+# Stage scripts on the web server, then push to mc-server-1
+scp scripts/world-switch.sh scripts/world-backup.sh \
+    redstonecipher-web:/tmp/
+
+ssh redstonecipher-web "
+  scp -i /opt/redstonecipher/mc_ssh_key \
+      /tmp/world-switch.sh /tmp/world-backup.sh \
+      root@100.123.253.30:/opt/minecraft/scripts/ && \
+  ssh -i /opt/redstonecipher/mc_ssh_key root@100.123.253.30 \
+    'chmod +x /opt/minecraft/scripts/world-switch.sh \
+               /opt/minecraft/scripts/world-backup.sh'
+"
+```
+
+### Create a new world
+
+Via the web UI: **Admin → Worlds → New World**.
+
+This creates the DB record and `mkdir`-s `/opt/minecraft/worlds/{slug}/` and `/opt/minecraft/backups/{slug}/{daily,weekly}/` on mc-server-1 over SSH.
+
+### Switch the active world
+
+Via the web UI: **Admin → Worlds → Switch** on the target world card.
+
+Or via API (requires `worlds.switch` permission):
+```bash
+curl -s -X POST -b "__session=<JWT>" \
+  https://redstonecipher.com/api/worlds/<id>/activate
+# Returns 202 Accepted — switch runs synchronously (1–3 min for large worlds)
+```
+
+The switch script (`/opt/minecraft/scripts/world-switch.sh`) performs these steps in order:
+1. RCON `save-all flush` (flushes pending chunk writes)
+2. `systemctl stop minecraft`
+3. `rsync` current `server/world*` → `/opt/minecraft/worlds/{current_slug}/`
+4. `rm -rf server/world*`
+5. `rsync` target world in (or leave empty — MC generates a fresh world)
+6. `systemctl start minecraft` + health-check loop (up to 60 s)
+7. Prints `DONE` — backend only updates the DB `is_active` flag after this
+
+**Safety**: if step 3 fails, the script aborts and restarts the server with the original world. The DB flag is never updated on failure.
+
+### Create a world backup manually
+
+Via the web UI: **Admin → Worlds → expand world → Backup Now**.
+
+Or via API:
+```bash
+curl -s -X POST -b "__session=<JWT>" \
+  https://redstonecipher.com/api/worlds/<id>/backups
+# Returns 201 with the new BackupRun record
+```
+
+Or directly on mc-server-1:
+```bash
+ssh mc-server 'bash /opt/minecraft/scripts/world-backup.sh survival'
+# Output: /opt/minecraft/backups/survival/daily/2026-05-13_12-00.tar.gz
+```
+
+### Download a world backup
+
+Via the web UI: **Admin → Worlds → expand world → Download** (↓ icon).
+
+Or via API (streams the `.tar.gz` directly from mc-server-1):
+```bash
+curl -b "__session=<JWT>" \
+  https://redstonecipher.com/api/worlds/<world_id>/backups/<backup_id> \
+  -o backup.tar.gz
+```
+
+### Check backup health
+
+```bash
+# List all world backup directories and file counts
+ssh mc-server '
+  for d in /opt/minecraft/backups/*/daily; do
+    count=$(ls "$d"/*.tar.gz 2>/dev/null | wc -l)
+    echo "$d: $count backup(s)"
+  done
+'
+
+# Check backup sizes
+ssh mc-server 'du -sh /opt/minecraft/backups/*/*/'
 ```
 
 ### Renew SSL certificate (manual)
@@ -222,14 +343,36 @@ See [Whitelist](#whitelist) above.
 
 ```
 minecraft-backup.timer  →  minecraft-backup.service
+                              └─ runs /opt/minecraft/backup.sh (legacy flat backup)
 mc-fifo-bridge.service  →  /opt/minecraft/console.fifo  →  minecraft.service
 redstonecipher.service  →  network.target, tailscaled.service
+  └─ on startup: runs sqlx migrations + syncs backup metadata from mc-server-1
 nginx                   →  redstonecipher.service (proxy_pass 127.0.0.1:8080)
+
+# World management (on-demand, triggered by API)
+POST /api/worlds/:id/activate  →  SSH → world-switch.sh  →  systemctl stop/start minecraft
+POST /api/worlds/:id/backups   →  SSH → world-backup.sh  →  tar.gz in backups/{slug}/daily/
 ```
+
+> **Note**: Per-world backups triggered via the API (`world-backup.sh`) are separate from the
+> legacy `minecraft-backup.timer`. To migrate the cron job to per-world backups, update
+> `/etc/systemd/system/minecraft-backup.service` to call
+> `bash /opt/minecraft/scripts/world-backup.sh survival` instead of `/opt/minecraft/backup.sh`.
 
 ---
 
 ## Deployment History
+
+### 2026-05-13 — Multi-world management
+
+- Added `worlds` and `world_members` tables (migration 0017).
+- `backup_runs` extended with `world_id`/`world_slug`; existing backups back-filled to `survival`.
+- `world-switch.sh` and `world-backup.sh` deployed to `/opt/minecraft/scripts/` on mc-server-1.
+- Directory structure created: `/opt/minecraft/worlds/` and `/opt/minecraft/backups/survival/{daily,weekly}/`.
+- New API: `GET/POST /api/worlds`, `POST /api/worlds/:id/activate`, `GET/PUT /api/worlds/:id/members`, `GET/POST/GET /api/worlds/:id/backups[/:backup_id]`.
+- Admin → Worlds tab added (world cards, create modal, switch confirmation, member pills, per-world backup list + download).
+- Backups page updated with world slug badges.
+- Six new permission keys: `worlds.view`, `worlds.create`, `worlds.switch`, `worlds.delete`, `worlds.members.manage`, `worlds.backups.create`.
 
 ### 2026-05-03 — Hetzner migration
 
