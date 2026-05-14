@@ -65,6 +65,26 @@ pub async fn recent(pool: &SqlitePool, limit: i64) -> Result<Vec<ChatMessage>> {
     .await?)
 }
 
+/// Return up to `limit` messages strictly older than `before_id`,
+/// in chronological order (oldest first).
+/// Used for "load more" pagination — pass the id of the current oldest
+/// visible message as the cursor.
+pub async fn recent_before(
+    pool:      &SqlitePool,
+    before_id: i64,
+    limit:     i64,
+) -> Result<Vec<ChatMessage>> {
+    Ok(sqlx::query_as::<_, ChatMessage>(
+        "SELECT * FROM (
+             SELECT * FROM chat_messages WHERE id < ? ORDER BY id DESC LIMIT ?
+         ) ORDER BY id ASC",
+    )
+    .bind(before_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Delete rows beyond the newest MAX_HISTORY, keeping the table size bounded.
 async fn trim(pool: &SqlitePool) -> Result<()> {
     sqlx::query(
