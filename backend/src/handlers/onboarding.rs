@@ -200,8 +200,8 @@ pub async fn tailscale_invite_existing(
 
     let mut warnings: Vec<String> = Vec::new();
 
-    // ── 1. Generate Tailscale user-invite URL ─────────────────────────────────
-    let tailscale_invite_url = match create_tailscale_user_invite(&state.config, &email).await {
+    // ── 1. Generate Tailscale device-share invite URL ────────────────────────
+    let tailscale_invite_url = match create_tailscale_device_invite(&state.config).await {
         Ok(url)  => Some(url),
         Err(e)   => { warnings.push(format!("Tailscale invite: {e}")); None }
     };
@@ -236,47 +236,86 @@ pub async fn tailscale_invite_existing(
     Ok(Json(TailscaleInviteResult { user, tailscale_invite_url, email_sent, warnings }))
 }
 
-// ── Tailscale user-invites API ────────────────────────────────────────────────
+// ── Tailscale device-invites API (Option B — node-share) ─────────────────────
 //
-// Uses POST /api/v2/tailnet/{tailnet}/user-invites to create a real join URL.
-// The invitee clicks it to create/sign-in to their Tailscale account and join
-// the tailnet as a `member`.  A pre-configured ACL policy restricts all members
-// to only reach mc-server-1 on port 25565 (Minecraft Java Edition).
+// Uses POST /api/v2/device/{deviceID}/device-invites to create a cross-tailnet
+// share link.  The invitee accepts it from their OWN Tailscale account and
+// sees mc-server-1 as a shared device — they never join the admin's tailnet,
+// see no other devices, and no ACL policy is required.
+//
+// Flow:
+//  1. List tailnet devices → find mc-server-1 by its Tailscale IP.
+//  2. POST /api/v2/device/{id}/device-invites → get a single-use inviteUrl.
+//  3. Email the inviteUrl to the user.
 
-async fn create_tailscale_user_invite(
+async fn create_tailscale_device_invite(
     cfg: &Config,
-    email: &str,
 ) -> std::result::Result<String, String> {
     let api_key = cfg
         .tailscale_api_key
         .as_deref()
         .ok_or("TAILSCALE_API_KEY is not configured")?;
 
-    let tailnet = urlencoding::encode(&cfg.tailscale_tailnet);
-    let url = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/user-invites");
+    // ── Step 1: find mc-server-1's device ID ─────────────────────────────────
+    let tailnet   = urlencoding::encode(&cfg.tailscale_tailnet);
+    let target_ip = &cfg.tailscale_ip;
+    let list_url  = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/devices");
 
-    let resp = reqwest::Client::new()
-        .post(&url)
+    let list_resp = reqwest::Client::new()
+        .get(&list_url)
         .bearer_auth(api_key)
-        .json(&json!([{ "role": "member", "inviteeEmail": email }]))
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body   = resp.text().await.unwrap_or_default();
-        return Err(format!("Tailscale user-invites API {status}: {body}"));
+    if !list_resp.status().is_success() {
+        let status = list_resp.status();
+        let body   = list_resp.text().await.unwrap_or_default();
+        return Err(format!("Tailscale devices API {status}: {body}"));
     }
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let devices: serde_json::Value = list_resp.json().await.map_err(|e| e.to_string())?;
+
+    let device_id = devices["devices"]
+        .as_array()
+        .ok_or("Tailscale API: unexpected devices response shape")?
+        .iter()
+        .find(|d| {
+            d["addresses"]
+                .as_array()
+                .map(|a| a.iter().any(|ip| ip.as_str() == Some(target_ip)))
+                .unwrap_or(false)
+        })
+        .and_then(|d| d["id"].as_str())
+        .ok_or(format!("mc-server-1 ({target_ip}) not found in tailnet"))?
+        .to_string();
+
+    // ── Step 2: create device invite ─────────────────────────────────────────
+    let invite_url = format!("https://api.tailscale.com/api/v2/device/{device_id}/device-invites");
+
+    let invite_resp = reqwest::Client::new()
+        .post(&invite_url)
+        .bearer_auth(api_key)
+        // Single-use, no exit-node capability.
+        .json(&json!([{ "multiUse": false, "allowExitNode": false }]))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !invite_resp.status().is_success() {
+        let status = invite_resp.status();
+        let body   = invite_resp.text().await.unwrap_or_default();
+        return Err(format!("Tailscale device-invites API {status}: {body}"));
+    }
+
+    let data: serde_json::Value = invite_resp.json().await.map_err(|e| e.to_string())?;
 
     // Response is an array of invite objects; we sent exactly one.
     data.as_array()
         .and_then(|a| a.first())
         .and_then(|inv| inv["inviteUrl"].as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| "Tailscale API: no inviteUrl in response".to_string())
+        .ok_or_else(|| "Tailscale device-invites API: no inviteUrl in response".to_string())
 }
 
 // ── Tailscale admin console link (used by the original new-user invite flow) ──
@@ -725,11 +764,12 @@ fn build_tailscale_email_html(
             <td valign="top" style="padding-left:12px;">
               <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#1C1E27;">Join the network</p>
               <p style="margin:0 0 12px;font-size:13px;color:#6B6E78;">
-                Click the button below — it will open Tailscale and connect you to the
-                private network. You'll only have access to the Minecraft server.
+                Click the button below to accept the share. The Minecraft server will appear
+                as a shared device in your own Tailscale account — you stay on your own network
+                and won't see any other devices.
               </p>
-              <a href="{invite_url}" style="display:inline-block;padding:12px 28px;background:#36B37E;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Join the Network →</a>
-              <p style="margin:8px 0 0;font-size:11px;color:#9B9EA6;">This link is single-use and tied to your email address.</p>
+              <a href="{invite_url}" style="display:inline-block;padding:12px 28px;background:#36B37E;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Accept Server Access →</a>
+              <p style="margin:8px 0 0;font-size:11px;color:#9B9EA6;">Single-use link — expires in 30 days.</p>
             </td>
           </tr></table>
         </td></tr>
@@ -785,10 +825,11 @@ fn build_tailscale_email_text(
          Your access to the redstoneCipher Minecraft server is ready.\n\n\
          STEP 1 — Install Tailscale\n\
          Download from: https://tailscale.com/download\n\n\
-         STEP 2 — Join the network\n\
-         Click this link (single-use, tied to your email):\n\
+         STEP 2 — Accept the server share\n\
+         Click this link to add the Minecraft server to your Tailscale account:\n\
          {invite_url}\n\
-         You will only have access to the Minecraft server.\n\n\
+         The server appears as a shared device in your own Tailscale — you won't\n\
+         see any other devices and you won't join anyone else's network.\n\n\
          STEP 3 — Connect to Minecraft\n\
          Open Minecraft Java Edition and connect to: {tailscale_ip}\n\
          Port 25565 · Requires Tailscale to be connected\n\n\

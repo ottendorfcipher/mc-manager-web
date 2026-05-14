@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Info } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -788,15 +788,7 @@ function MCWhitelistTab() {
   );
 }
 
-// ── TailscaleInvitePanel — send a Tailscale access email to an existing user ──
-
-const ACL_POLICY = `{
-  "tagOwners": { "tag:mc-server": ["autogroup:owner"] },
-  "acls": [
-    { "action": "accept", "src": ["autogroup:owner"], "dst": ["*:*"] },
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:mc-server:25565"] }
-  ]
-}`;
+// ── TailscaleInvitePanel — send a device-share invite to an existing user ──
 
 function TailscaleInvitePanel({
   email,
@@ -806,7 +798,6 @@ function TailscaleInvitePanel({
   displayName: string;
 }) {
   const [result, setResult] = useState<TailscaleInviteResult | null>(null);
-  const [showAcl, setShowAcl]   = useState(false);
 
   const mut = useMutation({
     mutationFn: () =>
@@ -821,46 +812,15 @@ function TailscaleInvitePanel({
 
   return (
     <div className="pt-3 border-t border-[#D9D5D0] dark:border-[#363944] space-y-3">
-      <div className="flex items-center justify-between">
+      <div>
         <span className="text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
           Tailscale Access
         </span>
-        <button
-          type="button"
-          onClick={() => setShowAcl((v) => !v)}
-          title="View required ACL policy"
-          className="p-1 rounded text-meta hover:text-[#5B9BF0] transition-colors"
-          aria-label="Show ACL setup info"
-        >
-          <Info className="w-3.5 h-3.5" aria-hidden />
-        </button>
+        <p className="text-xs text-meta mt-0.5">
+          Sends mc-server-1 as a shared device — user stays on their own Tailscale account
+          and sees no other devices.
+        </p>
       </div>
-
-      {/* One-time ACL setup note */}
-      {showAcl && (
-        <div className="rounded-xl bg-[#EFF6FF] dark:bg-[#1E3A5F] p-3 space-y-2 text-xs">
-          <p className="font-semibold text-[#1e40af] dark:text-[#93C5FD]">
-            One-time Tailscale ACL setup
-          </p>
-          <p className="text-[#1e40af] dark:text-[#93C5FD] leading-relaxed">
-            Apply the policy below in your{" "}
-            <a
-              href="https://login.tailscale.com/admin/acls"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline"
-            >
-              Tailscale ACL console
-            </a>{" "}
-            and tag mc-server-1 with <code className="font-mono">tag:mc-server</code>.
-            This restricts invited members to port 25565 (Minecraft) only.
-          </p>
-          <pre className="bg-white dark:bg-[#13151A] rounded-lg p-3 text-[10px] font-mono overflow-x-auto
-                          text-[#1C1E27] dark:text-[#EAECF0] whitespace-pre-wrap">
-            {ACL_POLICY}
-          </pre>
-        </div>
-      )}
 
       {/* Result */}
       {result && (
