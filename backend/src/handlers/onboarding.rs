@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -169,32 +169,130 @@ pub async fn invite(
     ))
 }
 
-// ── Tailscale node-share link ─────────────────────────────────────────────────
+// ── POST /api/users/:email/tailscale-invite ───────────────────────────────────
 //
-// We intentionally do NOT use the tailnet user-invite API — that would add the
-// player to the admin's tailnet where they could see all other devices.  The
-// correct model is Tailscale node sharing: the player creates their own free
-// Tailscale account and the admin shares just mc-server-1 with them.
+// Invites an EXISTING portal user to the tailnet by:
+//  1. Generating a real Tailscale user-invite URL (user-invites API)
+//  2. Emailing them a dedicated Tailscale setup email with the join button
 //
-// The Tailscale device-share API (`POST /device/{id}/invite`) is not yet
-// publicly available, so we return a pre-built admin console link that lets
-// the admin share the node in two clicks.  This link is shown in the
-// InvitePortal result panel, not emailed to the player.
+// Access restriction: users join as `member` role.  An ACL policy (shown in
+// the UI as a one-time setup note) restricts all members to mc-server-1:25565.
 
-async fn create_tailscale_invite(
+#[derive(Serialize)]
+pub struct TailscaleInviteResult {
+    pub user:                 users::User,
+    pub tailscale_invite_url: Option<String>,
+    pub email_sent:           bool,
+    pub warnings:             Vec<String>,
+}
+
+pub async fn tailscale_invite_existing(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    Path(email): Path<String>,
+) -> Result<Json<TailscaleInviteResult>> {
+    crate::auth::middleware::require_perm(&actor, "users.invite")?;
+
+    let email = email.to_lowercase();
+    let user  = users::get(&state.pool, &email)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User '{email}' not found")))?;
+
+    let mut warnings: Vec<String> = Vec::new();
+
+    // ── 1. Generate Tailscale user-invite URL ─────────────────────────────────
+    let tailscale_invite_url = match create_tailscale_user_invite(&state.config, &email).await {
+        Ok(url)  => Some(url),
+        Err(e)   => { warnings.push(format!("Tailscale invite: {e}")); None }
+    };
+
+    // ── 2. Send dedicated Tailscale setup email ───────────────────────────────
+    let email_sent = if let Some(ref invite_url) = tailscale_invite_url {
+        match send_tailscale_email(
+            &state.config,
+            &state.http,
+            &email,
+            &user.display_name,
+            invite_url,
+        ).await {
+            Ok(()) => {
+                let _ = users::set_invited_at(&state.pool, &email).await;
+                true
+            }
+            Err(e) => { warnings.push(format!("Email: {e}")); false }
+        }
+    } else {
+        false
+    };
+
+    audit::log(
+        &state.pool,
+        &actor.email,
+        "tailscale_invite_resend",
+        Some(&email),
+        None,
+    ).await?;
+
+    Ok(Json(TailscaleInviteResult { user, tailscale_invite_url, email_sent, warnings }))
+}
+
+// ── Tailscale user-invites API ────────────────────────────────────────────────
+//
+// Uses POST /api/v2/tailnet/{tailnet}/user-invites to create a real join URL.
+// The invitee clicks it to create/sign-in to their Tailscale account and join
+// the tailnet as a `member`.  A pre-configured ACL policy restricts all members
+// to only reach mc-server-1 on port 25565 (Minecraft Java Edition).
+
+async fn create_tailscale_user_invite(
     cfg: &Config,
-    _email: &str,
+    email: &str,
 ) -> std::result::Result<String, String> {
-    // Require the API key to be set so the feature is intentionally opted in.
     let api_key = cfg
         .tailscale_api_key
         .as_deref()
         .ok_or("TAILSCALE_API_KEY is not configured")?;
 
-    // Look up the mc-server-1 device ID by matching its Tailscale IP.
-    let tailnet    = urlencoding::encode(&cfg.tailscale_tailnet);
-    let target_ip  = &cfg.tailscale_ip;
-    let list_url   = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/devices");
+    let tailnet = urlencoding::encode(&cfg.tailscale_tailnet);
+    let url = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/user-invites");
+
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(api_key)
+        .json(&json!([{ "role": "member", "inviteeEmail": email }]))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body   = resp.text().await.unwrap_or_default();
+        return Err(format!("Tailscale user-invites API {status}: {body}"));
+    }
+
+    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    // Response is an array of invite objects; we sent exactly one.
+    data.as_array()
+        .and_then(|a| a.first())
+        .and_then(|inv| inv["inviteUrl"].as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Tailscale API: no inviteUrl in response".to_string())
+}
+
+// ── Tailscale admin console link (used by the original new-user invite flow) ──
+
+async fn create_tailscale_invite(
+    cfg: &Config,
+    _email: &str,
+) -> std::result::Result<String, String> {
+    let api_key = cfg
+        .tailscale_api_key
+        .as_deref()
+        .ok_or("TAILSCALE_API_KEY is not configured")?;
+
+    let tailnet   = urlencoding::encode(&cfg.tailscale_tailnet);
+    let target_ip = &cfg.tailscale_ip;
+    let list_url  = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/devices");
 
     let resp = reqwest::Client::new()
         .get(&list_url)
@@ -225,12 +323,7 @@ async fn create_tailscale_invite(
         .ok_or(format!("mc-server-1 ({target_ip}) not found in tailnet"))?
         .to_string();
 
-    // Return a direct link to the Tailscale admin console share page for
-    // this device.  The admin clicks it and enters the player's email to
-    // share just mc-server-1 — the player never joins the admin's tailnet.
-    Ok(format!(
-        "https://login.tailscale.com/admin/machines/{device_id}"
-    ))
+    Ok(format!("https://login.tailscale.com/admin/machines/{device_id}"))
 }
 
 // ── Resend email ──────────────────────────────────────────────────────────────
@@ -512,6 +605,197 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+// ── Dedicated Tailscale setup email (for existing users) ────────────────────
+//
+// Sent by `tailscale_invite_existing`. Unlike the full onboarding email, this
+// is focused solely on getting the user connected to the tailnet.
+// The actual Tailscale join URL is embedded as a CTA button.
+
+async fn send_tailscale_email(
+    cfg: &Config,
+    http: &reqwest::Client,
+    to_email: &str,
+    display_name: &str,
+    invite_url: &str,
+) -> std::result::Result<(), String> {
+    let api_key = cfg
+        .resend_api_key
+        .as_deref()
+        .ok_or("RESEND_API_KEY is not configured")?;
+
+    let html = build_tailscale_email_html(cfg, display_name, invite_url);
+    let text = build_tailscale_email_text(cfg, display_name, invite_url);
+
+    let subject = format!(
+        "redstoneCipher — {}, your Minecraft server access is ready",
+        html_escape(display_name)
+    );
+
+    let payload = json!({
+        "from":     "redstoneCipher <onboarding@redstonecipher.com>",
+        "reply_to": ["onboarding@redstonecipher.com"],
+        "to":       [to_email],
+        "subject":  subject,
+        "html":     html,
+        "text":     text,
+    });
+
+    let resp = http
+        .post("https://api.resend.com/emails")
+        .bearer_auth(api_key)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let body   = resp.text().await.unwrap_or_default();
+        Err(format!("Resend API {status}: {body}"))
+    }
+}
+
+fn build_tailscale_email_html(
+    cfg: &Config,
+    display_name: &str,
+    invite_url: &str,
+) -> String {
+    let site_url     = &cfg.site_url;
+    let tailscale_ip = &cfg.tailscale_ip;
+    let dn           = html_escape(display_name);
+
+    format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F7F5F2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F5F2;padding:40px 20px;">
+  <tr><td align="center">
+  <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+
+    <tr><td style="background:#1C1E27;border-radius:12px 12px 0 0;padding:28px 32px;text-align:center;">
+      <span style="font-size:24px;font-weight:700;color:#fff;letter-spacing:-0.5px;">⛏ redstoneCipher</span>
+      <p style="margin:6px 0 0;font-size:13px;color:#9BA0B0;">Private Minecraft Server</p>
+    </td></tr>
+
+    <tr><td style="background:#fff;padding:32px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+
+        <tr><td style="padding-bottom:24px;">
+          <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1C1E27;">You're all set, {dn}!</h1>
+          <p style="margin:0;font-size:14px;color:#6B6E78;line-height:1.6;">
+            Follow the steps below to connect to the Minecraft server.
+            Your access is scoped to the game server only — you won't see
+            any other devices on the network.
+          </p>
+        </td></tr>
+
+        <tr><td style="border-top:1px solid #F0EDE9;padding:24px 0 0;"></td></tr>
+
+        <!-- Step 1: Install Tailscale -->
+        <tr><td>
+          <table cellpadding="0" cellspacing="0" width="100%"><tr>
+            <td width="36" valign="top">
+              <div style="width:28px;height:28px;border-radius:50%;background:#5B9BF0;color:#fff;font-weight:700;font-size:14px;text-align:center;line-height:28px;">1</div>
+            </td>
+            <td valign="top" style="padding-left:12px;">
+              <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#1C1E27;">Install Tailscale</p>
+              <p style="margin:0 0 10px;font-size:13px;color:#6B6E78;">Download and install Tailscale for your device — it's free and takes 2 minutes.</p>
+              <table cellpadding="0" cellspacing="0"><tr>
+                <td style="padding-right:6px;"><a href="https://tailscale.com/download/mac" style="display:inline-block;padding:6px 12px;border:1px solid #D9D5D0;border-radius:6px;font-size:12px;color:#1C1E27;text-decoration:none;">🍎 macOS</a></td>
+                <td style="padding-right:6px;"><a href="https://tailscale.com/download/windows" style="display:inline-block;padding:6px 12px;border:1px solid #D9D5D0;border-radius:6px;font-size:12px;color:#1C1E27;text-decoration:none;">🪟 Windows</a></td>
+                <td style="padding-right:6px;"><a href="https://apps.apple.com/app/tailscale/id1470499037" style="display:inline-block;padding:6px 12px;border:1px solid #D9D5D0;border-radius:6px;font-size:12px;color:#1C1E27;text-decoration:none;">📱 iOS</a></td>
+                <td><a href="https://play.google.com/store/apps/details?id=com.tailscale.ipn.android" style="display:inline-block;padding:6px 12px;border:1px solid #D9D5D0;border-radius:6px;font-size:12px;color:#1C1E27;text-decoration:none;">🤖 Android</a></td>
+              </tr></table>
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="border-top:1px solid #F0EDE9;padding:24px 0 0;"></td></tr>
+
+        <!-- Step 2: Join network -->
+        <tr><td>
+          <table cellpadding="0" cellspacing="0" width="100%"><tr>
+            <td width="36" valign="top">
+              <div style="width:28px;height:28px;border-radius:50%;background:#36B37E;color:#fff;font-weight:700;font-size:14px;text-align:center;line-height:28px;">2</div>
+            </td>
+            <td valign="top" style="padding-left:12px;">
+              <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#1C1E27;">Join the network</p>
+              <p style="margin:0 0 12px;font-size:13px;color:#6B6E78;">
+                Click the button below — it will open Tailscale and connect you to the
+                private network. You'll only have access to the Minecraft server.
+              </p>
+              <a href="{invite_url}" style="display:inline-block;padding:12px 28px;background:#36B37E;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Join the Network →</a>
+              <p style="margin:8px 0 0;font-size:11px;color:#9B9EA6;">This link is single-use and tied to your email address.</p>
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="border-top:1px solid #F0EDE9;padding:24px 0 0;"></td></tr>
+
+        <!-- Step 3: Connect to MC -->
+        <tr><td>
+          <table cellpadding="0" cellspacing="0" width="100%"><tr>
+            <td width="36" valign="top">
+              <div style="width:28px;height:28px;border-radius:50%;background:#FBBF24;color:#1C1E27;font-weight:700;font-size:14px;text-align:center;line-height:28px;">3</div>
+            </td>
+            <td valign="top" style="padding-left:12px;">
+              <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#1C1E27;">Connect to Minecraft</p>
+              <p style="margin:0 0 8px;font-size:13px;color:#6B6E78;">Open <strong>Minecraft Java Edition</strong> and add a new server:</p>
+              <div style="background:#F7F5F2;border-radius:8px;padding:12px 16px;font-family:monospace;font-size:15px;font-weight:700;color:#5B9BF0;">{tailscale_ip}</div>
+              <p style="margin:4px 0 0;font-size:12px;color:#9B9EA6;">Port 25565 · Java Edition · Tailscale must be connected</p>
+            </td>
+          </tr></table>
+        </td></tr>
+
+      </table>
+    </td></tr>
+
+    <tr><td style="background:#F7F5F2;border-radius:0 0 12px 12px;padding:20px 32px;text-align:center;">
+      <p style="margin:0;font-size:12px;color:#9B9EA6;">
+        Sent via <a href="{site_url}" style="color:#5B9BF0;text-decoration:none;">redstoneCipher</a> ·
+        <a href="{site_url}/privacy" style="color:#9B9EA6;">Privacy Notice</a>
+      </p>
+    </td></tr>
+
+  </table>
+  </td></tr>
+  </table>
+</body>
+</html>"#,
+        dn           = dn,
+        invite_url   = invite_url,
+        tailscale_ip = tailscale_ip,
+        site_url     = site_url,
+    )
+}
+
+fn build_tailscale_email_text(
+    cfg: &Config,
+    display_name: &str,
+    invite_url: &str,
+) -> String {
+    let site_url     = &cfg.site_url;
+    let tailscale_ip = &cfg.tailscale_ip;
+    format!(
+        "Hi {display_name},\n\n\
+         Your access to the redstoneCipher Minecraft server is ready.\n\n\
+         STEP 1 — Install Tailscale\n\
+         Download from: https://tailscale.com/download\n\n\
+         STEP 2 — Join the network\n\
+         Click this link (single-use, tied to your email):\n\
+         {invite_url}\n\
+         You will only have access to the Minecraft server.\n\n\
+         STEP 3 — Connect to Minecraft\n\
+         Open Minecraft Java Edition and connect to: {tailscale_ip}\n\
+         Port 25565 · Requires Tailscale to be connected\n\n\
+         ---\n\
+         Sent by redstoneCipher ({site_url})\n\
+         Privacy: {site_url}/privacy\n"
+    )
 }
 
 /// Plain-text alternative for the invite email.
