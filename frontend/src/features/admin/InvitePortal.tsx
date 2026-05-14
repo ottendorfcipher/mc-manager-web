@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   UserPlus, X, Mail, Gamepad2, CheckCircle2, AlertTriangle,
-  Copy, ExternalLink, Loader2, ChevronDown, ChevronUp,
+  ExternalLink, Loader2, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { toast } from "@/components/Toast";
@@ -117,7 +117,7 @@ export function InvitePortal({ onClose }: Props) {
               <Bullet active icon="👤" text="Create their portal account" />
               <Bullet active={!!ign.trim()} icon="🎮"
                 text={ign.trim() ? `Add "${ign.trim()}" to the MC whitelist` : "Add to MC whitelist (enter IGN below)"} />
-              <Bullet active={sendTs}    icon="🔗" text="Generate a Tailscale invite link" />
+              <Bullet active={sendTs}    icon="🔗" text="Get a quick-link to share mc-server-1 via Tailscale admin" />
               <Bullet active={sendEmail} icon="📧" text="Send a welcome email with setup instructions" />
             </div>
           </div>
@@ -253,14 +253,6 @@ function ResultPanel({
   onInviteAnother: () => void;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const copyUrl = async (url: string) => {
-    await navigator.clipboard.writeText(url).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-50 scrim-enter" aria-hidden onClick={onClose} />
@@ -292,43 +284,31 @@ function ResultPanel({
             <StatusChip ok={result.email_sent} label="Email sent" />
           </div>
 
-          {/* Tailscale invite URL */}
+          {/* Tailscale node-share action for the admin */}
           {result.tailscale_invite_url && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-sub uppercase tracking-wide">
-                Tailscale invite URL
+            <div className="rounded-xl bg-[#EFF6FF] dark:bg-[#1E3A5F] p-3 space-y-2">
+              <p className="text-xs font-semibold text-[#1e40af] dark:text-[#93C5FD] flex items-center gap-1.5">
+                <span aria-hidden>🔗</span> Action required — share mc-server-1
               </p>
-              <div className="flex gap-2">
-                <code className="flex-1 text-xs font-mono bg-[#F7F5F2] dark:bg-[#2A2D38]
-                                 rounded-lg px-3 py-2 text-[#5B9BF0] truncate">
-                  {result.tailscale_invite_url}
-                </code>
-                <button
-                  onClick={() => copyUrl(result.tailscale_invite_url!)}
-                  title={copied ? "Copied!" : "Copy URL"}
-                  className="p-2 rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             text-meta hover:text-[#5B9BF0] hover:bg-[#EFF6FF] dark:hover:bg-[#1E3A5F]
-                             transition-colors flex-shrink-0"
-                >
-                  {copied
-                    ? <CheckCircle2 className="w-3.5 h-3.5 text-[#36B37E]" aria-hidden />
-                    : <Copy className="w-3.5 h-3.5" aria-hidden />}
-                </button>
-                <a
-                  href={result.tailscale_invite_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Open invite page"
-                  className="p-2 rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             text-meta hover:text-[#5B9BF0] hover:bg-[#EFF6FF] dark:hover:bg-[#1E3A5F]
-                             transition-colors flex-shrink-0"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" aria-hidden />
-                </a>
-              </div>
-              <p className="text-[10px] text-meta">
-                Share this link directly with {result.user.display_name} if the email
-                wasn't sent, or forward it as a backup.
+              <p className="text-xs text-[#1e40af] dark:text-[#93C5FD] leading-relaxed">
+                {result.user.display_name} needs to create a free Tailscale account first.
+                Once they've signed up, open the Tailscale admin console and share
+                <strong> mc-server-1</strong> directly to their email. They'll only
+                see that one node — not any other devices in your network.
+              </p>
+              <a
+                href={result.tailscale_invite_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold
+                           text-white bg-[#5B9BF0] hover:bg-[#4A8ADF] px-3 py-1.5
+                           rounded-lg transition-colors no-underline"
+              >
+                <ExternalLink className="w-3 h-3" aria-hidden />
+                Open Tailscale admin → mc-server-1
+              </a>
+              <p className="text-[10px] text-[#3b82f6] dark:text-[#60a5fa]">
+                Machines → mc-server → Share → enter {result.user.email}
               </p>
             </div>
           )}

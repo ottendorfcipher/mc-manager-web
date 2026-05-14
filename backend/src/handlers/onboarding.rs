@@ -169,43 +169,68 @@ pub async fn invite(
     ))
 }
 
-// ── Tailscale API ─────────────────────────────────────────────────────────────
+// ── Tailscale node-share link ─────────────────────────────────────────────────
+//
+// We intentionally do NOT use the tailnet user-invite API — that would add the
+// player to the admin's tailnet where they could see all other devices.  The
+// correct model is Tailscale node sharing: the player creates their own free
+// Tailscale account and the admin shares just mc-server-1 with them.
+//
+// The Tailscale device-share API (`POST /device/{id}/invite`) is not yet
+// publicly available, so we return a pre-built admin console link that lets
+// the admin share the node in two clicks.  This link is shown in the
+// InvitePortal result panel, not emailed to the player.
 
 async fn create_tailscale_invite(
     cfg: &Config,
-    email: &str,
+    _email: &str,
 ) -> std::result::Result<String, String> {
+    // Require the API key to be set so the feature is intentionally opted in.
     let api_key = cfg
         .tailscale_api_key
         .as_deref()
         .ok_or("TAILSCALE_API_KEY is not configured")?;
 
-    let tailnet = urlencoding::encode(&cfg.tailscale_tailnet);
-    let url = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/user-invites");
+    // Look up the mc-server-1 device ID by matching its Tailscale IP.
+    let tailnet    = urlencoding::encode(&cfg.tailscale_tailnet);
+    let target_ip  = &cfg.tailscale_ip;
+    let list_url   = format!("https://api.tailscale.com/api/v2/tailnet/{tailnet}/devices");
 
     let resp = reqwest::Client::new()
-        .post(&url)
+        .get(&list_url)
         .bearer_auth(api_key)
-        .json(&json!([{ "role": "member", "email": email }]))
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Tailscale API {status}: {body}"));
+        let body   = resp.text().await.unwrap_or_default();
+        return Err(format!("Tailscale devices API {status}: {body}"));
     }
 
-    let invites: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
 
-    invites
+    let device_id = data["devices"]
         .as_array()
-        .and_then(|a| a.first())
-        .and_then(|v| v.get("inviteUrl"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| "Tailscale response missing inviteUrl".to_string())
+        .ok_or("Tailscale API: unexpected response shape")?
+        .iter()
+        .find(|d| {
+            d["addresses"]
+                .as_array()
+                .map(|a| a.iter().any(|ip| ip.as_str() == Some(target_ip)))
+                .unwrap_or(false)
+        })
+        .and_then(|d| d["id"].as_str())
+        .ok_or(format!("mc-server-1 ({target_ip}) not found in tailnet"))?
+        .to_string();
+
+    // Return a direct link to the Tailscale admin console share page for
+    // this device.  The admin clicks it and enters the player's email to
+    // share just mc-server-1 — the player never joins the admin's tailnet.
+    Ok(format!(
+        "https://login.tailscale.com/admin/machines/{device_id}"
+    ))
 }
 
 // ── Resend email ──────────────────────────────────────────────────────────────
@@ -274,34 +299,22 @@ fn build_invite_email(
     let tailscale_ip = &cfg.tailscale_ip;
     let login_url    = format!("{site_url}/login");
 
-    // ── Tailscale section ──────────────────────────────────────────────────────
-    let tailscale_section = if let Some(ts_url) = tailscale_invite_url {
-        format!(r#"
-          <tr><td style="padding:24px 0 8px;">
-            <p style="margin:0;font-size:13px;color:#6B6E78;">
-              We've generated a personal Tailscale invite for you. Click below to join the
-              private network that secures the Minecraft server.
-            </p>
-          </td></tr>
-          <tr><td style="padding:0 0 8px;text-align:center;">
-            <a href="{ts_url}" style="display:inline-block;padding:12px 28px;
-               background:#5B9BF0;color:#fff;font-weight:600;font-size:14px;
-               border-radius:8px;text-decoration:none;">
-              Accept Tailscale Invite
-            </a>
-          </td></tr>"#,
-            ts_url = ts_url
-        )
-    } else {
-        r#"
-          <tr><td style="padding:24px 0 8px;">
-            <p style="margin:0;font-size:13px;color:#6B6E78;">
-              Ask your server admin to add you to the Tailscale network, or share
-              <a href="https://tailscale.com/download" style="color:#5B9BF0;">tailscale.com/download</a>
-              with them so they can generate your invite.
-            </p>
-          </td></tr>"#.to_string()
-    };
+    // ── Tailscale section ─────────────────────────────────────────────────────
+    // The player creates their own free Tailscale account; the admin then
+    // shares just mc-server-1 with them (node sharing, not tailnet joining).
+    // tailscale_invite_url here is the admin console link, NOT emailed to the
+    // player — so this section always shows the self-signup instructions.
+    let _ = tailscale_invite_url; // admin console URL handled in InvitePortal UI
+    let tailscale_section = concat!(
+        "<tr><td style='padding:24px 0 8px;'>",
+        "<p style='margin:0;font-size:13px;color:#6B6E78;'>",
+        "Once Tailscale is installed, create a free account at ",
+        "<a href='https://tailscale.com' style='color:#5B9BF0;'>tailscale.com</a> ",
+        "and sign in. Your admin will then share the Minecraft server node ",
+        "directly to your account \u{2014} you won't be added to anyone else's network ",
+        "and won't see any other devices.",
+        "</p></td></tr>"
+    ).replace('\'', "\"");
 
     // ── MC whitelist note ──────────────────────────────────────────────────────
     let mc_whitelist_note = ign
@@ -514,12 +527,13 @@ fn build_invite_text(
     let tailscale_ip = &cfg.tailscale_ip;
     let login_url    = format!("{site_url}/login");
 
-    let tailscale_section = match tailscale_invite_url {
-        Some(url) => format!(
-            "A Tailscale network access link has been generated for you:\n{url}\n\nClick that link to join the private network, then install Tailscale from tailscale.com/download if you haven't already."
-        ),
-        None => "Install Tailscale from tailscale.com/download and ask your admin to add you to the network.".to_string(),
-    };
+    // The admin console link (tailscale_invite_url) is shown in the admin UI,
+    // not sent to the player.  The player's instructions are always the same.
+    let _ = tailscale_invite_url;
+    let tailscale_section =
+        "Install Tailscale from tailscale.com/download and create a free account. \
+         Your admin will share just the Minecraft server node with your account — \
+         you won't be added to anyone else's network.".to_string();
 
     let ign_note = ign
         .map(|i| format!("\nYour Minecraft username ({i}) has been added to the server whitelist.\n"))
