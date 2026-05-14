@@ -224,15 +224,25 @@ async fn send_invite_email(
         .ok_or("RESEND_API_KEY is not configured")?;
 
     let html = build_invite_email(cfg, display_name, tailscale_invite_url, ign);
-    let ign_line = ign
-        .map(|i| format!(" Your Minecraft username {i} has been whitelisted."))
-        .unwrap_or_default();
+    let text = build_invite_text(cfg, display_name, tailscale_invite_url, ign);
+
+    // Subject: avoid spam-trigger words ("invite", "free", "click").
+    // Plain, concrete subject lines score better with inbox filters.
+    let subject = if ign.is_some() {
+        format!("redstoneCipher access for {} — setup guide", html_escape(display_name))
+    } else {
+        format!("redstoneCipher — welcome, {}! Here's how to get started", html_escape(display_name))
+    };
 
     let payload = json!({
-        "from":    "redstoneCipher <onboarding@example.com>",
-        "to":      [to_email],
-        "subject": format!("You're invited to redstoneCipher{ign_line}"),
-        "html":    html,
+        "from":     "redstoneCipher <onboarding@example.com>",
+        "reply_to": ["onboarding@example.com"],
+        "to":       [to_email],
+        "subject":  subject,
+        "html":     html,
+        // Plain-text alternative — required for non-spam classification.
+        // Gmail and most filters heavily penalise HTML-only emails.
+        "text":     text,
     });
 
     let resp = http
@@ -328,7 +338,7 @@ fn build_invite_email(
         <!-- Welcome -->
         <tr><td>
           <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1C1E27;">
-            You're invited, {display_name}! 🎉
+            Welcome to redstoneCipher, {display_name}!
           </h1>
           <p style="margin:0 0 24px;font-size:14px;color:#6B6E78;line-height:1.6;">
             You've been added to a private Minecraft server managed through redstoneCipher.
@@ -489,4 +499,44 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Plain-text alternative for the invite email.
+/// Every HTML email must include a text/plain part — its absence is the
+/// single biggest spam-filter signal after failed authentication.
+fn build_invite_text(
+    cfg: &Config,
+    display_name: &str,
+    tailscale_invite_url: Option<&str>,
+    ign: Option<&str>,
+) -> String {
+    let site_url     = &cfg.site_url;
+    let tailscale_ip = &cfg.tailscale_ip;
+    let login_url    = format!("{site_url}/login");
+
+    let tailscale_section = match tailscale_invite_url {
+        Some(url) => format!(
+            "A Tailscale network access link has been generated for you:\n{url}\n\nClick that link to join the private network, then install Tailscale from tailscale.com/download if you haven't already."
+        ),
+        None => "Install Tailscale from tailscale.com/download and ask your admin to add you to the network.".to_string(),
+    };
+
+    let ign_note = ign
+        .map(|i| format!("\nYour Minecraft username ({i}) has been added to the server whitelist.\n"))
+        .unwrap_or_default();
+
+    format!(
+        "Hi {display_name},\n\n\
+         You now have access to a private Minecraft server managed through redstoneCipher.\n\n\
+         STEP 1 — Sign in to the portal\n\
+         {login_url}\n\n\
+         STEP 2 — Install Tailscale and join the network\n\
+         {tailscale_section}\n{ign_note}\n\
+         STEP 3 — Connect to Minecraft\n\
+         Open Minecraft Java Edition and connect to: {tailscale_ip}\n\
+         Port 25565 · Requires Tailscale to be connected\n\n\
+         ---\n\
+         This message was sent by redstoneCipher ({site_url}).\n\
+         Privacy notice: {site_url}/privacy\n",
+    )
 }
