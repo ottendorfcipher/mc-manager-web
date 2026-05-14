@@ -25,6 +25,38 @@ use std::path::PathBuf;
 const TEST_JWT_SECRET: &str = "test_secret_for_integration_tests_only_64chars_00000000000000000";
 const ADMIN_EMAIL: &str = "admin@example.com"; // seeded global_admin
 
+/// Returns a fully-populated `Config` suitable for integration tests.
+/// All optional credentials are `None`; the test can override specific fields
+/// by constructing a `Config { ..test_cfg() }` clone if needed.
+fn test_cfg() -> Config {
+    Config {
+        host: "127.0.0.1".into(),
+        port: 8787,
+        database_url: "sqlite::memory:".into(),
+        jwt_secret: TEST_JWT_SECRET.into(),
+        google_client_id: "test".into(),
+        google_client_secret: "test".into(),
+        redirect_uri: "https://example.com/auth/callback".into(),
+        budget_webhook_token: Some("test_budget_token".into()),
+        gcloud_bin: PathBuf::from("/usr/bin/false"),
+        gcp_project: "test-project".into(),
+        gcp_zone: "us-central1-a".into(),
+        gcp_instance: "test-instance".into(),
+        tailscale_ip: "100.0.0.1".into(),
+        mc_backup_dir: "/tmp/test_backups".into(),
+        mc_server_dir: "/tmp/test_server".into(),
+        mc_scripts_dir: "/tmp/test_scripts".into(),
+        map_tiles_dir: "/tmp/test_tiles".into(),
+        watchdog_token: None,
+        mc_worlds_dir: "/tmp/test_worlds".into(),
+        mc_backups_base_dir: "/tmp/test_backups_base".into(),
+        resend_api_key: None,
+        tailscale_api_key: None,
+        tailscale_tailnet: "test-tailnet".into(),
+        site_url: "https://example.com".into(),
+    }
+}
+
 /// Build an `AppState` backed by a fresh in-memory SQLite database.
 /// Migrations (including permission seeding) are applied automatically.
 async fn test_state() -> AppState {
@@ -39,27 +71,18 @@ async fn test_state() -> AppState {
         .await
         .expect("migrations failed");
 
-    let cfg = Config {
-        host: "127.0.0.1".into(),
-        port: 8787,
-        database_url: "sqlite::memory:".into(),
-        jwt_secret: TEST_JWT_SECRET.into(),
-        google_client_id: "test".into(),
-        google_client_secret: "test".into(),
-        redirect_uri: "https://example.com/auth/callback".into(),
-        budget_webhook_token: Some("test_budget_token".into()),
-        gcloud_bin: PathBuf::from("/usr/bin/false"), // never actually invoked
-        gcp_project: "test-project".into(),
-        gcp_zone: "us-central1-a".into(),
-        gcp_instance: "test-instance".into(),
-        tailscale_ip: "100.0.0.1".into(),
-        mc_backup_dir: "/tmp/test_backups".into(),
-        mc_server_dir: "/tmp/test_server".into(),
-        mc_scripts_dir: "/tmp/test_scripts".into(),
-        map_tiles_dir: "/tmp/test_tiles".into(),
-        watchdog_token: None,
-    };
+    AppState::new(pool, test_cfg())
+}
 
+/// Build an `AppState` with a custom config (used when test needs specific
+/// env-var overrides, e.g. a real watchdog token).
+async fn test_state_with_cfg(cfg: Config) -> AppState {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory SQLite failed");
+    sqlx::migrate!("./migrations").run(&pool).await.expect("migrations failed");
     AppState::new(pool, cfg)
 }
 
@@ -1000,37 +1023,9 @@ async fn player_joined_rejects_wrong_token() {
 #[tokio::test]
 async fn player_joined_rejects_empty_ign() {
     // Set up state with a real watchdog token so we can get past auth.
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let cfg = {
-        use std::path::PathBuf;
-        redstonecipher_server::Config {
-            host: "127.0.0.1".into(),
-            port: 8787,
-            database_url: "sqlite::memory:".into(),
-            jwt_secret: TEST_JWT_SECRET.into(),
-            google_client_id: "test".into(),
-            google_client_secret: "test".into(),
-            redirect_uri: "https://example.com/callback".into(),
-            budget_webhook_token: None,
-            gcloud_bin: PathBuf::from("/usr/bin/false"),
-            gcp_project: "test".into(),
-            gcp_zone: "test".into(),
-            gcp_instance: "test".into(),
-            tailscale_ip: "100.0.0.1".into(),
-            mc_backup_dir: "/tmp".into(),
-            mc_server_dir: "/tmp".into(),
-            mc_scripts_dir: "/tmp".into(),
-            map_tiles_dir: "/tmp".into(),
-            watchdog_token: Some("test_watchdog_secret".into()),
-        }
-    };
-    let state = redstonecipher_server::AppState::new(pool, cfg);
-    let app = redstonecipher_server::build_router(state);
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv
@@ -1043,37 +1038,9 @@ async fn player_joined_rejects_empty_ign() {
 
 #[tokio::test]
 async fn player_joined_first_ever_returns_allow() {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let cfg = {
-        use std::path::PathBuf;
-        redstonecipher_server::Config {
-            host: "127.0.0.1".into(),
-            port: 8787,
-            database_url: "sqlite::memory:".into(),
-            jwt_secret: TEST_JWT_SECRET.into(),
-            google_client_id: "test".into(),
-            google_client_secret: "test".into(),
-            redirect_uri: "https://example.com/callback".into(),
-            budget_webhook_token: None,
-            gcloud_bin: PathBuf::from("/usr/bin/false"),
-            gcp_project: "test".into(),
-            gcp_zone: "test".into(),
-            gcp_instance: "test".into(),
-            tailscale_ip: "100.0.0.1".into(),
-            mc_backup_dir: "/tmp".into(),
-            mc_server_dir: "/tmp".into(),
-            mc_scripts_dir: "/tmp".into(),
-            map_tiles_dir: "/tmp".into(),
-            watchdog_token: Some("test_watchdog_secret".into()),
-        }
-    };
-    let state = redstonecipher_server::AppState::new(pool, cfg);
-    let app = redstonecipher_server::build_router(state);
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv
@@ -1088,37 +1055,9 @@ async fn player_joined_first_ever_returns_allow() {
 
 #[tokio::test]
 async fn player_joined_second_join_returns_kick() {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let cfg = {
-        use std::path::PathBuf;
-        redstonecipher_server::Config {
-            host: "127.0.0.1".into(),
-            port: 8787,
-            database_url: "sqlite::memory:".into(),
-            jwt_secret: TEST_JWT_SECRET.into(),
-            google_client_id: "test".into(),
-            google_client_secret: "test".into(),
-            redirect_uri: "https://example.com/callback".into(),
-            budget_webhook_token: None,
-            gcloud_bin: PathBuf::from("/usr/bin/false"),
-            gcp_project: "test".into(),
-            gcp_zone: "test".into(),
-            gcp_instance: "test".into(),
-            tailscale_ip: "100.0.0.1".into(),
-            mc_backup_dir: "/tmp".into(),
-            mc_server_dir: "/tmp".into(),
-            mc_scripts_dir: "/tmp".into(),
-            map_tiles_dir: "/tmp".into(),
-            watchdog_token: Some("test_watchdog_secret".into()),
-        }
-    };
-    let state = redstonecipher_server::AppState::new(pool, cfg);
-    let app = redstonecipher_server::build_router(state);
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     // First join — allow
@@ -1140,52 +1079,23 @@ async fn player_joined_second_join_returns_kick() {
 
 #[tokio::test]
 async fn player_joined_linked_player_always_allowed() {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    // Seed the user first (player_links has FK → users.email)
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    // Seed the user (player_links has FK → users.email)
     sqlx::query(
         "INSERT INTO users (email, role, display_name, added_by) VALUES ('linked@example.com', 'member', 'Linked', 'test')"
     )
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .unwrap();
     // Pre-link the IGN
     sqlx::query(
         "INSERT INTO player_links (email, ign, linked_at) VALUES ('linked@example.com', 'LinkedPlayer', '2026-01-01T00:00:00Z')"
     )
-    .execute(&pool)
+    .execute(&state.pool)
     .await
     .unwrap();
-
-    let cfg = {
-        use std::path::PathBuf;
-        redstonecipher_server::Config {
-            host: "127.0.0.1".into(),
-            port: 8787,
-            database_url: "sqlite::memory:".into(),
-            jwt_secret: TEST_JWT_SECRET.into(),
-            google_client_id: "test".into(),
-            google_client_secret: "test".into(),
-            redirect_uri: "https://example.com/callback".into(),
-            budget_webhook_token: None,
-            gcloud_bin: PathBuf::from("/usr/bin/false"),
-            gcp_project: "test".into(),
-            gcp_zone: "test".into(),
-            gcp_instance: "test".into(),
-            tailscale_ip: "100.0.0.1".into(),
-            mc_backup_dir: "/tmp".into(),
-            mc_server_dir: "/tmp".into(),
-            mc_scripts_dir: "/tmp".into(),
-            map_tiles_dir: "/tmp".into(),
-            watchdog_token: Some("test_watchdog_secret".into()),
-        }
-    };
-    let state = redstonecipher_server::AppState::new(pool, cfg);
-    let app = redstonecipher_server::build_router(state);
+    let app = build_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv
@@ -1261,6 +1171,128 @@ async fn invite_to_nonexistent_role_rejected() {
         }))
         .await;
     assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+// ── Tailscale device-invite endpoint tests ───────────────────────────────────
+//
+// These are hermetic (no real Tailscale or Resend API calls).
+// They validate:
+//   1. Unauthenticated access is blocked (401).
+//   2. A user without users.invite is forbidden (403).
+//   3. Inviting a non-existent user returns 404.
+//   4. With a user present but no API keys, the endpoint returns 200 with
+//      warnings instead of crashing — confirming graceful degradation.
+
+#[tokio::test]
+async fn tailscale_invite_requires_authentication() {
+    let (srv, _) = server().await;
+    let res = srv
+        .post("/api/users/someone@example.com/tailscale-invite")
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::UNAUTHORIZED,
+        "endpoint must reject unauthenticated requests"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_requires_users_invite_permission() {
+    let (srv, state) = server().await;
+
+    // member role does NOT have users.invite
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+    )
+    .bind("ts_member@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("ts_member@example.com", "member");
+    let res = srv
+        .post("/api/users/someone@example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "member role lacks users.invite and must be denied"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_returns_404_for_unknown_user() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/users/ghost%40example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::NOT_FOUND,
+        "should 404 when the target user does not exist"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_degrades_gracefully_without_api_keys() {
+    // Config has no TAILSCALE_API_KEY and no RESEND_API_KEY (the defaults).
+    // The endpoint must return 200 with non-empty warnings rather than 5xx.
+    let (srv, state) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Seed a user to invite
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'Player One', 'test')"
+    )
+    .bind("player1@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let res = srv
+        .post("/api/users/player1@example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+
+    // Must be 200 — not a crash
+    assert_eq!(
+        res.status_code(),
+        StatusCode::OK,
+        "should return 200 even when API keys are absent"
+    );
+
+    let body: serde_json::Value = res.json();
+
+    // invite URL and email are absent because keys not configured
+    assert!(
+        body["tailscale_invite_url"].is_null(),
+        "invite URL should be null when TAILSCALE_API_KEY is absent"
+    );
+    assert_eq!(
+        body["email_sent"], false,
+        "email_sent should be false when RESEND_API_KEY is absent"
+    );
+
+    // Both missing-key errors must be captured as warnings, not panics
+    let warnings = body["warnings"].as_array().expect("warnings must be array");
+    assert!(
+        !warnings.is_empty(),
+        "should warn about missing TAILSCALE_API_KEY"
+    );
+    assert!(
+        warnings.iter().any(|w| w.as_str()
+            .map(|s| s.contains("TAILSCALE_API_KEY"))
+            .unwrap_or(false)
+        ),
+        "warnings must mention TAILSCALE_API_KEY"
+    );
+
+    // User fields should be present
+    assert_eq!(body["user"]["email"], "player1@example.com");
+    assert_eq!(body["user"]["display_name"], "Player One");
 }
 
 /// Migration 0006 grants `users.view` to all system roles (member, user, visitor)
