@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Info } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
-import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings } from "@/types";
+import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings, TailscaleInviteResult } from "@/types";
 import { WorldsTab }    from "./WorldsTab";
 import { InvitePortal } from "./InvitePortal";
 import { ROLE_LEVELS }  from "@/types";
+import { toast } from "@/components/Toast";
 
 type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds";
 
@@ -378,6 +379,11 @@ function UsersTab() {
               roleName={selectedUser.role}
               canEdit={canOverrides}
             />
+
+            {/* Tailscale invite */}
+            {canInvite && (
+              <TailscaleInvitePanel email={selectedUser.email} displayName={selectedUser.display_name} />
+            )}
 
             {/* Remove user */}
             {canRemove && canEdit(selectedUser) && (
@@ -779,6 +785,125 @@ function MCWhitelistTab() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── TailscaleInvitePanel — send a Tailscale access email to an existing user ──
+
+const ACL_POLICY = `{
+  "tagOwners": { "tag:mc-server": ["autogroup:owner"] },
+  "acls": [
+    { "action": "accept", "src": ["autogroup:owner"], "dst": ["*:*"] },
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:mc-server:25565"] }
+  ]
+}`;
+
+function TailscaleInvitePanel({
+  email,
+  displayName,
+}: {
+  email: string;
+  displayName: string;
+}) {
+  const [result, setResult] = useState<TailscaleInviteResult | null>(null);
+  const [showAcl, setShowAcl]   = useState(false);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      api.post<TailscaleInviteResult>(`/users/${encodeURIComponent(email)}/tailscale-invite`),
+    onSuccess: (data) => {
+      setResult(data);
+      if (data.email_sent) toast.success(`Tailscale invite sent to ${email}`);
+      else if (data.warnings.length) toast.info("Invite generated with warnings — check below");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="pt-3 border-t border-[#D9D5D0] dark:border-[#363944] space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide">
+          Tailscale Access
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowAcl((v) => !v)}
+          title="View required ACL policy"
+          className="p-1 rounded text-meta hover:text-[#5B9BF0] transition-colors"
+          aria-label="Show ACL setup info"
+        >
+          <Info className="w-3.5 h-3.5" aria-hidden />
+        </button>
+      </div>
+
+      {/* One-time ACL setup note */}
+      {showAcl && (
+        <div className="rounded-xl bg-[#EFF6FF] dark:bg-[#1E3A5F] p-3 space-y-2 text-xs">
+          <p className="font-semibold text-[#1e40af] dark:text-[#93C5FD]">
+            One-time Tailscale ACL setup
+          </p>
+          <p className="text-[#1e40af] dark:text-[#93C5FD] leading-relaxed">
+            Apply the policy below in your{" "}
+            <a
+              href="https://login.tailscale.com/admin/acls"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Tailscale ACL console
+            </a>{" "}
+            and tag mc-server-1 with <code className="font-mono">tag:mc-server</code>.
+            This restricts invited members to port 25565 (Minecraft) only.
+          </p>
+          <pre className="bg-white dark:bg-[#13151A] rounded-lg p-3 text-[10px] font-mono overflow-x-auto
+                          text-[#1C1E27] dark:text-[#EAECF0] whitespace-pre-wrap">
+            {ACL_POLICY}
+          </pre>
+        </div>
+      )}
+
+      {/* Result */}
+      {result && (
+        <div className="rounded-xl bg-[#F7F5F2] dark:bg-[#2A2D38] p-3 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            <StatusChipSmall ok={!!result.tailscale_invite_url} label="Invite generated" />
+            <StatusChipSmall ok={result.email_sent} label="Email sent" />
+          </div>
+          {result.warnings.map((w, i) => (
+            <p key={i} className="flex items-start gap-1.5 text-xs text-warn">
+              <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" aria-hidden />
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => { setResult(null); mut.mutate(); }}
+        disabled={mut.isPending}
+        className="w-full flex items-center justify-center gap-2 btn-secondary text-sm py-2"
+        aria-label={`Send Tailscale invite to ${displayName}`}
+      >
+        {mut.isPending
+          ? <><Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Sending…</>
+          : result?.email_sent
+          ? <><CheckCircle2 className="w-3.5 h-3.5 text-[#36B37E]" aria-hidden /> Resend Tailscale Invite</>
+          : <><Send className="w-3.5 h-3.5" aria-hidden /> Send Tailscale Invite</>}
+      </button>
+    </div>
+  );
+}
+
+function StatusChipSmall({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+      ok
+        ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E]"
+        : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta line-through"
+    }`}>
+      {ok && <CheckCircle2 className="w-2.5 h-2.5" aria-hidden />}
+      {label}
+    </span>
   );
 }
 

@@ -216,6 +216,13 @@ export interface InviteResult {
   warnings:             string[];
 }
 
+export interface TailscaleInviteResult {
+  user:                 User;
+  tailscale_invite_url: string | null;
+  email_sent:           boolean;
+  warnings:             string[];
+}
+
 export interface WorldMember {
   world_id:   number;
   user_email: string;

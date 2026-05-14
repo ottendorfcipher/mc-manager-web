@@ -202,7 +202,12 @@ pub fn build_router(state: AppState) -> Router {
             get(handlers::worlds::download_backup),
         )
         // Onboarding
-        .route("/onboarding/invite", post(handlers::onboarding::invite));
+        .route("/onboarding/invite", post(handlers::onboarding::invite))
+        // Tailscale invite for existing users
+        .route(
+            "/users/:email/tailscale-invite",
+            post(handlers::onboarding::tailscale_invite_existing),
+        );
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
