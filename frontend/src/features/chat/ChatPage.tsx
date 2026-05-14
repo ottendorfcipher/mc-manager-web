@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Send, MessageSquare, Lock, Globe } from "lucide-react";
+import { Send, MessageSquare, Lock, Globe, ChevronUp, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { useChatUnread } from "@/hooks/useHotkeys";
 import { useLocation } from "react-router-dom";
 import type { ChatMessage, McPlayer } from "@/types";
+
+const INITIAL_LIMIT  = 50;
+const LOAD_MORE_SIZE = 100;
 
 // ── ChatPage ───────────────────────────────────────────────────────────────────
 
@@ -15,9 +18,12 @@ export function ChatPage() {
   const canSend = hasPerm("chat.send");
 
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput]       = useState("");
+  const [olderMessages, setOlderMessages] = useState<ChatMessage[]>([]);
+  const [hasMore, setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [input, setInput]         = useState("");
   const [targetIgn, setTargetIgn] = useState<string>("");
-  const [sseError, setSseError]  = useState(false);
+  const [sseError, setSseError]   = useState(false);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const esRef      = useRef<EventSource | null>(null);
   const { clear: clearUnread } = useChatUnread();
@@ -26,13 +32,43 @@ export function ChatPage() {
   // Clear unread count whenever we land on /chat
   useEffect(() => { clearUnread(); }, [location.pathname, clearUnread]);
 
-  // ── History (seed) ──────────────────────────────────────────────────────────
+  // ── History seed (last 50) ─────────────────────────────────────────────────────────
 
   const { data: history = [], isLoading } = useQuery<ChatMessage[]>({
     queryKey: ["chat-history"],
-    queryFn: () => api.get("/chat/history"),
+    queryFn: () => api.get(`/chat/history?limit=${INITIAL_LIMIT}`),
     staleTime: Infinity, // SSE keeps it fresh; don't re-fetch on focus
   });
+
+  // Set hasMore once initial history is loaded.
+  useEffect(() => {
+    if (!isLoading) setHasMore(history.length >= INITIAL_LIMIT);
+  }, [isLoading, history.length]);
+
+  // ── Load earlier messages (cursor pagination) ───────────────────────────────
+
+  // The oldest id visible is the first item in olderMessages if any, else history[0].
+  const oldestId = olderMessages.length > 0 ? olderMessages[0].id : history[0]?.id;
+
+  const loadEarlier = useCallback(async () => {
+    if (!oldestId || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const older: ChatMessage[] = await api.get(
+        `/chat/history?limit=${LOAD_MORE_SIZE}&before=${oldestId}`
+      );
+      setOlderMessages((prev) => {
+        // Prepend, deduplicate by id.
+        const existing = new Set(prev.map((m) => m.id));
+        const fresh = older.filter((m) => !existing.has(m.id));
+        return [...fresh, ...prev];
+      });
+      // If we got fewer than LOAD_MORE_SIZE rows, there's nothing older.
+      setHasMore(older.length >= LOAD_MORE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [oldestId, loadingMore]);
 
   // ── Online players (for DM selector) ───────────────────────────────────────
 
@@ -80,11 +116,11 @@ export function ChatPage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Merge history + live, deduplicated and sorted ───────────────────────────
+  // ── Merge older + history + live, deduplicated and sorted ─────────────────────────────
 
   const allMessages: ChatMessage[] = (() => {
     const seen = new Set<number>();
-    const merged = [...history, ...liveMessages].filter((m) => {
+    const merged = [...olderMessages, ...history, ...liveMessages].filter((m) => {
       if (seen.has(m.id)) return false;
       seen.add(m.id);
       return true;
@@ -92,10 +128,19 @@ export function ChatPage() {
     return merged.sort((a, b) => a.id - b.id);
   })();
 
-  // Auto-scroll to bottom on new messages.
+  // Auto-scroll to bottom on new live messages only (not when loading earlier history).
+  const prevLiveCount = useRef(liveMessages.length);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [allMessages.length]);
+    if (liveMessages.length > prevLiveCount.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    prevLiveCount.current = liveMessages.length;
+  }, [liveMessages.length]);
+
+  // Scroll to bottom on initial load.
+  useEffect(() => {
+    if (!isLoading) bottomRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+  }, [isLoading]);
 
   // ── Send ────────────────────────────────────────────────────────────────────
 
@@ -156,18 +201,39 @@ export function ChatPage() {
           >
             <div className="w-5 h-5 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" aria-hidden />
           </div>
-        ) : allMessages.length === 0 ? (
-          <p className="text-sm text-meta text-center py-12">
-            No messages yet. Say something!
-          </p>
         ) : (
-          <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
-            {allMessages.map((msg) => (
-              <MessageRow key={msg.id} msg={msg} />
-            ))}
-          </div>
+          <>
+            {/* Load earlier messages button */}
+            {hasMore && (
+              <div className="flex justify-center py-2 border-b border-[#D9D5D0] dark:border-[#363944]">
+                <button
+                  onClick={loadEarlier}
+                  disabled={loadingMore}
+                  className="flex items-center gap-1.5 text-xs text-meta hover:text-[#5B9BF0] transition-colors px-3 py-1.5 rounded-lg
+                             hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] disabled:opacity-50"
+                  aria-label="Load earlier messages"
+                >
+                  {loadingMore
+                    ? <><Loader2 className="w-3 h-3 animate-spin" aria-hidden /> Loading…</>
+                    : <><ChevronUp className="w-3 h-3" aria-hidden /> Load earlier messages</>}
+                </button>
+              </div>
+            )}
+
+            {allMessages.length === 0 ? (
+              <p className="text-sm text-meta text-center py-12">
+                No messages yet. Say something!
+              </p>
+            ) : (
+              <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
+                {allMessages.map((msg) => (
+                  <MessageRow key={msg.id} msg={msg} />
+                ))}
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </>
         )}
-        <div ref={bottomRef} />
       </div>
 
       {/* Composer */}

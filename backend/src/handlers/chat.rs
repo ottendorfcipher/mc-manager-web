@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -24,13 +24,35 @@ use crate::{
 
 // ── GET /api/chat/history ──────────────────────────────────────────────────────
 
-/// Returns the last 100 broadcast messages in chronological order.
+#[derive(Deserialize)]
+pub struct HistoryQuery {
+    /// Number of messages to return. Clamped to 1–200. Defaults to 50.
+    #[serde(default = "default_history_limit")]
+    limit: i64,
+    /// Cursor: return messages with id strictly less than this value.
+    /// Omit to get the most recent `limit` messages.
+    before: Option<i64>,
+}
+
+fn default_history_limit() -> i64 { 50 }
+
+/// Returns recent broadcast messages in chronological order.
+///
+/// Query params:
+///   `limit`  — number of messages (default 50, max 200)
+///   `before` — cursor: only return messages older than this message id
 pub async fn history(
     State(state): State<AppState>,
     actor: AuthUser,
+    Query(params): Query<HistoryQuery>,
 ) -> Result<Json<Vec<chat::ChatMessage>>> {
     crate::auth::middleware::require_perm(&actor, "chat.read")?;
-    Ok(Json(chat::recent(&state.pool, 100).await?))
+    let limit = params.limit.clamp(1, 200);
+    let msgs = match params.before {
+        Some(before_id) => chat::recent_before(&state.pool, before_id, limit).await?,
+        None            => chat::recent(&state.pool, limit).await?,
+    };
+    Ok(Json(msgs))
 }
 
 // ── GET /api/chat/stream ───────────────────────────────────────────────────────
