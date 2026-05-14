@@ -2,7 +2,10 @@
 
 export type BackupRun = { id: bigint, filename: string, 
 /**
- * Full path of the archive on mc-server-1,
- * e.g. `/opt/minecraft/backups/daily/2026-05-03_04-00.tar.gz`
+ * Full path of the archive on mc-server-1.
  */
-file_path: string, size_bytes: bigint, created_by: string, created_at: string, notes: string | null, };
+file_path: string, size_bytes: bigint, created_by: string, created_at: string, notes: string | null, 
+/**
+ * Set for world-scoped backups; NULL for legacy global backups.
+ */
+world_id: bigint | null, world_slug: string | null, };
