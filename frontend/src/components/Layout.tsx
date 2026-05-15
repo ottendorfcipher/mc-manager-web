@@ -5,7 +5,7 @@ import {
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
   Backpack, MoreHorizontal,
 } from "lucide-react";
-import { useAuthStore, useThemeStore } from "@/store/auth";
+import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 
 const NAV = [
@@ -32,13 +32,18 @@ const THEME_OPTIONS = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, hasPerm } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
+  const { showConfigureNav } = useNavPrefsStore();
   const [moreOpen, setMoreOpen] = useState(false);
   const chatUnread = useChatUnread((s) => s.count);
 
   // Register navigation keyboard shortcuts (active on every authenticated page)
   useNavigationHotkeys();
 
-  const nav = NAV.filter((n) => hasPerm(n.perm));
+  const nav = NAV.filter((n) => {
+    // Configure is hidden from nav unless an admin has explicitly enabled it.
+    if (n.to === "/configure") return showConfigureNav && hasPerm(n.perm);
+    return hasPerm(n.perm);
+  });
   const hasMobileOverflow = nav.length > MOBILE_PRIMARY_COUNT;
   const primaryNav = hasMobileOverflow ? nav.slice(0, MOBILE_PRIMARY_COUNT) : nav;
   const moreNav    = hasMobileOverflow ? nav.slice(MOBILE_PRIMARY_COUNT)    : [];

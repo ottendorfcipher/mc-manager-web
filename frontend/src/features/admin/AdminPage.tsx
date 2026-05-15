@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavPrefsStore } from "@/store/auth";
 import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
@@ -128,6 +129,7 @@ export function AdminPage() {
 
 function MapSettingsTab() {
   const qc = useQueryClient();
+  const { showConfigureNav, setShowConfigureNav } = useNavPrefsStore();
 
   const { data: settings, isLoading } = useQuery<BlueMapSettings>({
     queryKey: ["bluemap-settings"],
@@ -144,36 +146,76 @@ function MapSettingsTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
-        Control whether the embedded BlueMap exposes its full interface. When disabled,
-        players only see the locked top-down map view; menu, maps, free-flight, and perspective controls are hidden.
-      </p>
-
-      <div className="card flex items-start justify-between gap-4">
-        <div>
-          <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
-            Enable advanced BlueMap controls
-          </p>
-          <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-1">
-            Re-enable this only when you want everyone on the site to access BlueMap’s menu,
-            map selector, perspective mode, and free-flight controls.
-          </p>
-        </div>
-        <button
-          onClick={() => updateMut.mutate(!enabled)}
-          disabled={isLoading || updateMut.isPending}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-            enabled ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"
-          } disabled:opacity-50`}
-          aria-pressed={enabled}
-          aria-label="Toggle advanced BlueMap controls"
-        >
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-              enabled ? "translate-x-5" : "translate-x-0.5"
+      {/* ── Configure tab visibility ──────────────────────────────── */}
+      <div>
+        <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-1">
+          Navigation
+        </h3>
+        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mb-3">
+          Control which pages appear in the sidebar. Changes apply immediately to this device.
+        </p>
+        <div className="card flex items-start justify-between gap-4">
+          <div>
+            <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+              Show Configure in sidebar
+            </p>
+            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-1">
+              Exposes the server.properties editor in the navigation. Off by default —
+              enable when you need to adjust server settings.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowConfigureNav(!showConfigureNav)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+              showConfigureNav ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"
             }`}
-          />
-        </button>
+            aria-pressed={showConfigureNav}
+            aria-label="Toggle Configure in sidebar"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                showConfigureNav ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* ── BlueMap ──────────────────────────────────────────────────── */}
+      <div>
+        <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-1">
+          BlueMap
+        </h3>
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB] mb-3">
+          Control whether the embedded BlueMap exposes its full interface. When disabled,
+          players only see the locked top-down map view; menu, maps, free-flight, and perspective controls are hidden.
+        </p>
+        <div className="card flex items-start justify-between gap-4">
+          <div>
+            <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+              Enable advanced BlueMap controls
+            </p>
+            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-1">
+              Re-enable this only when you want everyone on the site to access BlueMap’s menu,
+              map selector, perspective mode, and free-flight controls.
+            </p>
+          </div>
+          <button
+            onClick={() => updateMut.mutate(!enabled)}
+            disabled={isLoading || updateMut.isPending}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+              enabled ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"
+            } disabled:opacity-50`}
+            aria-pressed={enabled}
+            aria-label="Toggle advanced BlueMap controls"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                enabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
       </div>
     </div>
   );
