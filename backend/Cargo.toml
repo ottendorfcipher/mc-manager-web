@@ -38,6 +38,9 @@ base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 
+# Discord bridge
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
+
 # Pattern matching
 regex = "1"
 

@@ -46,6 +46,18 @@ pub struct Config {
     pub tailscale_tailnet: String,
     /// Public base URL of this site — used in invite email links.
     pub site_url: String,
+    // ── Discord bridge ─────────────────────────────────────────────────────────
+    /// Discord bot token for the inbound gateway listener.
+    /// Obtain from the Discord developer portal → Bot → Token.
+    /// When `None` the Discord gateway is not started.
+    pub discord_bot_token: Option<String>,
+    /// Discord webhook URL for outbound messages (MC/Web → Discord).
+    /// Each message carries a custom username+avatar via the webhook API.
+    /// When `None` outbound relay is disabled.
+    pub discord_webhook_url: Option<String>,
+    /// Discord channel ID the bot should listen to for inbound messages.
+    /// Must be set alongside `discord_bot_token`.
+    pub discord_channel_id: Option<u64>,
 }
 
 impl Config {
@@ -90,6 +102,16 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             tailscale_tailnet: env_or("TAILSCALE_TAILNET", "your-tailnet"),
             site_url: env_or("SITE_URL", "https://redstonecipher.com"),
+            discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            discord_webhook_url: std::env::var("DISCORD_WEBHOOK_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            discord_channel_id: std::env::var("DISCORD_CHANNEL_ID")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse::<u64>().ok()),
         }
     }
 }

@@ -20,13 +20,40 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Synced {synced} new backup(s) from mc-server-1 into database");
     }
 
-    let state = lib::AppState::new(pool, cfg.clone());
+    // Build the optional Discord relay (requires DISCORD_WEBHOOK_URL + DISCORD_CHANNEL_ID).
+    let discord_relay: Option<std::sync::Arc<lib::discord::DiscordRelay>> =
+        match (cfg.discord_webhook_url.clone(), cfg.discord_channel_id) {
+            (Some(webhook_url), Some(channel_id)) => {
+                tracing::info!("Discord webhook relay enabled (channel {})", channel_id);
+                Some(std::sync::Arc::new(lib::discord::DiscordRelay::new(webhook_url, channel_id)))
+            }
+            _ => {
+                tracing::info!("Discord bridge disabled (DISCORD_WEBHOOK_URL / DISCORD_CHANNEL_ID not set)");
+                None
+            }
+        };
+
+    let state = lib::AppState::new(pool, cfg.clone(), discord_relay.clone());
+
+    // Spawn the Discord gateway bot if a token and channel ID are configured.
+    if let (Some(token), Some(channel_id)) =
+        (cfg.discord_bot_token.clone(), cfg.discord_channel_id)
+    {
+        lib::discord::spawn(
+            token,
+            channel_id,
+            cfg.clone(),
+            state.pool.clone(),
+            state.chat_tx.clone(),
+        );
+    }
 
     // Spawn the background task that tails latest.log and feeds the chat channel.
     lib::minecraft::chat_watcher::spawn(
         cfg.clone(),
         state.pool.clone(),
         state.chat_tx.clone(),
+        discord_relay,
     );
 
     let app = lib::build_router(state);

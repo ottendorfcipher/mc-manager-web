@@ -311,8 +311,16 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
     );
   }
 
-  const isMc  = msg.source === "mc";
-  const isWeb = msg.source === "web";
+  const isMc      = msg.source === "mc";
+  const isWeb     = msg.source === "web";
+  const isDiscord = msg.source === "discord";
+
+  // Name colour: green for Minecraft, blurple for Discord, blue for web
+  const nameColor = isMc
+    ? "text-[#36B37E]"
+    : isDiscord
+    ? "text-[#5865F2]"
+    : "text-[#5B9BF0]";
 
   return (
     <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-[#F7F5F2] dark:hover:bg-[#1E212B] transition-colors">
@@ -324,7 +332,16 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
           className="w-8 h-8 rounded-sm flex-shrink-0 mt-0.5"
           loading="lazy"
         />
+      ) : isDiscord ? (
+        // Blurple avatar circle for Discord users
+        <div
+          className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 flex items-center justify-center
+                     bg-[#5865F2] text-white text-xs font-bold"
+        >
+          {msg.display_as.charAt(0).toUpperCase()}
+        </div>
       ) : (
+        // Blue avatar circle for web users
         <div
           className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 flex items-center justify-center
                      bg-[#5B9BF0] text-white text-xs font-bold"
@@ -336,12 +353,17 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
       {/* Body */}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className={`text-sm font-semibold ${isMc ? "text-[#36B37E]" : "text-[#5B9BF0]"}`}>
+          <span className={`text-sm font-semibold ${nameColor}`}>
             {msg.display_as}
           </span>
           {isWeb && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#EFF6FF] dark:bg-[#1E3A5F] text-[#5B9BF0] font-medium">
               web
+            </span>
+          )}
+          {isDiscord && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#EDE9FE] dark:bg-[#2D1B69] text-[#5865F2] font-medium">
+              discord
             </span>
           )}
           <span className="text-[10px] text-meta ml-auto flex-shrink-0">

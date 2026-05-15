@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::db::chat::ChatMessage;
+use crate::discord::DiscordRelay;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
@@ -20,10 +21,16 @@ pub struct AppState {
     /// Handlers subscribe to this for the SSE stream; the watcher and
     /// send handler publish to it.
     pub chat_tx: broadcast::Sender<Arc<ChatMessage>>,
+    /// Optional Discord relay handle.  `None` when Discord env vars are not set.
+    pub discord: Option<Arc<DiscordRelay>>,
 }
 
 impl AppState {
-    pub fn new(pool: SqlitePool, config: Config) -> Self {
+    pub fn new(
+        pool:    SqlitePool,
+        config:  Config,
+        discord: Option<Arc<DiscordRelay>>,
+    ) -> Self {
         let (chat_tx, _) = broadcast::channel(CHAT_CHANNEL_CAPACITY);
         Self {
             pool,
@@ -33,6 +40,7 @@ impl AppState {
                 .build()
                 .expect("reqwest client build failed"),
             chat_tx,
+            discord,
         }
     }
 }
