@@ -38,6 +38,13 @@ pub async fn run_with_timeout(
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            // After the TCP handshake, send keep-alive probes every 5 s.
+            // 2 missed probes = 10 s max hang post-connect before SSH exits.
+            // This complements ConnectTimeout (TCP-level) to cover SSH protocol hangs.
+            "ServerAliveInterval=5",
+            "-o",
+            "ServerAliveCountMax=2",
             &dest,
             command,
         ])

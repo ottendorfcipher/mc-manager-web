@@ -24,8 +24,9 @@ use axum::{
 };
 use tower_http::{
     cors::{Any, CorsLayer},
-    trace::TraceLayer,
+    trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
+use tracing::Level;
 
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
@@ -225,7 +226,17 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::pending_players::player_joined),
         )
         .nest("/api", api)
-        .layer(TraceLayer::new_for_http())
+        // Elevate the request span to INFO so that when on_failure fires at ERROR
+        // level, the parent span's fields (method, uri, status) are included in
+        // the log line.  Default is TRACE, which the `info` filter drops —
+        // leaving 502 errors with no URI context.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_request(DefaultOnRequest::new().level(Level::DEBUG))
+                .on_response(DefaultOnResponse::new().level(Level::DEBUG))
+                .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
+        )
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
