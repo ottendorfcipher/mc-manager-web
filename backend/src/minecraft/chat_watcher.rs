@@ -25,19 +25,21 @@ const MC_KNOWN_HOSTS:    &str = "/opt/redstonecipher/mc_known_hosts";
 /// Errors inside the task are logged and trigger a reconnect; they do not
 /// propagate to the caller.
 pub fn spawn(
-    config: Config,
-    pool:   sqlx::SqlitePool,
-    tx:     broadcast::Sender<Arc<ChatMessage>>,
+    config:  Config,
+    pool:    sqlx::SqlitePool,
+    tx:      broadcast::Sender<Arc<ChatMessage>>,
+    discord: Option<std::sync::Arc<crate::discord::DiscordRelay>>,
 ) {
     tokio::spawn(async move {
-        run_with_reconnect(config, pool, tx).await;
+        run_with_reconnect(config, pool, tx, discord).await;
     });
 }
 
 async fn run_with_reconnect(
-    config: Config,
-    pool:   sqlx::SqlitePool,
-    tx:     broadcast::Sender<Arc<ChatMessage>>,
+    config:  Config,
+    pool:    sqlx::SqlitePool,
+    tx:      broadcast::Sender<Arc<ChatMessage>>,
+    discord: Option<std::sync::Arc<crate::discord::DiscordRelay>>,
 ) {
     // Compile patterns once for the lifetime of the task.
     // Paper 1.21 chat: [HH:MM:SS INFO]: <IGN> message
@@ -50,7 +52,7 @@ async fn run_with_reconnect(
     const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
     loop {
-        match tail_once(&config, &pool, &tx, &chat_re, &join_re, &leave_re).await {
+        match tail_once(&config, &pool, &tx, &chat_re, &join_re, &leave_re, discord.as_deref()).await {
             Ok(()) => {
                 // tail exited cleanly (e.g. SSH closed) — reconnect
                 warn!("chat_watcher: tail exited, reconnecting in {:?}", backoff);
@@ -72,6 +74,7 @@ async fn tail_once(
     chat_re:  &Regex,
     join_re:  &Regex,
     leave_re: &Regex,
+    discord:  Option<&crate::discord::DiscordRelay>,
 ) -> anyhow::Result<()> {
     let dest = format!("root@{}", config.tailscale_ip);
     let log_path = format!(
@@ -101,7 +104,7 @@ async fn tail_once(
     info!("chat_watcher: connected, tailing {log_path}");
 
     while let Some(line) = lines.next_line().await? {
-        process_line(pool, tx, &line, chat_re, join_re, leave_re).await;
+        process_line(pool, tx, &line, chat_re, join_re, leave_re, discord).await;
     }
 
     // SSH process ended — wait to collect status but don't error on non-zero.
@@ -116,26 +119,47 @@ async fn process_line(
     chat_re:  &Regex,
     join_re:  &Regex,
     leave_re: &Regex,
+    discord:  Option<&crate::discord::DiscordRelay>,
 ) {
+    // (source, author, display_as, content, is_player_chat)
     let result = if let Some(cap) = chat_re.captures(line) {
         let ign     = cap[1].to_string();
         let content = cap[2].to_string();
-        Some(("mc", ign.clone(), ign, content))
+        Some(("mc", ign.clone(), ign, content, true))
     } else if let Some(cap) = join_re.captures(line) {
         let ign = cap[1].to_string();
-        Some(("server", ign.clone(), ign.clone(), format!("{ign} joined the game")))
+        Some(("server", ign.clone(), ign.clone(), format!("{ign} joined the game"), false))
     } else if let Some(cap) = leave_re.captures(line) {
         let ign = cap[1].to_string();
-        Some(("server", ign.clone(), ign.clone(), format!("{ign} left the game")))
+        Some(("server", ign.clone(), ign.clone(), format!("{ign} left the game"), false))
     } else {
         None
     };
 
-    if let Some((source, author, display_as, content)) = result {
+    if let Some((source, author, display_as, content, is_player_chat)) = result {
         match chat::insert(pool, source, &author, &display_as, &content).await {
             Ok(msg) => {
                 // Ignore send errors — no active SSE subscribers is fine.
                 let _ = tx.send(Arc::new(msg));
+
+                // Relay to Discord (fire-and-forget).
+                if let Some(relay) = discord {
+                    let relay   = relay.clone();
+                    let dname   = display_as.clone();
+                    let dcontent = content.clone();
+                    if is_player_chat {
+                        // MC player message — show their Minecraft head as the avatar.
+                        tokio::spawn(async move {
+                            let avatar = format!("https://mc-heads.net/head/{dname}/64");
+                            relay.relay(&dname, Some(&avatar), &dcontent).await;
+                        });
+                    } else {
+                        // Server event (join/leave) — italicise the body in Discord.
+                        tokio::spawn(async move {
+                            relay.relay("Server", None, &format!("_{dcontent}_")).await;
+                        });
+                    }
+                }
             }
             Err(e) => {
                 warn!("chat_watcher: DB insert failed: {e}");

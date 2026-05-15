@@ -16,7 +16,7 @@ use tracing::warn;
 
 use crate::{
     auth::middleware::AuthUser,
-    db::{chat, players},
+    db::{chat, players, users},
     error::{AppError, Result},
     gcloud::ssh,
     state::AppState,
@@ -189,6 +189,25 @@ pub async fn send(
             .await?;
 
             let _ = state.chat_tx.send(Arc::new(msg));
+
+            // Relay to Discord (fire-and-forget — Discord failures never
+            // affect the response already on its way to the web client).
+            if let Some(relay) = &state.discord {
+                let relay      = relay.clone();
+                let dname      = display_as.clone();
+                let dcontent   = content.clone();
+                let pool_clone = state.pool.clone();
+                let email      = actor.email.clone();
+                tokio::spawn(async move {
+                    // Fetch the sender's Google avatar for a richer Discord message.
+                    let avatar_url = users::get(&pool_clone, &email)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|u| u.avatar_url);
+                    relay.relay(&dname, avatar_url.as_deref(), &dcontent).await;
+                });
+            }
         }
     }
 

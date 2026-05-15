@@ -168,9 +168,9 @@ export interface MapPin {
 
 export interface ChatMessage {
   id:         number;
-  /** "mc" | "web" | "server" */
-  source:     "mc" | "web" | "server";
-  /** Raw identifier: email for web, IGN for mc/server. */
+  /** "mc" | "web" | "server" | "discord" */
+  source:     "mc" | "web" | "server" | "discord";
+  /** Raw identifier: email for web, IGN for mc/server, username for discord. */
   author:     string;
   /** Human-readable label shown in the UI. */
   display_as: string;
