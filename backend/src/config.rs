@@ -47,17 +47,17 @@ pub struct Config {
     /// Public base URL of this site — used in invite email links.
     pub site_url: String,
     // ── Discord bridge ─────────────────────────────────────────────────────────
-    /// Discord bot token for the inbound gateway listener.
-    /// Obtain from the Discord developer portal → Bot → Token.
-    /// When `None` the Discord gateway is not started.
-    pub discord_bot_token: Option<String>,
-    /// Discord webhook URL for outbound messages (MC/Web → Discord).
-    /// Each message carries a custom username+avatar via the webhook API.
-    /// When `None` outbound relay is disabled.
+    /// Discord bot token, webhook URL, and channel ID from env vars.
+    /// These override any values stored in the database (useful for
+    /// initial bootstrap and CI).  When all three are None the bridge
+    /// starts unconfigured and waits for credentials via the admin UI.
+    pub discord_bot_token:   Option<String>,
     pub discord_webhook_url: Option<String>,
-    /// Discord channel ID the bot should listen to for inbound messages.
-    /// Must be set alongside `discord_bot_token`.
-    pub discord_channel_id: Option<u64>,
+    pub discord_channel_id:  Option<u64>,
+    // ── Settings encryption ─────────────────────────────────────────────────────
+    /// AES-256-GCM key derived from `jwt_secret` at startup.
+    /// Cached here so handlers can encrypt/decrypt without recomputing.
+    pub settings_enc_key: [u8; 32],
 }
 
 impl Config {
@@ -112,6 +112,11 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .and_then(|s| s.parse::<u64>().ok()),
+            settings_enc_key: {
+                let jwt = std::env::var("JWT_SECRET")
+                    .unwrap_or_default();
+                crate::db::settings::derive_key(&jwt)
+            },
         }
     }
 }

@@ -20,40 +20,54 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Synced {synced} new backup(s) from mc-server-1 into database");
     }
 
-    // Build the optional Discord relay (requires DISCORD_WEBHOOK_URL + DISCORD_CHANNEL_ID).
-    let discord_relay: Option<std::sync::Arc<lib::discord::DiscordRelay>> =
-        match (cfg.discord_webhook_url.clone(), cfg.discord_channel_id) {
-            (Some(webhook_url), Some(channel_id)) => {
-                tracing::info!("Discord webhook relay enabled (channel {})", channel_id);
-                Some(std::sync::Arc::new(lib::discord::DiscordRelay::new(webhook_url, channel_id)))
+    // ── Resolve Discord configuration ───────────────────────────────────────────────────────────
+    // Precedence: env vars (highest) > DB-stored credentials (lowest).
+    // Env vars are kept so existing deployments keep working without UI interaction.
+    let db_discord = lib::db::settings::get_discord_config(&pool, &cfg.settings_enc_key)
+        .await
+        .unwrap_or_else(|e| { tracing::warn!("Could not load Discord config from DB: {e}"); None });
+
+    let initial_discord_cfg: Option<lib::discord::DiscordRuntimeConfig> =
+        match (cfg.discord_bot_token.clone(), cfg.discord_webhook_url.clone(), cfg.discord_channel_id) {
+            (Some(t), Some(w), Some(c)) => {
+                tracing::info!("Discord config: using env vars (channel {})", c);
+                Some(lib::discord::DiscordRuntimeConfig { bot_token: t, webhook_url: w, channel_id: c })
             }
-            _ => {
-                tracing::info!("Discord bridge disabled (DISCORD_WEBHOOK_URL / DISCORD_CHANNEL_ID not set)");
-                None
-            }
+            _ => match db_discord {
+                Some(db) => {
+                    tracing::info!("Discord config: loaded from DB (channel {})", db.channel_id);
+                    Some(lib::discord::DiscordRuntimeConfig {
+                        bot_token:   db.bot_token,
+                        webhook_url: db.webhook_url,
+                        channel_id:  db.channel_id,
+                    })
+                }
+                None => {
+                    tracing::info!("Discord bridge: not configured — set credentials in Admin → Integrations");
+                    None
+                }
+            },
         };
 
-    let state = lib::AppState::new(pool, cfg.clone(), discord_relay.clone());
+    let state = lib::AppState::new(pool, cfg.clone(), initial_discord_cfg);
 
-    // Spawn the Discord gateway bot if a token and channel ID are configured.
-    if let (Some(token), Some(channel_id)) =
-        (cfg.discord_bot_token.clone(), cfg.discord_channel_id)
-    {
-        lib::discord::spawn(
-            token,
-            channel_id,
-            cfg.clone(),
-            state.pool.clone(),
-            state.chat_tx.clone(),
-        );
-    }
+    // Spawn Discord gateway manager (hot-reload supported via watch channel).
+    lib::discord::spawn_manager(
+        state.discord_config_tx.subscribe(),
+        cfg.clone(),
+        state.pool.clone(),
+        state.chat_tx.clone(),
+    );
+
+    // Clone the relay handle for the chat_watcher (outbound MC → Discord).
+    let discord_relay_for_watcher = state.discord.clone();
 
     // Spawn the background task that tails latest.log and feeds the chat channel.
     lib::minecraft::chat_watcher::spawn(
         cfg.clone(),
         state.pool.clone(),
         state.chat_tx.clone(),
-        discord_relay,
+        discord_relay_for_watcher,
     );
 
     let app = lib::build_router(state);

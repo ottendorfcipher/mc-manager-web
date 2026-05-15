@@ -1,4 +1,5 @@
 pub mod audit;
+pub mod settings;
 pub mod backups;
 pub mod chat;
 pub mod kill_switch;

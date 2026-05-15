@@ -192,8 +192,8 @@ pub async fn send(
 
             // Relay to Discord (fire-and-forget — Discord failures never
             // affect the response already on its way to the web client).
-            if let Some(relay) = &state.discord {
-                let relay      = relay.clone();
+            let relay_opt = state.discord.read().await.clone();
+            if let Some(relay) = relay_opt {
                 let dname      = display_as.clone();
                 let dcontent   = content.clone();
                 let pool_clone = state.pool.clone();

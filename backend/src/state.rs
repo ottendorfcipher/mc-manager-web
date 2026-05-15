@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::db::chat::ChatMessage;
-use crate::discord::DiscordRelay;
+use crate::discord::{DiscordRelay, DiscordRuntimeConfig};
 use sqlx::SqlitePool;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch, RwLock};
 
 /// Capacity of the in-memory chat broadcast channel.
 /// Receivers that fall too far behind will get a lag error and should
@@ -18,20 +18,27 @@ pub struct AppState {
     pub config:  Config,
     pub http:    reqwest::Client,
     /// Fanout channel for real-time chat events.
-    /// Handlers subscribe to this for the SSE stream; the watcher and
-    /// send handler publish to it.
     pub chat_tx: broadcast::Sender<Arc<ChatMessage>>,
-    /// Optional Discord relay handle.  `None` when Discord env vars are not set.
-    pub discord: Option<Arc<DiscordRelay>>,
+    /// Swappable Discord webhook relay.
+    /// `None` until credentials are configured; replaced in-place when the
+    /// admin saves new credentials — no service restart needed.
+    pub discord: Arc<RwLock<Option<DiscordRelay>>>,
+    /// Drives the gateway manager lifecycle.
+    /// Send `Some(config)` to start/restart the bot; `None` to idle.
+    pub discord_config_tx: Arc<watch::Sender<Option<DiscordRuntimeConfig>>>,
 }
 
 impl AppState {
     pub fn new(
-        pool:    SqlitePool,
-        config:  Config,
-        discord: Option<Arc<DiscordRelay>>,
+        pool:             SqlitePool,
+        config:           Config,
+        initial_discord:  Option<DiscordRuntimeConfig>,
     ) -> Self {
         let (chat_tx, _) = broadcast::channel(CHAT_CHANNEL_CAPACITY);
+        let relay = initial_discord.as_ref().map(|cfg| DiscordRelay::new(
+            cfg.webhook_url.clone(), cfg.channel_id,
+        ));
+        let (discord_config_tx, _) = watch::channel(initial_discord);
         Self {
             pool,
             config,
@@ -40,7 +47,8 @@ impl AppState {
                 .build()
                 .expect("reqwest client build failed"),
             chat_tx,
-            discord,
+            discord: Arc::new(RwLock::new(relay)),
+            discord_config_tx: Arc::new(discord_config_tx),
         }
     }
 }
