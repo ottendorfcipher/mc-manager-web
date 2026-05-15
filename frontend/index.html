@@ -5,6 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>redstoneCipher</title>
+    <!-- Pre-establish connection to the jsDelivr CDN used for Minecraft item textures.
+         This eliminates the DNS + TCP + TLS setup cost on the first image request. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
   </head>
   <body>
     <div id="root"></div>
