@@ -1,4 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
+import fs from "fs";
+import path from "path";
+
+// Detect whether Vite will use HTTPS (mirrors vite.config.ts logic).
+// We use path.resolve() instead of import.meta.url because Playwright's
+// esbuild-based config loader can produce unexpected values for import.meta.url,
+// causing __dirname to point to the wrong location.
+// path.resolve() uses the Node.js process cwd, which Playwright sets to the
+// directory containing playwright.config.ts when discovered automatically.
+const certPath = path.resolve("certs/example.com.pem");
+const BASE_URL = fs.existsSync(certPath) ? "https://localhost:5173" : "http://localhost:5173";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -8,7 +19,7 @@ export default defineConfig({
   reporter: [["html", { open: "never" }], ["line"]],
 
   use: {
-    baseURL:          "https://localhost:5173",
+    baseURL:          BASE_URL,
     ignoreHTTPSErrors: true,   // local mkcert cert is self-signed
     trace:            "on-first-retry",
     screenshot:       "only-on-failure",
@@ -21,10 +32,12 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
-    url:     "https://localhost:5173",
+    command:             "npm run dev",
+    url:                 BASE_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-    ignoreHTTPSErrors: true,
+    timeout:             120_000,  // Vite pre-bundling can be slow on first run
+    ignoreHTTPSErrors:   true,
+    stdout:              "pipe",
+    stderr:              "pipe",
   },
 });

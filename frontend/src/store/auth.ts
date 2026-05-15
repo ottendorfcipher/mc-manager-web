@@ -17,7 +17,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPerm:    (key)     => (get().user?.permission_keys ?? []).includes(key),
 }));
 
-// ── Theme store ───────────────────────────────────────────────────────────────
+// ── Navigation preferences store ─────────────────────────────────────────
+// Persists navigation display prefs in localStorage so they survive page reloads.
+// Separate from auth so Layout can subscribe without pulling in the full auth state.
+
+const NAV_PREFS_KEY = "rsc_nav_prefs";
+
+function readNavPref(key: string, defaultVal: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(NAV_PREFS_KEY);
+    if (!raw) return defaultVal;
+    return JSON.parse(raw)[key] ?? defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+function writeNavPref(key: string, value: boolean) {
+  try {
+    const raw = localStorage.getItem(NAV_PREFS_KEY);
+    const prefs = raw ? JSON.parse(raw) : {};
+    localStorage.setItem(NAV_PREFS_KEY, JSON.stringify({ ...prefs, [key]: value }));
+  } catch { /* ignore */ }
+}
+
+interface NavPrefsState {
+  /** Show the Configure → server.properties editor in the sidebar. Off by default. */
+  showConfigureNav: boolean;
+  setShowConfigureNav: (v: boolean) => void;
+}
+
+export const useNavPrefsStore = create<NavPrefsState>((set) => ({
+  showConfigureNav: readNavPref("showConfigureNav", false),
+  setShowConfigureNav: (v) => {
+    writeNavPref("showConfigureNav", v);
+    set({ showConfigureNav: v });
+  },
+}));
+
+// ── Theme store ───────────────────────────────────────────────
 
 type Theme = "light" | "dark" | "system";
 
