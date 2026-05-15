@@ -81,14 +81,20 @@ pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
         .replace('\'', r"'\''")
         .replace('\n', " ") // newlines would inject extra commands
         .replace('\r', ""); // strip CR
+    // `timeout 5` guards against a FIFO with no active reader — opening a named
+    // pipe for writing blocks indefinitely until a reader appears.  The existence
+    // check `[ -p "$FIFO" ]` only verifies the inode type, not that Minecraft's
+    // console loop is actually consuming the pipe.
     let script = format!(
         "FIFO=/opt/minecraft/console.fifo; \
          if [ -p \"$FIFO\" ]; then \
-           echo '{safe_cmd}' | tee -a \"$FIFO\" > /dev/null && echo APPLIED; \
+           if echo '{safe_cmd}' | timeout 5 tee -a \"$FIFO\" > /dev/null; \
+             then echo APPLIED; \
+           else echo NOFIFO; fi; \
          elif systemctl is-active minecraft > /dev/null 2>&1; then echo NOFIFO; \
          else echo OFFLINE; fi"
     );
-    let (out, _) = run_with_timeout(cfg, &script, Duration::from_secs(15)).await?;
+    let (out, _) = run_with_timeout(cfg, &script, Duration::from_secs(10)).await?;
     Ok(out.contains("APPLIED"))
 }
 
