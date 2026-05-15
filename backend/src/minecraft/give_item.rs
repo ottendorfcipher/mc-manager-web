@@ -72,7 +72,10 @@ async fn give_offline(cfg: &Config, uuid: &str, item_id: &str, count: u32) -> Re
         count = count,
     );
 
-    let (stdout, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(15))
+    // The NBT script needs to read, modify, and write the player data file.
+    // SSH ConnectTimeout=10 handles unreachable servers; 45 s total gives the
+    // Python script ample time to complete even on a loaded server.
+    let (stdout, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(45))
         .await
         .map_err(|e| AppError::ExternalCommand(format!("give-item.py: {e}")))?;
 
