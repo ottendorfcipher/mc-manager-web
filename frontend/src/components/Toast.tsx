@@ -10,9 +10,20 @@
  * Render <ToastContainer /> once in App.tsx (already done).
  */
 
+import React from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
 import { CheckCircle2, XCircle, Info, X } from "lucide-react";
 import { create } from "zustand";
+
+// Radix UI 1.x types are not fully compatible with TypeScript 6's stricter JSX
+// inference (children and className not declared).  Cast to React.ElementType
+// to recover the original JSX behaviour without touching the library.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const ToastRoot  = ToastPrimitive.Root        as React.ElementType<any>;
+const ToastDesc  = ToastPrimitive.Description as React.ElementType<any>;
+const ToastClose = ToastPrimitive.Close       as React.ElementType<any>;
+const ToastVP    = ToastPrimitive.Viewport    as React.ElementType<any>;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
@@ -68,31 +79,31 @@ export function ToastContainer() {
       {items.map((item) => {
         const Icon = ICONS[item.type];
         return (
-          <ToastPrimitive.Root
+          <ToastRoot
             key={item.id}
             open
-            onOpenChange={(open) => { if (!open) remove(item.id); }}
+            onOpenChange={(open: boolean) => { if (!open) remove(item.id); }}
             duration={4000}
             className="toast-root"
             data-type={item.type}
             // aria-live is provided by Radix's ToastProvider region
           >
             <Icon className="w-4 h-4 flex-shrink-0" aria-hidden />
-            <ToastPrimitive.Description className="flex-1 text-sm">
+            <ToastDesc className="flex-1 text-sm">
               {item.message}
-            </ToastPrimitive.Description>
-            <ToastPrimitive.Close
+            </ToastDesc>
+            <ToastClose
               aria-label="Dismiss notification"
               className="opacity-60 hover:opacity-100 transition-opacity ml-1 flex-shrink-0"
             >
               <X className="w-3.5 h-3.5" aria-hidden />
-            </ToastPrimitive.Close>
-          </ToastPrimitive.Root>
+            </ToastClose>
+          </ToastRoot>
         );
       })}
 
       {/* Radix viewport — renders as an aria-live region automatically */}
-      <ToastPrimitive.Viewport className="toast-viewport" />
+      <ToastVP className="toast-viewport" />
     </ToastPrimitive.Provider>
   );
 }

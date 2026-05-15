@@ -15,6 +15,9 @@ pub mod middleware;
 pub mod minecraft;
 pub mod state;
 
+// Re-export for integration tests and main.rs
+pub use db::settings;
+
 pub use config::Config;
 pub use state::AppState;
 
@@ -209,6 +212,11 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/users/:email/tailscale-invite",
             post(handlers::onboarding::tailscale_invite_existing),
+        )
+        // Discord integration settings (global_admin only)
+        .route(
+            "/admin/discord-settings",
+            get(handlers::discord_settings::get).put(handlers::discord_settings::put),
         );
 
     let api = api.layer(axum::middleware::from_fn_with_state(

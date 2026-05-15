@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod backups;
+pub mod discord_settings;
 pub mod bluemap_settings;
 pub mod budget;
 pub mod chat;

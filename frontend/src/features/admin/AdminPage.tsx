@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavPrefsStore } from "@/store/auth";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
-import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings, TailscaleInviteResult } from "@/types";
+import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings, TailscaleInviteResult, DiscordSettings } from "@/types";
 import { WorldsTab }    from "./WorldsTab";
 import { InvitePortal } from "./InvitePortal";
 import { ROLE_LEVELS }  from "@/types";
 import { toast } from "@/components/Toast";
 
-type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds";
+type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds" | "integrations";
 
 // ── AdminPage ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,7 @@ export function AdminPage() {
   const canManageWl      = hasPerm("server.whitelist.manage");
   const canSeePending    = hasPerm("players.pending.view") || hasPerm("players.pending.manage");
   const canSeeWorlds     = hasPerm("worlds.view");
+  const canConfigDiscord = hasPerm("discord.configure");
   const isGlobalAdmin    = user?.role === "global_admin";
 
   const tabs = [
@@ -38,8 +39,9 @@ export function AdminPage() {
     { id: "pending"     as Tab, label: "Pending Players",    Icon: UserPlus,    show: canSeePending },
     { id: "whitelist"   as Tab, label: "MC Whitelist",       Icon: ListChecks,  show: canManageWl },
     { id: "worlds"      as Tab, label: "Worlds",             Icon: Globe,       show: canSeeWorlds },
-    { id: "map"         as Tab, label: "Map",                Icon: MapIcon,     show: isGlobalAdmin },
-    { id: "permissions" as Tab, label: "Permissions",        Icon: ShieldCheck, show: canEditPerms },
+    { id: "map"          as Tab, label: "Map",          Icon: MapIcon,     show: isGlobalAdmin },
+    { id: "integrations" as Tab, label: "Integrations",  Icon: Plug,        show: canConfigDiscord },
+    { id: "permissions"  as Tab, label: "Permissions",   Icon: ShieldCheck, show: canEditPerms },
   ].filter((t) => t.show);
 
   return (
@@ -121,8 +123,9 @@ export function AdminPage() {
         )}
         <WorldsTab />
       </div>
-      <div role="tabpanel" id="tabpanel-map"         aria-labelledby="tab-map"         hidden={tab !== "map"}><MapSettingsTab /></div>
-      <div role="tabpanel" id="tabpanel-permissions" aria-labelledby="tab-permissions" hidden={tab !== "permissions"}><PermissionsPage /></div>
+      <div role="tabpanel" id="tabpanel-map"          aria-labelledby="tab-map"          hidden={tab !== "map"}><MapSettingsTab /></div>
+      <div role="tabpanel" id="tabpanel-integrations" aria-labelledby="tab-integrations" hidden={tab !== "integrations"}><IntegrationsTab /></div>
+      <div role="tabpanel" id="tabpanel-permissions"  aria-labelledby="tab-permissions"  hidden={tab !== "permissions"}><PermissionsPage /></div>
     </div>
   );
 }
@@ -221,7 +224,118 @@ function MapSettingsTab() {
   );
 }
 
-// ── Users tab ───────────────────────────────────────────────────────────────────
+// ── Integrations tab ─────────────────────────────────────────────────────────
+
+function IntegrationsTab() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Integrations</h2>
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB] mt-0.5">
+          Connect external services. Credentials are encrypted at rest and
+          never returned by any API endpoint.
+        </p>
+      </div>
+      <DiscordSettingsPanel />
+    </div>
+  );
+}
+
+function DiscordSettingsPanel() {
+  const qc = useQueryClient();
+
+  const { data: status, isLoading } = useQuery<DiscordSettings>({
+    queryKey: ["discord-settings"],
+    queryFn:  () => api.get("/admin/discord-settings"),
+  });
+
+  const [token,   setToken]   = useState("");
+  const [webhook, setWebhook] = useState("");
+  const [channel, setChannel] = useState("");
+
+  useEffect(() => {
+    if (status?.channel_id && !channel) setChannel(status.channel_id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.channel_id]);
+
+  const saveMut = useMutation({
+    mutationFn: () => api.put("/admin/discord-settings", {
+      ...(token.trim()   && { bot_token:   token.trim() }),
+      ...(webhook.trim() && { webhook_url: webhook.trim() }),
+      ...(channel.trim() && { channel_id:  channel.trim() }),
+    }),
+    onSuccess: () => {
+      setToken(""); setWebhook("");
+      qc.invalidateQueries({ queryKey: ["discord-settings"] });
+      toast.success("Discord settings saved — bridge updating…");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const hasChanges = token.trim() || webhook.trim() || channel.trim() !== (status?.channel_id ?? "");
+
+  return (
+    <div className="card space-y-5">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#5865F2]/10 flex-shrink-0">
+          <span className="text-[#5865F2] text-sm font-bold">D</span>
+        </div>
+        <div>
+          <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">Discord Bridge</p>
+          <p className="text-xs text-meta mt-0.5">
+            Connects the Discord channel to in-game and web chat.
+            Credentials stored AES-256-GCM encrypted — never returned by the API.
+          </p>
+        </div>
+      </div>
+
+      {/* Status chips */}
+      {!isLoading && status && (
+        <div className="flex flex-wrap gap-2">
+          <StatusChipSmall ok={status.bot_token_set}   label="Bot token" />
+          <StatusChipSmall ok={status.webhook_url_set} label="Webhook URL" />
+          <StatusChipSmall ok={!!status.channel_id}    label="Channel ID" />
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide mb-1">Bot Token</label>
+          <input type="password" autoComplete="new-password" value={token} onChange={(e) => setToken(e.target.value)}
+            placeholder={status?.bot_token_set ? "configured — type to replace" : "Bot.Token.Here"}
+            className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6] focus:outline-none focus:ring-2 focus:ring-[#5865F2]" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide mb-1">Webhook URL</label>
+          <input type="password" autoComplete="new-password" value={webhook} onChange={(e) => setWebhook(e.target.value)}
+            placeholder={status?.webhook_url_set ? "configured — type to replace" : "https://discord.com/api/webhooks/…"}
+            className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6] focus:outline-none focus:ring-2 focus:ring-[#5865F2]" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[#6B6E78] dark:text-[#A8AEBB] uppercase tracking-wide mb-1">Channel ID</label>
+          <input type="text" inputMode="numeric" value={channel}
+            onChange={(e) => setChannel(e.target.value.replace(/\D/g, ""))}
+            placeholder="1234567890123456789"
+            className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm font-mono text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6] focus:outline-none focus:ring-2 focus:ring-[#5865F2]" />
+          <p className="text-[10px] text-meta mt-1">Right-click the Discord channel → Copy Channel ID (requires Developer Mode).</p>
+        </div>
+      </div>
+
+      <button onClick={() => saveMut.mutate()} disabled={!hasChanges || saveMut.isPending}
+        className="btn-primary w-full flex items-center justify-center gap-2 text-sm disabled:opacity-40">
+        {saveMut.isPending
+          ? <><Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Saving…</>
+          : <><CheckCircle2 className="w-3.5 h-3.5" aria-hidden /> Save Discord Settings</>}
+      </button>
+
+      <p className="text-[10px] text-meta text-center">
+        All three values must be set for the bridge to activate. Changes apply immediately.
+      </p>
+    </div>
+  );
+}
+
+// ── Users tab ─────────────────────────────────────────────────────────────────
 
 function UsersTab() {
   const { user: me, hasPerm } = useAuthStore();

@@ -25,12 +25,25 @@ use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::model::gateway::{GatewayIntents, Ready};
 use serenity::prelude::*;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::config::Config;
 use crate::db::chat::{self, ChatMessage};
 use crate::gcloud::ssh;
+
+// ── Runtime configuration (shared between relay + gateway) ────────────────────
+
+/// All three Discord credentials resolved at runtime (from DB or env vars).
+/// Stored in a `watch` channel so both the relay and the gateway manager
+/// can react immediately when an admin saves new credentials in the UI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiscordRuntimeConfig {
+    pub bot_token:   String,
+    pub webhook_url: String,
+    pub channel_id:  u64,
+}
 
 // ── Outbound: webhook relay ───────────────────────────────────────────────────
 
@@ -129,37 +142,87 @@ impl EventHandler for DiscordHandler {
     }
 }
 
-// ── Gateway spawn ─────────────────────────────────────────────────────────────
+// ── Gateway manager (hot-reload) ─────────────────────────────────────────────
 
-/// Spawn the Serenity Discord gateway bot as a detached Tokio task.
+/// Spawn a long-running gateway manager task that watches `config_rx` and
+/// restarts the Serenity client whenever the credentials change.
 ///
-/// Serenity handles reconnection automatically.  Call this once from `main()`
-/// alongside `chat_watcher::spawn()`.
+/// - `None` on the channel → idle (no bot token configured yet)
+/// - `Some(cfg)` → build + start a Serenity client; cancel it when the
+///   config changes, then loop with the new credentials.
 ///
-/// Requires the **Message Content** privileged intent to be enabled in the
-/// Discord developer portal (Bot → Privileged Gateway Intents).
-pub fn spawn(
-    token:      String,
-    channel_id: u64,
-    config:     Config,
-    pool:       sqlx::SqlitePool,
-    chat_tx:    broadcast::Sender<Arc<ChatMessage>>,
+/// Call this once from `main()` alongside `chat_watcher::spawn()`.
+pub fn spawn_manager(
+    mut config_rx: watch::Receiver<Option<DiscordRuntimeConfig>>,
+    config:        Config,
+    pool:          sqlx::SqlitePool,
+    chat_tx:       broadcast::Sender<Arc<ChatMessage>>,
 ) {
     tokio::spawn(async move {
-        let handler = DiscordHandler { channel_id, pool, chat_tx, config };
+        loop {
+            let current = config_rx.borrow_and_update().clone();
 
-        let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+            match current {
+                None => {
+                    // No credentials configured yet — wait for them.
+                    if config_rx.changed().await.is_err() { break; }
+                }
+                Some(cfg) => {
+                    let cancel = CancellationToken::new();
+                    let cancel_clone = cancel.clone();
 
-        let mut client = match Client::builder(&token, intents)
-            .event_handler(handler)
-            .await
-        {
-            Ok(c)  => c,
-            Err(e) => { warn!("Discord bot init failed: {e}"); return; }
-        };
+                    // Spawn the Serenity client in its own task so we can
+                    // select! between it finishing and a config change.
+                    let pool_clone    = pool.clone();
+                    let chat_clone    = chat_tx.clone();
+                    let config_clone  = config.clone();
+                    let token_str     = cfg.bot_token.clone();
+                    let channel_id    = cfg.channel_id;
 
-        if let Err(e) = client.start().await {
-            warn!("Discord bot disconnected: {e}");
+                    let handle = tokio::spawn(async move {
+                        let handler = DiscordHandler {
+                            channel_id,
+                            pool: pool_clone,
+                            chat_tx: chat_clone,
+                            config: config_clone,
+                        };
+                        let intents = GatewayIntents::GUILD_MESSAGES
+                            | GatewayIntents::MESSAGE_CONTENT;
+
+                        let mut client = match Client::builder(&token_str, intents)
+                            .event_handler(handler)
+                            .await
+                        {
+                            Ok(c)  => c,
+                            Err(e) => { warn!("Discord bot init failed: {e}"); return; }
+                        };
+
+                        tokio::select! {
+                            result = client.start() => {
+                                if let Err(e) = result {
+                                    warn!("Discord gateway exited: {e}");
+                                }
+                            }
+                            _ = cancel_clone.cancelled() => {
+                                info!("Discord gateway stopping (credentials updated)");
+                                client.shard_manager.shutdown_all().await;
+                            }
+                        }
+                    });
+
+                    // Wait for either a config change or the client task to end.
+                    tokio::select! {
+                        _ = handle => {
+                            // Client exited on its own — small backoff then retry.
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                        }
+                        _ = config_rx.changed() => {
+                            // Cancel the running client and loop with new config.
+                            cancel.cancel();
+                        }
+                    }
+                }
+            }
         }
     });
 }

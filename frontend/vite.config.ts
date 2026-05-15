@@ -18,7 +18,15 @@ const httpsOpts =
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // Vite 8 / Rolldown cannot resolve transitive @radix-ui/* deps from
+      // inside sibling @radix-ui packages during the production build.
+      // Explicit aliases point Rolldown directly at the dist files.
+      "@radix-ui/react-compose-refs": path.resolve(
+        __dirname, "node_modules/@radix-ui/react-compose-refs/dist/index.mjs",
+      ),
+    },
   },
   server: {
     // Dual-stack: `::` with V6ONLY off accepts both IPv4 and IPv6 so
@@ -39,5 +47,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+  },
+  // Vite 8's Rolldown bundler has a known issue resolving transitive
+  // @radix-ui/* peer deps from within sibling @radix-ui packages.
+  // Explicit inclusion forces Vite to pre-bundle these up-front.
+  optimizeDeps: {
+    include: [
+      "@radix-ui/react-compose-refs",
+      "@radix-ui/react-primitive",
+      "@radix-ui/react-context",
+      "@radix-ui/react-presence",
+    ],
   },
 });

@@ -216,6 +216,15 @@ export interface InviteResult {
   warnings:             string[];
 }
 
+export interface DiscordSettings {
+  /** `true` if a bot token is stored; the raw token is never returned. */
+  bot_token_set:   boolean;
+  /** `true` if a webhook URL is stored; the raw URL is never returned. */
+  webhook_url_set: boolean;
+  /** The Discord channel ID (not secret — shown for verification). */
+  channel_id:      string | null;
+}
+
 export interface TailscaleInviteResult {
   user:                 User;
   tailscale_invite_url: string | null;
