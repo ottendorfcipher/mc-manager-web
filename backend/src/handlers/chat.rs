@@ -173,9 +173,10 @@ pub async fn send(
             let tellraw = build_tellraw(&display_as, &linked_ign, &content);
             let cmd = format!("tellraw @a {tellraw}");
 
-            if ssh::fifo_command(&state.config, &cmd).await.is_err() {
-                // Server is offline — still save to history so web users see it.
-                warn!("chat send: FIFO unavailable, saving to history only");
+            match ssh::fifo_command(&state.config, &cmd).await {
+                Ok(true)  => {}
+                Ok(false) => warn!("chat send: FIFO unavailable — tellraw not delivered (server offline or no pipe reader)"),
+                Err(e)    => warn!("chat send: SSH failed: {e}"),
             }
 
             // Persist and broadcast to SSE subscribers.

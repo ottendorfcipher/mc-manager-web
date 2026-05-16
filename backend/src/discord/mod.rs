@@ -131,9 +131,10 @@ impl EventHandler for DiscordHandler {
         //    so this cannot trigger a secondary relay back to Discord.
         let tellraw = build_discord_tellraw(&username, &content);
         let cmd = format!("tellraw @a {tellraw}");
-        if let Err(e) = ssh::fifo_command(&self.config, &cmd).await {
-            // Server being offline is expected and not an error.
-            warn!("Discord inbound: FIFO relay failed (server offline?): {e}");
+        match ssh::fifo_command(&self.config, &cmd).await {
+            Ok(true)  => {}
+            Ok(false) => warn!("Discord inbound: FIFO unavailable — tellraw not delivered (server offline or no pipe reader)"),
+            Err(e)    => warn!("Discord inbound: FIFO relay failed: {e}"),
         }
     }
 
