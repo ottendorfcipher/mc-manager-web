@@ -1,3 +1,0 @@
-functions-framework==3.*
-requests==2.32.*
-google-auth==2.36.*

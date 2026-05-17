@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 # scripts/test-live-endpoints.sh
 #
-# Comprehensive live endpoint tests for redstonecipher.com + Cloud Run.
+# Comprehensive live endpoint tests for redstonecipher.com.
 # Runs without an authenticated session, validating:
 #   - Security headers
 #   - Auth flow error handling
 #   - API authentication gates (all endpoints return 401 unauthenticated)
-#   - Budget webhook token guard
-#   - Firebase → Cloud Run routing alignment
 #   - HSTS + TLS
 #
-# Usage: bash scripts/test-live-endpoints.sh [FIREBASE_URL] [CLOUDRUN_URL]
-# Defaults to the production URLs.
+# Usage: bash scripts/test-live-endpoints.sh [FIREBASE_URL]
+# Defaults to the production URL.
 
 set -uo pipefail
 
 FIREBASE="${1:-https://redstonecipher.com}"
-CLOUDRUN="${2:-https://redstonecipher-web-6btafet22q-uc.a.run.app}"
 
 PASS=0
 FAIL=0
@@ -92,7 +89,6 @@ assert_redirect() {
 echo ""
 echo "redstoneCipher Live Endpoint Test Suite"
 echo "Firebase: $FIREBASE"
-echo "CloudRun: $CLOUDRUN"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 section "1. TLS / HSTS"
@@ -122,8 +118,8 @@ assert_status "GET /dashboard  → 200 (SPA route)" "$FIREBASE/dashboard" GET 20
 assert_status "GET /favicon.svg → 200"             "$FIREBASE/favicon.svg" GET 200
 
 # ═══════════════════════════════════════════════════════════════════════════════
-section "4. Auth flow — Firebase rewrite to Cloud Run"
-# /auth/login should proxy to Cloud Run and redirect to Google
+section "4. Auth flow"
+# /auth/login proxies through Firebase to the backend and redirects to Google OAuth
 GOOGLE_LOC=$(curl -sI "$FIREBASE/auth/login" | grep -i "^location:" | head -1 | sed 's/^[Ll]ocation: //' | tr -d '\r')
 STATUS_LOGIN=$(curl -sI "$FIREBASE/auth/login" | head -1 | awk '{print $2}')
 if [[ "$STATUS_LOGIN" == "303" ]] && echo "$GOOGLE_LOC" | grep -q "accounts.google.com"; then
@@ -132,7 +128,7 @@ else
   fail "GET /auth/login → expected 303 to accounts.google.com, got HTTP $STATUS_LOGIN loc=$GOOGLE_LOC"
 fi
 
-# /auth/login redirect_uri must point to redstonecipher.com (not .run.app)
+# /auth/login redirect_uri must point to redstonecipher.com
 if echo "$GOOGLE_LOC" | grep -q "redirect_uri=https%3A%2F%2Fredstonecipher.com%2Fauth%2Fcallback"; then
   ok "redirect_uri = https://redstonecipher.com/auth/callback ✓"
 else
@@ -158,8 +154,8 @@ assert_redirect "GET /auth/callback?error=access_denied → oauth_denied" \
 assert_redirect "GET /auth/callback?state=garbage_not_jwt → state_mismatch" \
   "$FIREBASE/auth/callback?code=anything&state=garbage_not_a_jwt" "state_mismatch"
 
-# Logout: DELETE /auth/logout → 204
-assert_status "DELETE /auth/logout → 204" "$FIREBASE/auth/logout" DELETE 204
+# Logout: GET /auth/logout → 303 redirect to /login
+assert_status "GET /auth/logout → 303" "$FIREBASE/auth/logout" GET 303
 
 # ═══════════════════════════════════════════════════════════════════════════════
 section "5. API authentication gates (all must return 401 unauthenticated)"
@@ -172,6 +168,8 @@ API_ENDPOINTS=(
   "GET /api/permissions"
   "GET /api/mc/players"
   "GET /api/metrics"
+  "GET /api/chat/history"
+  "GET /api/chat/stream"
 )
 
 for entry in "${API_ENDPOINTS[@]}"; do
@@ -193,42 +191,14 @@ POST_ENDPOINTS=(
   "/api/server/service/restart"
   "/api/kill-switch"
   "/api/console"
+  "/api/chat/send"
 )
 for EP_PATH in "${POST_ENDPOINTS[@]}"; do
   assert_status_with_body "POST $EP_PATH" "$FIREBASE$EP_PATH" POST 401 '{}'
 done
 
 # ═══════════════════════════════════════════════════════════════════════════════
-section "6. Budget webhook guards"
-# Wrong token → 401
-got=$(curl -s -X POST \
-  "$CLOUDRUN/internal/budget-alert?token=wrong" \
-  -H "Content-Type: application/json" \
-  -d '{"message":{"data":null,"attributes":{}},"subscription":"s"}')
-if echo "$got" | grep -q "invalid token"; then
-  ok "POST /internal/budget-alert wrong token → rejected ✓"
-else
-  fail "POST /internal/budget-alert wrong token → unexpected response: $got"
-fi
-
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════════════════
-section "8. Cloud Run direct URL (bypass Firebase)"
-# All API routes on .run.app should also return 401 unauthenticated
-for path in /api/me /api/kill-switch /api/backups; do
-  got=$(curl -sI "$CLOUDRUN$path" | head -1 | awk '{print $2}')
-  if [[ "$got" == "401" ]]; then
-    ok "Direct .run.app $path → 401 ✓"
-  else
-    fail "Direct .run.app $path → expected 401, got $got"
-  fi
-done
-
-# ═══════════════════════════════════════════════════════════════════════════════
-section "9. SPA routing (all unknown paths → 200 index.html)"
+section "6. SPA routing (all unknown paths → 200 index.html)"
 for path in /nonexistent /admin /settings/deep/path; do
   got=$(curl -sI "$FIREBASE$path" | head -1 | awk '{print $2}')
   ctype=$(curl -sI "$FIREBASE$path" | grep -i "^content-type:" | head -1 | sed 's/^[^:]*: //' | tr -d '\r')
