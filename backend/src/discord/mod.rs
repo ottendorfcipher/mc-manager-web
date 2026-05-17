@@ -109,6 +109,16 @@ struct DiscordHandler {
 #[async_trait]
 impl EventHandler for DiscordHandler {
     async fn message(&self, _ctx: Context, msg: Message) {
+        // Log every event before filtering so we can diagnose channel/intent issues.
+        tracing::info!(
+            channel = msg.channel_id.get(),
+            expected = self.channel_id,
+            author = %msg.author.name,
+            bot = msg.author.bot,
+            content_len = msg.content.len(),
+            "Discord message event received",
+        );
+
         // Ignore bot messages (loop prevention) and wrong channel.
         if msg.author.bot || msg.channel_id.get() != self.channel_id {
             return;
@@ -139,7 +149,15 @@ impl EventHandler for DiscordHandler {
     }
 
     async fn ready(&self, _ctx: Context, ready: Ready) {
-        info!("Discord bot connected as \"{}\"", ready.user.name);
+        info!(
+            name = %ready.user.name,
+            guilds = ready.guilds.len(),
+            watching_channel = self.channel_id,
+            "Discord bot connected",
+        );
+        if ready.guilds.is_empty() {
+            warn!("Discord bot is not in any guild — add the bot to your server first");
+        }
     }
 }
 
