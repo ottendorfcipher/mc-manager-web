@@ -25,6 +25,43 @@ use std::path::PathBuf;
 const TEST_JWT_SECRET: &str = "test_secret_for_integration_tests_only_64chars_00000000000000000";
 const ADMIN_EMAIL: &str = "admin@example.com"; // seeded global_admin
 
+/// Returns a fully-populated `Config` suitable for integration tests.
+/// All optional credentials are `None`; the test can override specific fields
+/// by constructing a `Config { ..test_cfg() }` clone if needed.
+fn test_cfg() -> Config {
+    Config {
+        host: "127.0.0.1".into(),
+        port: 8787,
+        database_url: "sqlite::memory:".into(),
+        jwt_secret: TEST_JWT_SECRET.into(),
+        google_client_id: "test".into(),
+        google_client_secret: "test".into(),
+        redirect_uri: "https://example.com/auth/callback".into(),
+        budget_webhook_token: Some("test_budget_token".into()),
+        gcloud_bin: PathBuf::from("/usr/bin/false"),
+        gcp_project: "test-project".into(),
+        gcp_zone: "us-central1-a".into(),
+        gcp_instance: "test-instance".into(),
+        tailscale_ip: "100.0.0.1".into(),
+        mc_backup_dir: "/tmp/test_backups".into(),
+        mc_server_dir: "/tmp/test_server".into(),
+        mc_scripts_dir: "/tmp/test_scripts".into(),
+        map_tiles_dir: "/tmp/test_tiles".into(),
+        watchdog_token: None,
+        mc_worlds_dir: "/tmp/test_worlds".into(),
+        mc_backups_base_dir: "/tmp/test_backups_base".into(),
+        resend_api_key: None,
+        tailscale_api_key: None,
+        tailscale_tailnet: "test-tailnet".into(),
+        site_url: "https://example.com".into(),
+        // Discord bridge — disabled in tests; no real bot or webhook.
+        discord_bot_token:   None,
+        discord_webhook_url: None,
+        discord_channel_id:  None,
+        settings_enc_key:    redstonecipher_server::settings::derive_key(TEST_JWT_SECRET),
+    }
+}
+
 /// Build an `AppState` backed by a fresh in-memory SQLite database.
 /// Migrations (including permission seeding) are applied automatically.
 async fn test_state() -> AppState {
@@ -39,24 +76,19 @@ async fn test_state() -> AppState {
         .await
         .expect("migrations failed");
 
-    let cfg = Config {
-        host: "127.0.0.1".into(),
-        port: 8787,
-        database_url: "sqlite::memory:".into(),
-        jwt_secret: TEST_JWT_SECRET.into(),
-        google_client_id: "test".into(),
-        google_client_secret: "test".into(),
-        redirect_uri: "https://example.com/auth/callback".into(),
-        budget_webhook_token: Some("test_budget_token".into()),
-        backup_dir: PathBuf::from("/tmp/test_backups"),
-        gcloud_bin: PathBuf::from("/usr/bin/false"), // never actually invoked
-        gcp_project: "test-project".into(),
-        gcp_zone: "us-central1-a".into(),
-        gcp_instance: "test-instance".into(),
-        tailscale_ip: "100.0.0.1".into(),
-    };
+    AppState::new(pool, test_cfg(), None)
+}
 
-    AppState::new(pool, cfg)
+/// Build an `AppState` with a custom config (used when test needs specific
+/// env-var overrides, e.g. a real watchdog token).
+async fn test_state_with_cfg(cfg: Config) -> AppState {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory SQLite failed");
+    sqlx::migrate!("./migrations").run(&pool).await.expect("migrations failed");
+    AppState::new(pool, cfg, None)
 }
 
 /// Build a `TestServer` from a fresh in-memory state.
@@ -151,7 +183,10 @@ async fn kill_switch_engage_and_release() {
         .await;
     assert_eq!(engage_res.status_code(), StatusCode::OK);
     let body: serde_json::Value = engage_res.json();
-    assert!(body["disabled_at"].is_string(), "disabled_at should be set after engage");
+    assert!(
+        body["disabled_at"].is_string(),
+        "disabled_at should be set after engage"
+    );
     assert_eq!(body["reason"], "integration test");
 
     // Release
@@ -161,7 +196,10 @@ async fn kill_switch_engage_and_release() {
         .await;
     assert_eq!(release_res.status_code(), StatusCode::OK);
     let body: serde_json::Value = release_res.json();
-    assert!(body["disabled_at"].is_null(), "disabled_at should be null after release");
+    assert!(
+        body["disabled_at"].is_null(),
+        "disabled_at should be null after release"
+    );
 }
 
 // ── Kill-switch guard middleware tests ────────────────────────────────────────
@@ -171,13 +209,9 @@ async fn kill_switch_guard_blocks_mutations_when_engaged() {
     let (srv, state) = server().await;
 
     // Engage the kill-switch directly via the DB layer
-    redstonecipher_server::db::kill_switch::engage(
-        &state.pool,
-        "test guard",
-        "test",
-    )
-    .await
-    .expect("engage failed");
+    redstonecipher_server::db::kill_switch::engage(&state.pool, "test guard", "test")
+        .await
+        .expect("engage failed");
 
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
 
@@ -496,7 +530,10 @@ async fn budget_webhook_100pct_alert_engages_kill_switch() {
     let ks = redstonecipher_server::db::kill_switch::status(&state.pool)
         .await
         .expect("status query failed");
-    assert!(ks.is_engaged(), "kill-switch should be engaged after 100% budget alert");
+    assert!(
+        ks.is_engaged(),
+        "kill-switch should be engaged after 100% budget alert"
+    );
 }
 
 #[tokio::test]
@@ -523,7 +560,10 @@ async fn budget_webhook_50pct_alert_does_not_engage_kill_switch() {
     let ks = redstonecipher_server::db::kill_switch::status(&state.pool)
         .await
         .expect("status query failed");
-    assert!(!ks.is_engaged(), "50% alert should NOT engage the kill-switch");
+    assert!(
+        !ks.is_engaged(),
+        "50% alert should NOT engage the kill-switch"
+    );
 }
 
 // ── User management tests ─────────────────────────────────────────────────────
@@ -551,7 +591,10 @@ async fn roles_list_requires_roles_view() {
     let (srv, _) = server().await;
     // Visitor has no roles.view — expect 403
     let cookie = session_cookie("anon@example.com", "nonexistent_role");
-    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
 
@@ -559,7 +602,10 @@ async fn roles_list_requires_roles_view() {
 async fn roles_list_returns_system_roles() {
     let (srv, _) = server().await;
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
-    let res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     assert_eq!(res.status_code(), StatusCode::OK);
     let roles: Vec<serde_json::Value> = res.json();
     assert!(roles.iter().any(|r| r["name"] == "global_admin"));
@@ -594,7 +640,10 @@ async fn create_custom_role_succeeds() {
     assert_eq!(role["level"], 2);
 
     // Verify it appears in the list
-    let list_res = srv.get("/api/roles").add_header(header::COOKIE, cookie).await;
+    let list_res = srv
+        .get("/api/roles")
+        .add_header(header::COOKIE, cookie)
+        .await;
     let roles: Vec<serde_json::Value> = list_res.json();
     assert!(roles.iter().any(|r| r["name"] == "developer"));
 }
@@ -611,7 +660,8 @@ async fn create_role_invalid_name_rejected() {
             .json(&serde_json::json!({ "name": bad_name, "label": "X", "level": 1 }))
             .await;
         assert_eq!(
-            res.status_code(), StatusCode::BAD_REQUEST,
+            res.status_code(),
+            StatusCode::BAD_REQUEST,
             "name '{bad_name}' should be rejected"
         );
     }
@@ -639,7 +689,11 @@ async fn create_role_level_gate_prevents_escalation() {
         .add_header(header::COOKIE, cookie)
         .json(&serde_json::json!({ "name": "superrole", "label": "Super", "level": 4 }))
         .await;
-    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "cannot create role at own level");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "cannot create role at own level"
+    );
 }
 
 #[tokio::test]
@@ -650,7 +704,11 @@ async fn delete_system_role_rejected() {
         .delete("/api/roles/admin")
         .add_header(header::COOKIE, cookie)
         .await;
-    assert_eq!(res.status_code(), StatusCode::FORBIDDEN, "system roles cannot be deleted");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "system roles cannot be deleted"
+    );
 }
 
 #[tokio::test]
@@ -665,17 +723,23 @@ async fn delete_role_with_users_rejected() {
         .await;
 
     // Assign a user to it
-    sqlx::query("INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'myteam', 'U', 'test')")
-        .bind("user_on_myteam@example.com")
-        .execute(&state.pool)
-        .await
-        .expect("insert failed");
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'myteam', 'U', 'test')",
+    )
+    .bind("user_on_myteam@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
 
     let res = srv
         .delete("/api/roles/myteam")
         .add_header(header::COOKIE, cookie)
         .await;
-    assert_eq!(res.status_code(), StatusCode::CONFLICT, "role with users must not be deletable");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::CONFLICT,
+        "role with users must not be deletable"
+    );
 }
 
 #[tokio::test]
@@ -808,6 +872,247 @@ async fn override_invalid_key_rejected() {
     assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
+// ── Chat permission tests ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn chat_history_requires_chat_read() {
+    let (srv, state) = server().await;
+    // visitor has no chat.read
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'visitor', 'V', 'test')"
+    )
+    .bind("chat_visitor@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_visitor@example.com", "visitor");
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn chat_history_allowed_for_member() {
+    let (srv, state) = server().await;
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+    )
+    .bind("chat_member@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_member@example.com", "member");
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    // Member has chat.read — should get 200 with empty array
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let msgs: Vec<serde_json::Value> = res.json();
+    assert!(msgs.is_empty(), "fresh DB should have no chat messages");
+}
+
+#[tokio::test]
+async fn chat_send_requires_chat_send_permission() {
+    let (srv, state) = server().await;
+    // user role has no chat.send
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'user', 'U', 'test')"
+    )
+    .bind("chat_user@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("chat_user@example.com", "user");
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "hello", "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn chat_send_rejects_empty_content() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "   ", "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn chat_send_rejects_oversized_content() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let long = "a".repeat(257);
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": long, "target_ign": null }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn chat_send_broadcast_persists_message() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Send a broadcast (target_ign: null). The SSH FIFO will fail (no real VM)
+    // but the message should still be persisted to the DB.
+    srv.post("/api/chat/send")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "content": "hello world", "target_ign": null }))
+        .await;
+
+    // Confirm it appears in history
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let msgs: Vec<serde_json::Value> = res.json();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["content"], "hello world");
+    assert_eq!(msgs[0]["source"], "web");
+}
+
+#[tokio::test]
+async fn chat_dm_rejected_with_empty_target() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    // target_ign after sanitisation is empty — should be rejected
+    let res = srv
+        .post("/api/chat/send")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "content": "hi", "target_ign": "!@#$" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+// ── Watchdog / player-joined endpoint tests ───────────────────────────────────
+
+#[tokio::test]
+async fn player_joined_rejects_missing_token() {
+    let (srv, _) = server().await;
+    // No Authorization header at all
+    let res = srv
+        .post("/internal/player-joined")
+        .json(&serde_json::json!({ "ign": "TestPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn player_joined_rejects_wrong_token() {
+    let (srv, _) = server().await;
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer wrong_token")
+        .json(&serde_json::json!({ "ign": "TestPlayer" }))
+        .await;
+    // watchdog_token is None in test config, so any token (including wrong ones)
+    // should be rejected — the handler returns 401 when token is empty or mismatch.
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn player_joined_rejects_empty_ign() {
+    // Set up state with a real watchdog token so we can get past auth.
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "   " }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn player_joined_first_ever_returns_allow() {
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "NewPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "allow", "first-ever join must be allowed");
+}
+
+#[tokio::test]
+async fn player_joined_second_join_returns_kick() {
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    let app = build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    // First join — allow
+    srv.post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "PendingPlayer" }))
+        .await;
+
+    // Second join — pending (not linked), must be kicked
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "PendingPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "kick", "unlinked returning player must be kicked");
+}
+
+#[tokio::test]
+async fn player_joined_linked_player_always_allowed() {
+    let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
+    let state = test_state_with_cfg(cfg).await;
+    // Seed the user (player_links has FK → users.email)
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES ('linked@example.com', 'member', 'Linked', 'test')"
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    // Pre-link the IGN
+    sqlx::query(
+        "INSERT INTO player_links (email, ign, linked_at) VALUES ('linked@example.com', 'LinkedPlayer', '2026-01-01T00:00:00Z')"
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    let app = build_router(state);
+    let srv = axum_test::TestServer::new(app).unwrap();
+
+    let res = srv
+        .post("/internal/player-joined")
+        .add_header(header::AUTHORIZATION, "Bearer test_watchdog_secret")
+        .json(&serde_json::json!({ "ign": "LinkedPlayer" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["action"], "allow", "linked player must always be allowed");
+}
+
 // ── Whitelist delegation tests ─────────────────────────────────────────────────────
 
 /// Verifies that the whitelist (invite) permission can be delegated:
@@ -836,7 +1141,11 @@ async fn delegated_whitelist_invite_works() {
             "role": "visitor"
         }))
         .await;
-    assert_eq!(res.status_code(), StatusCode::CREATED, "admin should be able to whitelist users");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::CREATED,
+        "admin should be able to whitelist users"
+    );
 
     // But admin cannot invite to their own level or higher
     let escalation_res = srv
@@ -869,6 +1178,128 @@ async fn invite_to_nonexistent_role_rejected() {
     assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
+// ── Tailscale device-invite endpoint tests ───────────────────────────────────
+//
+// These are hermetic (no real Tailscale or Resend API calls).
+// They validate:
+//   1. Unauthenticated access is blocked (401).
+//   2. A user without users.invite is forbidden (403).
+//   3. Inviting a non-existent user returns 404.
+//   4. With a user present but no API keys, the endpoint returns 200 with
+//      warnings instead of crashing — confirming graceful degradation.
+
+#[tokio::test]
+async fn tailscale_invite_requires_authentication() {
+    let (srv, _) = server().await;
+    let res = srv
+        .post("/api/users/someone@example.com/tailscale-invite")
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::UNAUTHORIZED,
+        "endpoint must reject unauthenticated requests"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_requires_users_invite_permission() {
+    let (srv, state) = server().await;
+
+    // member role does NOT have users.invite
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+    )
+    .bind("ts_member@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("ts_member@example.com", "member");
+    let res = srv
+        .post("/api/users/someone@example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "member role lacks users.invite and must be denied"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_returns_404_for_unknown_user() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/users/ghost%40example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::NOT_FOUND,
+        "should 404 when the target user does not exist"
+    );
+}
+
+#[tokio::test]
+async fn tailscale_invite_degrades_gracefully_without_api_keys() {
+    // Config has no TAILSCALE_API_KEY and no RESEND_API_KEY (the defaults).
+    // The endpoint must return 200 with non-empty warnings rather than 5xx.
+    let (srv, state) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Seed a user to invite
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'Player One', 'test')"
+    )
+    .bind("player1@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let res = srv
+        .post("/api/users/player1@example.com/tailscale-invite")
+        .add_header(header::COOKIE, cookie)
+        .await;
+
+    // Must be 200 — not a crash
+    assert_eq!(
+        res.status_code(),
+        StatusCode::OK,
+        "should return 200 even when API keys are absent"
+    );
+
+    let body: serde_json::Value = res.json();
+
+    // invite URL and email are absent because keys not configured
+    assert!(
+        body["tailscale_invite_url"].is_null(),
+        "invite URL should be null when TAILSCALE_API_KEY is absent"
+    );
+    assert_eq!(
+        body["email_sent"], false,
+        "email_sent should be false when RESEND_API_KEY is absent"
+    );
+
+    // Both missing-key errors must be captured as warnings, not panics
+    let warnings = body["warnings"].as_array().expect("warnings must be array");
+    assert!(
+        !warnings.is_empty(),
+        "should warn about missing TAILSCALE_API_KEY"
+    );
+    assert!(
+        warnings.iter().any(|w| w.as_str()
+            .map(|s| s.contains("TAILSCALE_API_KEY"))
+            .unwrap_or(false)
+        ),
+        "warnings must mention TAILSCALE_API_KEY"
+    );
+
+    // User fields should be present
+    assert_eq!(body["user"]["email"], "player1@example.com");
+    assert_eq!(body["user"]["display_name"], "Player One");
+}
+
 /// Migration 0006 grants `users.view` to all system roles (member, user, visitor)
 /// so the Team page works for every authenticated user.  Members can READ the
 /// user list but cannot INVITE or REMOVE users.
@@ -877,7 +1308,7 @@ async fn users_list_allowed_for_member() {
     let (srv, state) = server().await;
 
     sqlx::query(
-        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')"
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'member', 'M', 'test')",
     )
     .bind("member2@example.com")
     .execute(&state.pool)
@@ -890,7 +1321,11 @@ async fn users_list_allowed_for_member() {
         .get("/api/users")
         .add_header(header::COOKIE, cookie.clone())
         .await;
-    assert_eq!(res.status_code(), StatusCode::OK, "member should be able to list users");
+    assert_eq!(
+        res.status_code(),
+        StatusCode::OK,
+        "member should be able to list users"
+    );
 
     // But member cannot INVITE new users (lacks users.invite)
     let invite_res = srv
@@ -898,5 +1333,134 @@ async fn users_list_allowed_for_member() {
         .add_header(header::COOKIE, cookie)
         .json(&serde_json::json!({ "email": "new@example.com", "role": "visitor" }))
         .await;
-    assert_eq!(invite_res.status_code(), StatusCode::FORBIDDEN, "member should NOT be able to invite users");
+    assert_eq!(
+        invite_res.status_code(),
+        StatusCode::FORBIDDEN,
+        "member should NOT be able to invite users"
+    );
+}
+
+// ── 3-way chat bridge tests ──────────────────────────────────────────────────
+//
+// These cover the Discord ↔ Web ↔ Minecraft bridge introduced in
+// feat(discord): three-way Discord ↔ Web ↔ Minecraft chat bridge.
+// External services (Discord bot gateway, Minecraft FIFO) are not reachable in
+// the test harness; the tests verify the shared DB + SSE layer that all three
+// legs write through.
+
+/// `build_discord_tellraw` must produce valid JSON with the correct colours
+/// and bold flag so Minecraft renders the message properly in-game.
+#[test]
+fn build_discord_tellraw_has_correct_structure() {
+    let result = redstonecipher_server::discord::build_discord_tellraw("TestUser", "hello world");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&result).expect("build_discord_tellraw must produce valid JSON");
+    let arr = parsed.as_array().expect("tellraw payload must be a JSON array");
+    assert_eq!(arr.len(), 3, "must have exactly 3 text components");
+    // Component 0: [Discord] prefix in blurple
+    assert_eq!(arr[0]["text"],  "[Discord] ");
+    assert_eq!(arr[0]["color"], "#5865F2", "[Discord] tag must be blurple");
+    // Component 1: username in gray, bold
+    assert_eq!(arr[1]["text"],  "TestUser: ");
+    assert_eq!(arr[1]["color"], "#99AAB5", "username must be gray");
+    assert_eq!(arr[1]["bold"],  true,      "username must be bold");
+    // Component 2: message body in white
+    assert_eq!(arr[2]["text"],  "hello world");
+    assert_eq!(arr[2]["color"], "white");
+}
+
+/// The SSE stream endpoint must enforce `chat.read` — visitor role has no
+/// such permission and must receive 403 Forbidden before the stream opens.
+#[tokio::test]
+async fn chat_stream_requires_chat_read() {
+    let (srv, state) = server().await;
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'visitor', 'V', 'test')"
+    )
+    .bind("stream_visitor@example.com")
+    .execute(&state.pool)
+    .await
+    .expect("insert failed");
+
+    let cookie = session_cookie("stream_visitor@example.com", "visitor");
+    let res = srv
+        .get("/api/chat/stream")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(
+        res.status_code(),
+        StatusCode::FORBIDDEN,
+        "visitor lacks chat.read and must be denied the SSE stream"
+    );
+}
+
+/// Messages from all three bridge legs (mc, web, discord) must be persisted
+/// with their correct `source` tag and visible in GET /api/chat/history.
+#[tokio::test]
+async fn chat_all_three_sources_appear_in_history() {
+    let (srv, state) = server().await;
+
+    use redstonecipher_server::db::chat;
+    chat::insert(&state.pool, "mc",      "ChaoticLuc",  "ChaoticLuc",  "hello from minecraft")
+        .await.unwrap();
+    chat::insert(&state.pool, "web",     "alice@a.com", "alice",        "hello from web")
+        .await.unwrap();
+    chat::insert(&state.pool, "discord", "DiscordDude", "DiscordDude",  "hello from discord")
+        .await.unwrap();
+
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .get("/api/chat/history")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let msgs: Vec<serde_json::Value> = res.json();
+    assert_eq!(msgs.len(), 3, "expected one message per bridge source");
+
+    let sources: std::collections::HashSet<&str> = msgs
+        .iter()
+        .map(|m| m["source"].as_str().expect("source must be a string"))
+        .collect();
+    assert!(sources.contains("mc"),      "mc source must appear in history");
+    assert!(sources.contains("web"),     "web source must appear in history");
+    assert!(sources.contains("discord"), "discord source must appear in history");
+}
+
+/// GET /api/chat/history supports a `before` cursor for "load more" pagination:
+/// page 1 returns the N most recent messages; page 2 returns messages strictly
+/// older than the cursor id.
+#[tokio::test]
+async fn chat_history_before_cursor_pagination() {
+    let (srv, state) = server().await;
+
+    use redstonecipher_server::db::chat;
+    for i in 1..=5u32 {
+        chat::insert(&state.pool, "mc", "IGN", "IGN", &format!("msg {i}"))
+            .await
+            .unwrap();
+    }
+
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Page 1: most recent 3 — should be msg 3, 4, 5 in ascending order.
+    let res = srv
+        .get("/api/chat/history?limit=3")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let page1: Vec<serde_json::Value> = res.json();
+    assert_eq!(page1.len(), 3);
+    assert_eq!(page1[2]["content"], "msg 5", "newest must be last in page 1");
+
+    // Page 2: messages before the oldest item on page 1 (msg 3 → only msg 1, 2 remain).
+    let oldest_id = page1[0]["id"].as_i64().expect("id must be i64");
+    let res2 = srv
+        .get(&format!("/api/chat/history?limit=10&before={oldest_id}"))
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res2.status_code(), StatusCode::OK);
+    let page2: Vec<serde_json::Value> = res2.json();
+    assert_eq!(page2.len(), 2, "only 2 messages are older than the cursor");
+    assert_eq!(page2[0]["content"], "msg 1");
+    assert_eq!(page2[1]["content"], "msg 2");
 }
