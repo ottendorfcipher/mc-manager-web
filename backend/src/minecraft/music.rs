@@ -86,9 +86,15 @@ pub struct CurrentTrack {
 
 // ── Console helpers ────────────────────────────────────────────────────────────
 
-/// Send `/playsound <sound> music @a ~ ~ ~ 1000000 1` so the sound is audible
+/// Stop any in-progress music, then play the requested sound for all players.
+///
+/// The leading `stopsound @a music` clears Minecraft's ambient game-music
+/// that plays automatically on each client, preventing it from overlapping
+/// with our queued track.  Volume 1,000,000 ensures the sound is audible
 /// everywhere on the map regardless of player position.
 pub async fn play_all(cfg: &Config, sound_id: &str) -> Result<bool> {
+    // Silence ambient music that may already be playing on any client.
+    let _ = console::send(cfg, "stopsound @a music").await;
     console::send(cfg, &format!("playsound {sound_id} music @a ~ ~ ~ 1000000 1")).await
 }
 
