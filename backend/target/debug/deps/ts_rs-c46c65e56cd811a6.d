@@ -1,0 +1,10 @@
+/private/tmp/mc-build-fresh/backend/target/debug/deps/ts_rs-c46c65e56cd811a6.d: /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/lib.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/chrono.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/error.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/path.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/serde_json.rs
+
+/private/tmp/mc-build-fresh/backend/target/debug/deps/libts_rs-c46c65e56cd811a6.rmeta: /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/lib.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/chrono.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/error.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/path.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/serde_json.rs
+
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/lib.rs:
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/chrono.rs:
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export.rs:
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/error.rs:
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/export/path.rs:
+/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ts-rs-10.1.0/src/serde_json.rs:
