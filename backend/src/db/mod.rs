@@ -4,6 +4,7 @@ pub mod backups;
 pub mod chat;
 pub mod kill_switch;
 pub mod map_pins;
+pub mod music_queue;
 pub mod pending_players;
 pub mod permissions;
 pub mod player_snapshots;

@@ -183,6 +183,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/chat/history", get(handlers::chat::history))
         .route("/chat/stream",  get(handlers::chat::stream))
         .route("/chat/send",    post(handlers::chat::send))
+        // Music queue
+        .route("/music/tracks",      get(handlers::music::list_tracks))
+        .route("/music/state",       get(handlers::music::get_state))
+        .route("/music/stream",      get(handlers::music::stream))
+        .route("/music/queue",       post(handlers::music::enqueue))
+        .route("/music/queue/:id",   delete(handlers::music::remove_from_queue))
+        .route("/music/skip",        post(handlers::music::skip))
+        .route("/music/stop",        post(handlers::music::stop))
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),

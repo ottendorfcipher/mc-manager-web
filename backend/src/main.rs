@@ -51,6 +51,14 @@ async fn main() -> anyhow::Result<()> {
 
     let state = lib::AppState::new(pool, cfg.clone(), initial_discord_cfg);
 
+    // Spawn the music-player background task that auto-advances the queue.
+    lib::minecraft::music::spawn_player_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.music_current.clone(),
+        state.music_tx.clone(),
+    );
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),

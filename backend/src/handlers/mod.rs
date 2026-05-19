@@ -10,6 +10,7 @@ pub mod kill_switch;
 pub mod map_pins;
 pub mod mc_players;
 pub mod metrics;
+pub mod music;
 pub mod pending_players;
 pub mod permissions;
 pub mod player_data;
