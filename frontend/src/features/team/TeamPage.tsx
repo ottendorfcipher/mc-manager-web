@@ -4,6 +4,7 @@ import { X, RefreshCw, UserMinus, MapPin, MapPinOff } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
+import { toast } from "@/components/Toast";
 import type { User, PlayerLink, McPlayer, Gamemode } from "@/types";
 import { ROLE_LEVELS } from "@/types";
 
@@ -166,11 +167,19 @@ function UserCard({
 
   const gmMut = useMutation({
     mutationFn: ({ ign, gamemode }: { ign: string; gamemode: string }) =>
-      api.patch(
+      api.patch<{ saved: boolean; applied: boolean }>(
         `/users/${encodeURIComponent(user.email)}/players/${encodeURIComponent(ign)}/gamemode`,
         { gamemode },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["players", user.email] }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["players", user.email] });
+      if (res.applied) {
+        toast.success("Gamemode updated in-game.");
+      } else {
+        toast.info("Gamemode saved — join the server to apply it.");
+      }
+    },
+    onError: () => toast.error("Failed to update gamemode."),
   });
 
   const unlinkMut = useMutation({
@@ -269,13 +278,14 @@ function UserCard({
                   isSelf={isSelf}
                   canAdmin={isGlobalAdmin || (ROLE_LEVELS[user.role] ?? 0) < myLevel}
                 />
-                {isSelf && (
+                {(isSelf || isGlobalAdmin || targetLevel < myLevel) && (
                   <select
                     value={link.gamemode}
                     onChange={(e) =>
                       gmMut.mutate({ ign: link.ign, gamemode: e.target.value })
                     }
-                    className="text-xs bg-transparent text-meta focus:outline-none"
+                    disabled={gmMut.isPending}
+                    className="text-xs bg-transparent text-meta focus:outline-none disabled:opacity-50"
                     aria-label={`${link.ign} gamemode`}
                   >
                     {GAMEMODES.map((m) => (
