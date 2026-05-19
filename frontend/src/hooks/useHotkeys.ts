@@ -103,5 +103,6 @@ export function useNavigationHotkeys() {
     "g b": () => navigate("/backups"),
     "g x": () => navigate("/configure"),
     "g a": () => navigate("/admin"),
+    "g u": () => navigate("/music"),
   });
 }

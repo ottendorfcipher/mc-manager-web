@@ -216,6 +216,38 @@ export interface InviteResult {
   warnings:             string[];
 }
 
+// ── Music queue (from /api/music/*) ──────────────────────────────────────────
+
+export interface SoundEntry {
+  id:            string;
+  display_name:  string;
+  artist:        string;
+  duration_secs: number;
+}
+
+export interface MusicQueueEntry {
+  id:           number;
+  sound_id:     string;
+  display_name: string;
+  requested_by: string;
+  queued_at:    string;
+}
+
+export interface NowPlaying {
+  queue_id:      number;
+  sound_id:      string;
+  display_name:  string;
+  artist:        string;
+  requested_by:  string;
+  elapsed_secs:  number;
+  duration_secs: number;
+}
+
+export interface MusicState {
+  now_playing: NowPlaying | null;
+  queue:       MusicQueueEntry[];
+}
+
 export interface DiscordSettings {
   /** `true` if a bot token is stored; the raw token is never returned. */
   bot_token_set:   boolean;
