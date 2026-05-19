@@ -54,11 +54,6 @@ fn test_cfg() -> Config {
         tailscale_api_key: None,
         tailscale_tailnet: "test-tailnet".into(),
         site_url: "https://redstonecipher.com".into(),
-        // Discord bridge — disabled in tests; no real bot or webhook.
-        discord_bot_token:   None,
-        discord_webhook_url: None,
-        discord_channel_id:  None,
-        settings_enc_key:    redstonecipher_server::settings::derive_key(TEST_JWT_SECRET),
     }
 }
 
@@ -76,7 +71,7 @@ async fn test_state() -> AppState {
         .await
         .expect("migrations failed");
 
-    AppState::new(pool, test_cfg(), None)
+    AppState::new(pool, test_cfg())
 }
 
 /// Build an `AppState` with a custom config (used when test needs specific
@@ -88,7 +83,7 @@ async fn test_state_with_cfg(cfg: Config) -> AppState {
         .await
         .expect("in-memory SQLite failed");
     sqlx::migrate!("./migrations").run(&pool).await.expect("migrations failed");
-    AppState::new(pool, cfg, None)
+    AppState::new(pool, cfg)
 }
 
 /// Build a `TestServer` from a fresh in-memory state.
@@ -964,7 +959,7 @@ async fn chat_send_rejects_oversized_content() {
 
 #[tokio::test]
 async fn chat_send_broadcast_persists_message() {
-    let (srv, _) = server().await;
+    let (srv, state) = server().await;
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
 
     // Send a broadcast (target_ign: null). The SSH FIFO will fail (no real VM)
@@ -1338,129 +1333,4 @@ async fn users_list_allowed_for_member() {
         StatusCode::FORBIDDEN,
         "member should NOT be able to invite users"
     );
-}
-
-// ── 3-way chat bridge tests ──────────────────────────────────────────────────
-//
-// These cover the Discord ↔ Web ↔ Minecraft bridge introduced in
-// feat(discord): three-way Discord ↔ Web ↔ Minecraft chat bridge.
-// External services (Discord bot gateway, Minecraft FIFO) are not reachable in
-// the test harness; the tests verify the shared DB + SSE layer that all three
-// legs write through.
-
-/// `build_discord_tellraw` must produce valid JSON with the correct colours
-/// and bold flag so Minecraft renders the message properly in-game.
-#[test]
-fn build_discord_tellraw_has_correct_structure() {
-    let result = redstonecipher_server::discord::build_discord_tellraw("TestUser", "hello world");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&result).expect("build_discord_tellraw must produce valid JSON");
-    let arr = parsed.as_array().expect("tellraw payload must be a JSON array");
-    assert_eq!(arr.len(), 3, "must have exactly 3 text components");
-    // Component 0: [Discord] prefix in blurple
-    assert_eq!(arr[0]["text"],  "[Discord] ");
-    assert_eq!(arr[0]["color"], "#5865F2", "[Discord] tag must be blurple");
-    // Component 1: username in gray, bold
-    assert_eq!(arr[1]["text"],  "TestUser: ");
-    assert_eq!(arr[1]["color"], "#99AAB5", "username must be gray");
-    assert_eq!(arr[1]["bold"],  true,      "username must be bold");
-    // Component 2: message body in white
-    assert_eq!(arr[2]["text"],  "hello world");
-    assert_eq!(arr[2]["color"], "white");
-}
-
-/// The SSE stream endpoint must enforce `chat.read` — visitor role has no
-/// such permission and must receive 403 Forbidden before the stream opens.
-#[tokio::test]
-async fn chat_stream_requires_chat_read() {
-    let (srv, state) = server().await;
-    sqlx::query(
-        "INSERT INTO users (email, role, display_name, added_by) VALUES (?, 'visitor', 'V', 'test')"
-    )
-    .bind("stream_visitor@example.com")
-    .execute(&state.pool)
-    .await
-    .expect("insert failed");
-
-    let cookie = session_cookie("stream_visitor@example.com", "visitor");
-    let res = srv
-        .get("/api/chat/stream")
-        .add_header(header::COOKIE, cookie)
-        .await;
-    assert_eq!(
-        res.status_code(),
-        StatusCode::FORBIDDEN,
-        "visitor lacks chat.read and must be denied the SSE stream"
-    );
-}
-
-/// Messages from all three bridge legs (mc, web, discord) must be persisted
-/// with their correct `source` tag and visible in GET /api/chat/history.
-#[tokio::test]
-async fn chat_all_three_sources_appear_in_history() {
-    let (srv, state) = server().await;
-
-    use redstonecipher_server::db::chat;
-    chat::insert(&state.pool, "mc",      "ChaoticLuc",  "ChaoticLuc",  "hello from minecraft")
-        .await.unwrap();
-    chat::insert(&state.pool, "web",     "alice@a.com", "alice",        "hello from web")
-        .await.unwrap();
-    chat::insert(&state.pool, "discord", "DiscordDude", "DiscordDude",  "hello from discord")
-        .await.unwrap();
-
-    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
-    let res = srv
-        .get("/api/chat/history")
-        .add_header(header::COOKIE, cookie)
-        .await;
-    assert_eq!(res.status_code(), StatusCode::OK);
-    let msgs: Vec<serde_json::Value> = res.json();
-    assert_eq!(msgs.len(), 3, "expected one message per bridge source");
-
-    let sources: std::collections::HashSet<&str> = msgs
-        .iter()
-        .map(|m| m["source"].as_str().expect("source must be a string"))
-        .collect();
-    assert!(sources.contains("mc"),      "mc source must appear in history");
-    assert!(sources.contains("web"),     "web source must appear in history");
-    assert!(sources.contains("discord"), "discord source must appear in history");
-}
-
-/// GET /api/chat/history supports a `before` cursor for "load more" pagination:
-/// page 1 returns the N most recent messages; page 2 returns messages strictly
-/// older than the cursor id.
-#[tokio::test]
-async fn chat_history_before_cursor_pagination() {
-    let (srv, state) = server().await;
-
-    use redstonecipher_server::db::chat;
-    for i in 1..=5u32 {
-        chat::insert(&state.pool, "mc", "IGN", "IGN", &format!("msg {i}"))
-            .await
-            .unwrap();
-    }
-
-    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
-
-    // Page 1: most recent 3 — should be msg 3, 4, 5 in ascending order.
-    let res = srv
-        .get("/api/chat/history?limit=3")
-        .add_header(header::COOKIE, cookie.clone())
-        .await;
-    assert_eq!(res.status_code(), StatusCode::OK);
-    let page1: Vec<serde_json::Value> = res.json();
-    assert_eq!(page1.len(), 3);
-    assert_eq!(page1[2]["content"], "msg 5", "newest must be last in page 1");
-
-    // Page 2: messages before the oldest item on page 1 (msg 3 → only msg 1, 2 remain).
-    let oldest_id = page1[0]["id"].as_i64().expect("id must be i64");
-    let res2 = srv
-        .get(&format!("/api/chat/history?limit=10&before={oldest_id}"))
-        .add_header(header::COOKIE, cookie)
-        .await;
-    assert_eq!(res2.status_code(), StatusCode::OK);
-    let page2: Vec<serde_json::Value> = res2.json();
-    assert_eq!(page2.len(), 2, "only 2 messages are older than the cursor");
-    assert_eq!(page2[0]["content"], "msg 1");
-    assert_eq!(page2[1]["content"], "msg 2");
 }

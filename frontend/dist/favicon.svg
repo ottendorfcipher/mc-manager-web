@@ -1,0 +1,26 @@
+<!--
+  redstoneCipher favicon — Minecraft pickaxe silhouette
+  Design principles (WCAG-inspired):
+    • Shape conveys meaning — not just colour (WCAG 1.4.1)
+    • White (#FFF) on #CC1111 red → 5.1:1 contrast ratio (exceeds WCAG AA 3:1 for graphics)
+    • No element smaller than 4 units in a 32×32 viewBox (= 2px at 16×16 display)
+    • Max 2 colours — no detail lost at small sizes
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Vivid red background — distinctive in any tab bar -->
+  <rect width="32" height="32" rx="5" fill="#CC1111"/>
+
+  <!-- ── Pickaxe head ─────────────────────────────────────────────────────── -->
+  <!-- Upper prong: bold triangle pointing left -->
+  <polygon points="13,2 13,12 2,7" fill="#FFFFFF"/>
+  <!-- Lower prong: bold triangle pointing left, offset down -->
+  <polygon points="13,16 13,24 2,20" fill="#FFFFFF"/>
+  <!-- Vertical body: connects both prongs on the right side, 4 units wide -->
+  <rect x="11" y="2" width="5" height="22" fill="#FFFFFF"/>
+
+  <!-- ── Handle ─────────────────────────────────────────────────────────── -->
+  <!-- Parallelogram at 45° — 6 units wide perpendicular (≈3px at 16×16) -->
+  <!-- Corners computed so the handle starts flush with head body and         -->
+  <!-- ends at the bottom-right of the icon                                   -->
+  <polygon points="16,8 30,22 26,26 12,12" fill="#FFFFFF"/>
+</svg>
