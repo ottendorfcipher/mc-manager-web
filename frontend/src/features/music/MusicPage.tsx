@@ -1,9 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music2, SkipForward, Square, X, Search, Play, Upload, Package, Trash2, PlusCircle } from "lucide-react";
+import { Music2, SkipForward, Square, X, Search, Play, Upload, Package, Trash2, ChevronDown, Download } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { SoundEntry, MusicState, MusicQueueEntry, ResourcePackInfo } from "@/types";
+
+const INPUT = [
+  "rounded-lg border border-[#D9D5D0] dark:border-[#363944]",
+  "bg-white dark:bg-[#2A2D38] text-xs px-2.5 py-1.5",
+  "text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]",
+  "focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]",
+  "disabled:opacity-50",
+].join(" ");
+const LBL = "block text-[10px] font-medium text-meta uppercase tracking-wider mb-1";
 
 // ── MusicPage ──────────────────────────────────────────────────────────────────
 
@@ -97,17 +106,22 @@ export function MusicPage() {
 
   // ── Custom track registration ─────────────────────────────────────────────────
 
-  const [addTrack, setAddTrack] = useState({ sound_id: "", display_name: "", artist: "", duration_secs: "180" });
+  const [addTrack, setAddTrack] = useState({ sound_id: "", display_name: "", artist: "" });
+  const [durMins, setDurMins] = useState("3");
+  const [durSecs, setDurSecs] = useState("00");
+  const [showGuide, setShowGuide] = useState(false);
 
   const addTrackMut = useMutation({
     mutationFn: () => api.post("/music/tracks", {
       sound_id:      addTrack.sound_id.trim(),
       display_name:  addTrack.display_name.trim(),
       artist:        addTrack.artist.trim(),
-      duration_secs: parseInt(addTrack.duration_secs, 10) || 180,
+      duration_secs: (parseInt(durMins, 10) || 0) * 60 + Math.min(parseInt(durSecs, 10) || 0, 59),
     }),
     onSuccess: () => {
-      setAddTrack({ sound_id: "", display_name: "", artist: "", duration_secs: "180" });
+      setAddTrack({ sound_id: "", display_name: "", artist: "" });
+      setDurMins("3");
+      setDurSecs("00");
       qc.invalidateQueries({ queryKey: ["music-tracks"] });
     },
   });
@@ -150,14 +164,12 @@ export function MusicPage() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
 
-  const queue = musicState?.queue ?? [];
-  const pct   = np ? Math.min((elapsed / np.duration_secs) * 100, 100) : 0;
-
-  function fmtDur(secs: number) {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
+  const queue        = musicState?.queue ?? [];
+  const pct          = np ? Math.min((elapsed / np.duration_secs) * 100, 100) : 0;
+  const customTracks = tracks.filter((t) => t.is_custom);
+  const canSubmit    =
+    !!addTrack.sound_id.trim() && !!addTrack.display_name.trim() &&
+    (parseInt(durMins, 10) || 0) * 60 + (parseInt(durSecs, 10) || 0) > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -244,8 +256,8 @@ export function MusicPage() {
                     />
                   </div>
                   <div className="flex justify-between text-[10px] text-meta">
-                    <span>{fmtDur(elapsed)}</span>
-                    <span>{fmtDur(np.duration_secs)}</span>
+                    <span>{fmtDuration(elapsed)}</span>
+                    <span>{fmtDuration(np.duration_secs)}</span>
                   </div>
                 </div>
               </div>
@@ -291,176 +303,10 @@ export function MusicPage() {
             </div>
           )}
 
-          {/* ── Resource Pack ── */}
-          <div className="card space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
-                <p className="text-xs font-semibold uppercase tracking-wider text-meta">Resource Pack</p>
-              </div>
-              {packInfo?.installed && (
-                <button
-                  onClick={() => deletePackMut.mutate()}
-                  disabled={deletePackMut.isPending}
-                  className="text-xs text-meta hover:text-[#F87171] transition-colors flex items-center gap-1"
-                >
-                  <Trash2 className="w-3 h-3" aria-hidden /> Remove
-                </button>
-              )}
-            </div>
-
-            <p className="text-xs text-meta leading-relaxed">
-              Upload a <code className="bg-[#F0EDE9] dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">.zip</code> resource pack to add custom audio.
-              The pack is served from <code className="bg-[#F0EDE9] dark:bg-[#2A2D38] px-1 rounded text-[10px] text-[#1C1E27] dark:text-[#EAECF0]">redstonecipher.com/resource-pack.zip</code> and
-              downloaded automatically when players (re)join. No client mods required.
-            </p>
-
-            {packInfo?.installed ? (
-              <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-[#F0FDF4] dark:bg-[#0D2218] border border-[#36B37E]/30">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-[#36B37E]">Pack installed</p>
-                  <p className="text-[10px] text-meta truncate font-mono">
-                    SHA1: {packInfo.sha1?.slice(0, 16)}… &nbsp;·&nbsp; {((packInfo.size_bytes ?? 0) / 1024 / 1024).toFixed(1)} MB
-                  </p>
-                </div>
-                <a
-                  href={packInfo.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-[#5B9BF0] hover:underline flex-shrink-0"
-                >
-                  Download
-                </a>
-              </div>
-            ) : (
-              <p className="text-xs text-meta">No pack installed.</p>
-            )}
-
-            <div className="flex gap-2">
-              <input
-                ref={packFileRef}
-                type="file"
-                accept=".zip"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) uploadPackMut.mutate(file);
-                  e.target.value = "";
-                }}
-              />
-              <button
-                onClick={() => packFileRef.current?.click()}
-                disabled={uploadPackMut.isPending}
-                className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {uploadPackMut.isPending ? (
-                  <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" aria-hidden />
-                ) : (
-                  <Upload className="w-3.5 h-3.5" aria-hidden />
-                )}
-                {packInfo?.installed ? "Replace Pack" : "Upload Pack"}
-              </button>
-              {uploadPackMut.isError && (
-                <p className="text-xs text-[#F87171] self-center">{(uploadPackMut.error as Error).message}</p>
-              )}
-            </div>
-          </div>
-
-          {/* ── Custom Tracks ── */}
-          <div className="card space-y-3">
-            <div className="flex items-center gap-2">
-              <PlusCircle className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
-              <p className="text-xs font-semibold uppercase tracking-wider text-meta">Custom Tracks</p>
-            </div>
-            <p className="text-xs text-meta">
-              Register sound events from your resource pack so they appear in the catalog.
-              The sound ID must match an event defined in the pack’s <code className="bg-[#F0EDE9] dark:bg-[#2A2D38] px-1 rounded">sounds.json</code>.
-            </p>
-
-            {tracks.filter(t => t.is_custom).length > 0 && (
-              <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
-                {tracks.filter(t => t.is_custom).map(t => (
-                  <div key={t.id} className="flex items-center gap-3 py-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">{t.display_name}</p>
-                      <p className="text-[10px] text-meta font-mono truncate">{t.id}</p>
-                    </div>
-                    <button
-                      onClick={() => removeTrackMut.mutate(t.id)}
-                      disabled={removeTrackMut.isPending}
-                      className="p-1 text-meta hover:text-[#F87171] transition-colors flex-shrink-0"
-                      aria-label={`Remove custom track ${t.display_name}`}
-                    >
-                      <X className="w-3.5 h-3.5" aria-hidden />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add form */}
-            <div className="space-y-2 border-t border-[#D9D5D0] dark:border-[#363944] pt-3">
-              <p className="text-[10px] text-meta font-semibold uppercase tracking-wider">Add Track</p>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  placeholder="Sound ID (e.g. mypack:custom.track)"
-                  value={addTrack.sound_id}
-                  onChange={e => setAddTrack(p => ({ ...p, sound_id: e.target.value }))}
-                  className="col-span-2 rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             bg-white dark:bg-[#2A2D38] text-xs px-2.5 py-1.5
-                             text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]
-                             focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
-                />
-                <input
-                  placeholder="Display name"
-                  value={addTrack.display_name}
-                  onChange={e => setAddTrack(p => ({ ...p, display_name: e.target.value }))}
-                  className="rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             bg-white dark:bg-[#2A2D38] text-xs px-2.5 py-1.5
-                             text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]
-                             focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
-                />
-                <input
-                  placeholder="Artist"
-                  value={addTrack.artist}
-                  onChange={e => setAddTrack(p => ({ ...p, artist: e.target.value }))}
-                  className="rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             bg-white dark:bg-[#2A2D38] text-xs px-2.5 py-1.5
-                             text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]
-                             focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
-                />
-                <input
-                  placeholder="Duration (seconds)"
-                  type="number"
-                  min={1}
-                  max={7200}
-                  value={addTrack.duration_secs}
-                  onChange={e => setAddTrack(p => ({ ...p, duration_secs: e.target.value }))}
-                  className="rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                             bg-white dark:bg-[#2A2D38] text-xs px-2.5 py-1.5
-                             text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]
-                             focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
-                />
-                <button
-                  onClick={() => addTrackMut.mutate()}
-                  disabled={!addTrack.sound_id.trim() || !addTrack.display_name.trim() || addTrackMut.isPending}
-                  className="btn-primary text-xs py-1.5 disabled:opacity-40"
-                >
-                  Add
-                </button>
-              </div>
-              {addTrackMut.isError && (
-                <p className="text-xs text-[#F87171]">{(addTrackMut.error as Error).message}</p>
-              )}
-            </div>
-          </div>
-
           {/* ── Track Catalog ── */}
           <div className="card space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-xs font-semibold uppercase tracking-wider text-meta">
-                Track Catalog
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-meta">Track Catalog</p>
               <div className="relative">
                 <Search
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-meta pointer-events-none"
@@ -478,11 +324,8 @@ export function MusicPage() {
                 />
               </div>
             </div>
-
             {filtered.length === 0 ? (
-              <p className="py-6 text-sm text-meta text-center">
-                No tracks match "{search}".
-              </p>
+              <p className="py-6 text-sm text-meta text-center">No tracks match "{search}".</p>
             ) : (
               <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
                 {filtered.map((track) => (
@@ -496,6 +339,293 @@ export function MusicPage() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* ── Custom Music Setup ── */}
+          <div className="card space-y-4">
+
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
+                <p className="text-xs font-semibold uppercase tracking-wider text-meta">Custom Music</p>
+              </div>
+              <button
+                onClick={() => setShowGuide((g) => !g)}
+                className="text-[11px] text-[#5B9BF0] hover:underline flex items-center gap-1"
+                aria-expanded={showGuide}
+              >
+                How it works
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform ${showGuide ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </button>
+            </div>
+
+            {/* How-it-works guide */}
+            {showGuide && (
+              <div className="rounded-lg bg-[#EEF4FF] dark:bg-[#181D2E] border border-[#5B9BF0]/25 p-3.5 space-y-3 text-xs">
+                <p className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">How custom music works</p>
+                <ol className="space-y-2.5">
+                  {([
+                    [
+                      "Download the starter template",
+                      "Open the zip — it has pack.mcmeta, a sounds.json, and a sounds/ folder already set up.",
+                    ],
+                    [
+                      "Add your .ogg audio files",
+                      "Put each file at  assets/redstonecipher/sounds/music/my_song.ogg  inside the zip.",
+                    ],
+                    [
+                      "Update sounds.json",
+                      'Add one entry per song — the template shows the exact format.\nThe key (e.g. "music.my_song") becomes the second half of the Sound ID.',
+                    ],
+                    [
+                      "Upload your pack, then register each track",
+                      "Upload the zip below. Then fill in the Register form so the track appears in the catalog.",
+                    ],
+                  ] as [string, string][]).map(([title, body], i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span
+                        className="w-5 h-5 rounded-full bg-[#5B9BF0] text-white text-[10px] font-bold
+                                   flex items-center justify-center flex-shrink-0 mt-px"
+                      >
+                        {i + 1}
+                      </span>
+                      <span>
+                        <strong className="text-[#1C1E27] dark:text-[#EAECF0]">{title}</strong>
+                        <br />
+                        <span className="text-meta whitespace-pre-line">{body}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-meta pt-2 border-t border-[#5B9BF0]/20 leading-relaxed">
+                  Sound ID format: <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">namespace:event.name</code>
+                  {" → e.g. "}
+                  <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">redstonecipher:music.my_song</code>
+                </p>
+              </div>
+            )}
+
+            {/* ── Resource Pack ── */}
+            <div className="space-y-2.5">
+              <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]">Resource Pack</p>
+
+              {packInfo?.installed ? (
+                <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg
+                               bg-[#F0FDF4] dark:bg-[#0D2218] border border-[#36B37E]/30">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[#36B37E]">Pack installed</p>
+                    <p className="text-[10px] text-meta font-mono truncate">
+                      SHA1: {packInfo.sha1?.slice(0, 16)}…&nbsp;·&nbsp;
+                      {((packInfo.size_bytes ?? 0) / 1024 / 1024).toFixed(1)} MB
+                    </p>
+                  </div>
+                  <a
+                    href={packInfo.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-[#5B9BF0] hover:underline flex-shrink-0"
+                  >
+                    View
+                  </a>
+                </div>
+              ) : (
+                <p className="text-xs text-meta">
+                  No pack installed. Download the template to get started.
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-2 items-center">
+                <a
+                  href="/resource-pack-template.zip"
+                  download
+                  className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" aria-hidden /> Download Template
+                </a>
+                <input
+                  ref={packFileRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadPackMut.mutate(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  onClick={() => packFileRef.current?.click()}
+                  disabled={uploadPackMut.isPending}
+                  className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {uploadPackMut.isPending ? (
+                    <span
+                      className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"
+                      aria-hidden
+                    />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" aria-hidden />
+                  )}
+                  {packInfo?.installed ? "Replace Pack" : "Upload Pack"}
+                </button>
+                {packInfo?.installed && (
+                  <button
+                    onClick={() => deletePackMut.mutate()}
+                    disabled={deletePackMut.isPending}
+                    className="text-xs text-meta hover:text-[#F87171] transition-colors
+                               flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3 h-3" aria-hidden /> Remove
+                  </button>
+                )}
+                {uploadPackMut.isError && (
+                  <p className="text-xs text-[#F87171]">{(uploadPackMut.error as Error).message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-[#D9D5D0] dark:border-[#363944]" />
+
+            {/* ── Register a Custom Track ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]">Register a Custom Track</p>
+              {!packInfo?.installed && (
+                <p className="text-xs text-meta italic">
+                  Upload a resource pack above first — custom audio won't play without one.
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+
+                {/* Sound ID — full width */}
+                <div className="col-span-2">
+                  <label className={LBL} htmlFor="sound-id">Sound ID</label>
+                  <input
+                    id="sound-id"
+                    placeholder="e.g. redstonecipher:music.my_song"
+                    value={addTrack.sound_id}
+                    onChange={(e) => setAddTrack((p) => ({ ...p, sound_id: e.target.value }))}
+                    className={`w-full font-mono ${INPUT}`}
+                  />
+                  <p className="mt-1 text-[10px] text-meta">
+                    Must match a key in your pack's{" "}
+                    <code className="text-[#1C1E27] dark:text-[#EAECF0]">sounds.json</code>
+                    {" — format: "}
+                    <code className="text-[#1C1E27] dark:text-[#EAECF0]">namespace:event.name</code>
+                  </p>
+                </div>
+
+                {/* Track name */}
+                <div>
+                  <label className={LBL} htmlFor="track-name">Track Name</label>
+                  <input
+                    id="track-name"
+                    placeholder="My Song"
+                    value={addTrack.display_name}
+                    onChange={(e) => setAddTrack((p) => ({ ...p, display_name: e.target.value }))}
+                    className={`w-full ${INPUT}`}
+                  />
+                </div>
+
+                {/* Artist */}
+                <div>
+                  <label className={LBL} htmlFor="track-artist">
+                    Artist{" "}
+                    <span className="normal-case font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="track-artist"
+                    placeholder="Artist name"
+                    value={addTrack.artist}
+                    onChange={(e) => setAddTrack((p) => ({ ...p, artist: e.target.value }))}
+                    className={`w-full ${INPUT}`}
+                  />
+                </div>
+
+                {/* Duration MM:SS */}
+                <div className="col-span-2">
+                  <label className={LBL}>Duration</label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number" min={0} max={120} placeholder="3"
+                      value={durMins}
+                      onChange={(e) => setDurMins(e.target.value)}
+                      className={`w-16 text-center ${INPUT}`}
+                      aria-label="Minutes"
+                    />
+                    <span className="text-sm text-meta select-none">:</span>
+                    <input
+                      type="number" min={0} max={59} placeholder="00"
+                      value={durSecs}
+                      onChange={(e) => setDurSecs(e.target.value)}
+                      onBlur={(e) =>
+                        setDurSecs(
+                          String(Math.min(parseInt(e.target.value) || 0, 59)).padStart(2, "0"),
+                        )
+                      }
+                      className={`w-16 text-center ${INPUT}`}
+                      aria-label="Seconds"
+                    />
+                    <span className="text-[10px] text-meta select-none">mm : ss</span>
+                  </div>
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={() => addTrackMut.mutate()}
+                  disabled={!canSubmit || addTrackMut.isPending}
+                  className="btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5 disabled:opacity-40"
+                >
+                  {addTrackMut.isPending && (
+                    <span
+                      className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"
+                      aria-hidden
+                    />
+                  )}
+                  Add to Catalog
+                </button>
+
+                {addTrackMut.isError && (
+                  <p className="col-span-2 text-xs text-[#F87171]">
+                    {(addTrackMut.error as Error).message}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* ── Registered custom tracks ── */}
+            {customTracks.length > 0 && (
+              <div className="border-t border-[#D9D5D0] dark:border-[#363944] pt-3 space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-meta mb-2">
+                  Registered ({customTracks.length})
+                </p>
+                <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
+                  {customTracks.map((t) => (
+                    <div key={t.id} className="flex items-center gap-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
+                          {t.display_name}
+                        </p>
+                        <p className="text-[10px] text-meta font-mono truncate">{t.id}</p>
+                      </div>
+                      <button
+                        onClick={() => removeTrackMut.mutate(t.id)}
+                        disabled={removeTrackMut.isPending}
+                        className="icon-btn-danger w-7 h-7 min-w-0 min-h-0 flex-shrink-0"
+                        aria-label={`Remove ${t.display_name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         </>
       )}
@@ -566,14 +696,22 @@ function TrackRow({
     <div className="flex items-center gap-3 py-2.5 hover:bg-[#F7F5F2] dark:hover:bg-[#1E212B]
                     -mx-4 px-4 transition-colors">
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium truncate ${
-          isPlaying ? "text-[#5B9BF0]" : "text-[#1C1E27] dark:text-[#EAECF0]"
-        }`}>
-          {track.display_name}
-          {isPlaying && (
-            <span className="ml-2 text-[10px] text-[#5B9BF0] font-normal">▶ playing</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className={`text-sm font-medium truncate ${
+            isPlaying ? "text-[#5B9BF0]" : "text-[#1C1E27] dark:text-[#EAECF0]"
+          }`}>
+            {track.display_name}
+            {isPlaying && (
+              <span className="ml-2 text-[10px] font-normal">▶ playing</span>
+            )}
+          </p>
+          {track.is_custom && (
+            <span className="px-1.5 py-px text-[9px] font-bold uppercase rounded flex-shrink-0
+                             bg-[#5B9BF0]/10 text-[#5B9BF0] border border-[#5B9BF0]/25">
+              Custom
+            </span>
           )}
-        </p>
+        </div>
         <p className="text-[10px] text-meta truncate">
           {track.artist}
           <span className="ml-2 opacity-60">{fmtDuration(track.duration_secs)}</span>
@@ -601,6 +739,6 @@ function TrackRow({
 
 function fmtDuration(secs: number): string {
   const m = Math.floor(secs / 60);
-  const s = secs % 60;
+  const s = Math.floor(secs % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
