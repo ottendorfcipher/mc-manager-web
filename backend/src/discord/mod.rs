@@ -109,16 +109,6 @@ struct DiscordHandler {
 #[async_trait]
 impl EventHandler for DiscordHandler {
     async fn message(&self, _ctx: Context, msg: Message) {
-        // Log every event before filtering so we can diagnose channel/intent issues.
-        tracing::info!(
-            channel = msg.channel_id.get(),
-            expected = self.channel_id,
-            author = %msg.author.name,
-            bot = msg.author.bot,
-            content_len = msg.content.len(),
-            "Discord message event received",
-        );
-
         // Ignore bot messages (loop prevention) and wrong channel.
         if msg.author.bot || msg.channel_id.get() != self.channel_id {
             return;
@@ -141,23 +131,14 @@ impl EventHandler for DiscordHandler {
         //    so this cannot trigger a secondary relay back to Discord.
         let tellraw = build_discord_tellraw(&username, &content);
         let cmd = format!("tellraw @a {tellraw}");
-        match ssh::fifo_command(&self.config, &cmd).await {
-            Ok(true)  => {}
-            Ok(false) => warn!("Discord inbound: FIFO unavailable — tellraw not delivered (server offline or no pipe reader)"),
-            Err(e)    => warn!("Discord inbound: FIFO relay failed: {e}"),
+        if let Err(e) = ssh::fifo_command(&self.config, &cmd).await {
+            // Server being offline is expected and not an error.
+            warn!("Discord inbound: FIFO relay failed (server offline?): {e}");
         }
     }
 
     async fn ready(&self, _ctx: Context, ready: Ready) {
-        info!(
-            name = %ready.user.name,
-            guilds = ready.guilds.len(),
-            watching_channel = self.channel_id,
-            "Discord bot connected",
-        );
-        if ready.guilds.is_empty() {
-            warn!("Discord bot is not in any guild — add the bot to your server first");
-        }
+        info!("Discord bot connected as \"{}\"", ready.user.name);
     }
 }
 

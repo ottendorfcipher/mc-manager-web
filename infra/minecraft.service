@@ -14,29 +14,18 @@ WorkingDirectory=/opt/minecraft/server
 #   hit the Tokio SSH timeout and return 502.
 #
 # Fix:
-#   exec 3<>$FIFO  — opens the named pipe for both read AND write (O_RDWR);
-#                    this prevents external writers from blocking (they need a
-#                    reader), and prevents cat from ever seeing EOF (they need
-#                    a writer to stay alive).
-#   cat <&3        — reads directly from fd 3, which is the same open file
-#                    description as the FIFO; cat does a plain blocking read()
-#                    on each call, so data written to the FIFO is forwarded to
-#                    Java's stdin immediately, one write() per read().
-#
-# Why not tail -f $FIFO:
-#   tail opens the FIFO on its OWN fd and registers an inotify watch for
-#   IN_MODIFY.  When the parent bash also holds an O_RDWR fd (exec 3<>$FIFO),
-#   FIFO writes are consumed by whichever fd's read() call is scheduled first
-#   — often the bash fd, not tail's fd.  Data disappears into bash's read
-#   buffer without ever reaching Java.  cat <&3 eliminates the race because
-#   there is only one fd: fd 3, shared by bash and cat.
+#   exec 3<>$FIFO  — opens the named pipe for both read AND write in this
+#                    shell process; this prevents tail -f from blocking on
+#                    open (tail needs at least one writer before it opens).
+#   tail -f $FIFO  — streams new writes to Java's stdin continuously without
+#                    ever producing EOF (unlike cat or a single redirect).
 #
 # Result: external writes from the backend complete in ~1 ms.
 ExecStart=/bin/bash -c \
   'FIFO=/opt/minecraft/console.fifo; \
    mkfifo $FIFO 2>/dev/null || true; \
    exec 3<>$FIFO; \
-   cat <&3 | java -Xmx6G -Xms2G \
+   tail -f $FIFO | java -Xmx6G -Xms2G \
      -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 \
      -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch \
      -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 \
