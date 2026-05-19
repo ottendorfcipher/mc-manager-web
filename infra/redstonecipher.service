@@ -1,0 +1,44 @@
+[Unit]
+Description=redstoneCipher Web Server
+After=network.target tailscaled.service
+
+[Service]
+User=redstonecipher
+Group=redstonecipher
+WorkingDirectory=/opt/redstonecipher
+EnvironmentFile=/opt/redstonecipher/.env
+ExecStart=/opt/redstonecipher/redstonecipher-server
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
+
+# Prevent the process from gaining new privileges via setuid/setgid executables.
+NoNewPrivileges=yes
+
+# Give the service an isolated /tmp — it cannot snoop on other services' temp files.
+PrivateTmp=yes
+
+# The service has no reason to read /home or /root.
+ProtectHome=yes
+
+# Mount the filesystem read-only system-wide, then punch specific write holes.
+# The service only needs to write to the DB directory and the served frontend assets.
+ProtectSystem=strict
+ReadWritePaths=/opt/redstonecipher/data /opt/redstonecipher/www
+
+# Drop all Linux capabilities. The service binds to port 8080 (unprivileged)
+# and performs all privileged operations (SSH to mc-server-1) as the
+# 'redstonecipher' user with its dedicated key — no capabilities needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restrict to the system-service syscall group (covers everything a well-behaved
+# Tokio/Axum server needs: networking, file I/O, threading, timers, signals).
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
