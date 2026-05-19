@@ -185,12 +185,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/chat/send",    post(handlers::chat::send))
         // Music queue
         .route("/music/tracks",      get(handlers::music::list_tracks))
+        .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track))
+        .route("/music/tracks",      post(handlers::music::add_custom_track))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))
         .route("/music/queue/:id",   delete(handlers::music::remove_from_queue))
         .route("/music/skip",        post(handlers::music::skip))
         .route("/music/stop",        post(handlers::music::stop))
+        .route("/music/resource-pack",
+            get(handlers::music::get_resource_pack)
+                .post(handlers::music::upload_resource_pack)
+                .delete(handlers::music::delete_resource_pack)
+        )
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),

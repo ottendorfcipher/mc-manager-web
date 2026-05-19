@@ -96,3 +96,56 @@ pub async fn clear(pool: &SqlitePool) -> Result<()> {
         .await?;
     Ok(())
 }
+
+// ── Custom tracks (resource-pack sounds) ──────────────────────────────────────
+
+/// A user-registered custom sound event from the server resource pack.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct CustomTrack {
+    pub sound_id:      String,
+    pub display_name:  String,
+    pub artist:        String,
+    pub duration_secs: i64,
+    pub added_by:      String,
+    pub added_at:      String,
+}
+
+pub async fn list_custom_tracks(pool: &SqlitePool) -> Result<Vec<CustomTrack>> {
+    Ok(
+        sqlx::query_as::<_, CustomTrack>(
+            "SELECT * FROM music_custom_tracks ORDER BY added_at ASC",
+        )
+        .fetch_all(pool)
+        .await?,
+    )
+}
+
+pub async fn add_custom_track(
+    pool:         &SqlitePool,
+    sound_id:     &str,
+    display_name: &str,
+    artist:       &str,
+    duration_secs: i64,
+    added_by:     &str,
+) -> Result<CustomTrack> {
+    Ok(sqlx::query_as::<_, CustomTrack>(
+        "INSERT INTO music_custom_tracks (sound_id, display_name, artist, duration_secs, added_by)
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING *",
+    )
+    .bind(sound_id)
+    .bind(display_name)
+    .bind(artist)
+    .bind(duration_secs)
+    .bind(added_by)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn remove_custom_track(pool: &SqlitePool, sound_id: &str) -> Result<bool> {
+    let r = sqlx::query("DELETE FROM music_custom_tracks WHERE sound_id = ?")
+        .bind(sound_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
