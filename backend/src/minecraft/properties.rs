@@ -87,6 +87,29 @@ fn shell_escape(s: &str) -> String {
     format!("$'{escaped}'")
 }
 
+/// Apply updates to server.properties WITHOUT restarting the Minecraft service.
+/// Used for settings that take effect on next player connection (e.g. resource
+/// pack URL) where a full service restart would unnecessarily kick all players.
+pub async fn apply_updates_no_restart(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
+    let (existing, _) = ssh::run(cfg, &format!("cat {REMOTE_PROPS}")).await?;
+    let new_content = merge_properties(&existing, updates);
+    let write_cmd = format!(
+        "printf '%s' {content} > {tmp} && \
+         sudo cp {tmp} {dest} && \
+         sudo chown minecraft:minecraft {dest} && echo DONE",
+        content = shell_escape(&new_content),
+        tmp    = REMOTE_TMP,
+        dest   = REMOTE_PROPS,
+    );
+    let (out, _) = ssh::run_with_timeout(cfg, &write_cmd, std::time::Duration::from_secs(30)).await?;
+    if !out.contains("DONE") {
+        return Err(crate::error::AppError::ExternalCommand(
+            "server.properties update (no-restart) did not complete".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

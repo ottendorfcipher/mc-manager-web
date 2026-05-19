@@ -223,6 +223,14 @@ export interface SoundEntry {
   display_name:  string;
   artist:        string;
   duration_secs: number;
+  is_custom:     boolean;
+}
+
+export interface ResourcePackInfo {
+  installed:   boolean;
+  url?:        string;
+  sha1?:       string;
+  size_bytes?: number;
 }
 
 export interface MusicQueueEntry {
