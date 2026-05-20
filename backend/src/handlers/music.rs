@@ -1,3 +1,4 @@
+use std::io::Read as _;
 use std::time::Duration;
 
 use axum::{
@@ -264,6 +265,95 @@ pub async fn remove_custom_track(
 const PACK_PATH: &str = "/opt/redstonecipher/www/resource-pack.zip";
 const PACK_URL:  &str = "https://redstonecipher.com/resource-pack.zip";
 
+// ── Sound detection ────────────────────────────────────────────────────────────
+
+/// One sound event detected from a resource pack's sounds.json.
+#[derive(Clone, serde::Serialize)]
+pub struct DetectedSound {
+    /// Full Minecraft namespaced ID, e.g. `redstonecipher:music.my_song`.
+    pub sound_id: String,
+    /// First audio file path in the sounds array (without `.ogg`),
+    /// e.g. `redstonecipher/music/my_song`.
+    pub path: String,
+}
+
+/// Parse every `assets/<namespace>/sounds.json` in the zip at `pack_path`
+/// and return all detected sound events as `DetectedSound` entries.
+fn parse_pack_sounds(pack_path: &str) -> Vec<DetectedSound> {
+    let file = match std::fs::File::open(pack_path) {
+        Ok(f)  => f,
+        Err(_) => return vec![],
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a)  => a,
+        Err(_) => return vec![],
+    };
+
+    let mut out: Vec<DetectedSound> = vec![];
+
+    for i in 0..archive.len() {
+        let mut entry = match archive.by_index(i) {
+            Ok(e)  => e,
+            Err(_) => continue,
+        };
+
+        // Only process assets/<namespace>/sounds.json
+        let name = entry.name().to_owned();
+        let parts: Vec<&str> = name.splitn(4, '/').collect();
+        if parts.len() != 3
+            || parts[0] != "assets"
+            || parts[2] != "sounds.json"
+        {
+            continue;
+        }
+        let namespace = parts[1].to_owned();
+
+        let mut content = String::new();
+        if entry.read_to_string(&mut content).is_err() {
+            continue;
+        }
+        let map: serde_json::Map<String, serde_json::Value> =
+            match serde_json::from_str(&content) {
+                Ok(m)  => m,
+                Err(_) => continue,
+            };
+
+        for (event_key, event_val) in &map {
+            // The first sound entry's "name" (can be a plain string or an object).
+            let path = event_val
+                .get("sounds")
+                .and_then(|s| s.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|first| {
+                    first.as_str()
+                        .map(|s| s.to_owned())
+                        .or_else(|| {
+                            first.get("name")
+                                .and_then(|n| n.as_str())
+                                .map(|s| s.to_owned())
+                        })
+                })
+                .unwrap_or_default();
+
+            out.push(DetectedSound {
+                sound_id: format!("{}:{}", namespace, event_key),
+                path,
+            });
+        }
+    }
+
+    out.sort_by(|a, b| a.sound_id.cmp(&b.sound_id));
+    out
+}
+
+/// GET /api/music/resource-pack/sounds
+///
+/// Parse the installed resource pack's sounds.json files and return every
+/// detected sound event so the frontend can offer one-click registration.
+pub async fn get_pack_sounds(_: AuthUser) -> Json<Vec<DetectedSound>> {
+    Json(parse_pack_sounds(PACK_PATH))
+}
+
 /// Upload a resource pack zip.  Saves it as a static file the game client can
 /// download, computes its SHA-1, and writes resource-pack / resource-pack-sha1
 /// into server.properties (no restart — takes effect for players who (re)join).
@@ -316,10 +406,13 @@ pub async fn upload_resource_pack(
         tracing::warn!("Could not update server.properties with resource-pack URL: {e}");
     }
 
+    let detected = parse_pack_sounds(PACK_PATH);
+
     Ok(Json(serde_json::json!({
         "url":        PACK_URL,
         "sha1":       sha1,
         "size_bytes": bytes.len(),
+        "sounds":     detected,
     })))
 }
 

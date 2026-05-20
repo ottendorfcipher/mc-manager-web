@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music2, SkipForward, Square, X, Search, Play, Upload, Package, Trash2, ChevronDown, Download } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
-import type { SoundEntry, MusicState, MusicQueueEntry, ResourcePackInfo } from "@/types";
+import type { SoundEntry, MusicState, MusicQueueEntry, ResourcePackInfo, DetectedSound } from "@/types";
 
 const INPUT = [
   "rounded-lg border border-[#D9D5D0] dark:border-[#363944]",
@@ -79,6 +79,13 @@ export function MusicPage() {
     enabled:  canPlay,
   });
 
+  // Detected sounds from the installed pack's sounds.json files.
+  const { data: detectedSounds = [], refetch: refetchDetected } = useQuery<DetectedSound[]>({
+    queryKey: ["music-pack-sounds"],
+    queryFn:  () => api.get("/music/resource-pack/sounds"),
+    enabled:  canPlay && !!packInfo?.installed,
+  });
+
   const packFileRef = useRef<HTMLInputElement>(null);
 
   const uploadPackMut = useMutation({
@@ -96,12 +103,12 @@ export function MusicPage() {
       }
       return res.json();
     },
-    onSuccess: () => refetchPack(),
+    onSuccess: () => { refetchPack(); refetchDetected(); },
   });
 
   const deletePackMut = useMutation({
     mutationFn: () => api.delete("/music/resource-pack"),
-    onSuccess:  () => refetchPack(),
+    onSuccess:  () => { refetchPack(); refetchDetected(); },
   });
 
   // ── Custom track registration ─────────────────────────────────────────────────
@@ -167,8 +174,17 @@ export function MusicPage() {
   const queue        = musicState?.queue ?? [];
   const pct          = np ? Math.min((elapsed / np.duration_secs) * 100, 100) : 0;
   const customTracks = tracks.filter((t) => t.is_custom);
-  const canSubmit    =
-    !!addTrack.sound_id.trim() && !!addTrack.display_name.trim() &&
+
+  // Sound ID validation — must be `namespace:event.name` with no spaces, exactly one colon.
+  const soundIdValue   = addTrack.sound_id.trim();
+  const soundIdTouched = soundIdValue.length > 0;
+  const soundIdValid: boolean | null = soundIdTouched
+    ? /^[^:\s]+:[^:\s]+$/.test(soundIdValue) && soundIdValue.split(":").length === 2
+    : null;
+
+  const canSubmit =
+    soundIdValid === true &&
+    !!addTrack.display_name.trim() &&
     (parseInt(durMins, 10) || 0) * 60 + (parseInt(durSecs, 10) || 0) > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -365,46 +381,85 @@ export function MusicPage() {
 
             {/* How-it-works guide */}
             {showGuide && (
-              <div className="rounded-lg bg-[#EEF4FF] dark:bg-[#181D2E] border border-[#5B9BF0]/25 p-3.5 space-y-3 text-xs">
+              <div className="rounded-lg bg-[#EEF4FF] dark:bg-[#181D2E] border border-[#5B9BF0]/25 p-3.5 space-y-3.5 text-xs">
                 <p className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">How custom music works</p>
-                <ol className="space-y-2.5">
-                  {([
-                    [
-                      "Download the starter template",
-                      "Open the zip — it has pack.mcmeta, a sounds.json, and a sounds/ folder already set up.",
-                    ],
-                    [
-                      "Add your .ogg audio files",
-                      "Put each file at  assets/redstonecipher/sounds/music/my_song.ogg  inside the zip.",
-                    ],
-                    [
-                      "Update sounds.json",
-                      'Add one entry per song — the template shows the exact format.\nThe key (e.g. "music.my_song") becomes the second half of the Sound ID.',
-                    ],
-                    [
-                      "Upload your pack, then register each track",
-                      "Upload the zip below. Then fill in the Register form so the track appears in the catalog.",
-                    ],
-                  ] as [string, string][]).map(([title, body], i) => (
-                    <li key={i} className="flex items-start gap-2.5">
-                      <span
-                        className="w-5 h-5 rounded-full bg-[#5B9BF0] text-white text-[10px] font-bold
-                                   flex items-center justify-center flex-shrink-0 mt-px"
-                      >
-                        {i + 1}
+                <ol className="space-y-3.5">
+
+                  {/* Step 1 */}
+                  <li className="flex items-start gap-2.5">
+                    <StepBadge n={1} />
+                    <span>
+                      <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Download the starter template</strong>
+                      <br />
+                      <span className="text-meta">
+                        Open the zip — it contains <code className="text-[#1C1E27] dark:text-[#EAECF0]">pack.mcmeta</code>,
+                        a <code className="text-[#1C1E27] dark:text-[#EAECF0]">sounds.json</code>, and the correct folder structure.
                       </span>
-                      <span>
-                        <strong className="text-[#1C1E27] dark:text-[#EAECF0]">{title}</strong>
-                        <br />
-                        <span className="text-meta whitespace-pre-line">{body}</span>
+                    </span>
+                  </li>
+
+                  {/* Step 2 */}
+                  <li className="flex items-start gap-2.5">
+                    <StepBadge n={2} />
+                    <span className="flex-1 min-w-0">
+                      <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Add your .ogg audio files</strong>
+                      <br />
+                      <span className="text-meta">Convert audio to OGG Vorbis, then place it inside the zip:</span>
+                      <pre className="mt-1.5 rounded-md bg-[#0D1117] px-3 py-2 text-[10px] font-mono
+                                     text-[#9B9EA6] overflow-x-auto leading-relaxed">
+{`assets/redstonecipher/
+├── sounds.json
+└── sounds/music/
+    └── my_song.ogg  ← your file here`}
+                      </pre>
+                    </span>
+                  </li>
+
+                  {/* Step 3 */}
+                  <li className="flex items-start gap-2.5">
+                    <StepBadge n={3} />
+                    <span className="flex-1 min-w-0">
+                      <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Update sounds.json</strong>
+                      <br />
+                      <span className="text-meta">Add one entry per track. The key becomes the Sound ID's event part:</span>
+                      <pre className="mt-1.5 rounded-md bg-[#0D1117] px-3 py-2 text-[10px] font-mono
+                                     text-[#9B9EA6] overflow-x-auto leading-relaxed">
+{`{
+  "music.my_song": {
+    "sounds": [{
+      "name": "redstonecipher/music/my_song",
+      "stream": true
+    }]
+  }
+}`}
+                      </pre>
+                    </span>
+                  </li>
+
+                  {/* Step 4 */}
+                  <li className="flex items-start gap-2.5">
+                    <StepBadge n={4} />
+                    <span>
+                      <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Upload your pack, then register each track</strong>
+                      <br />
+                      <span className="text-meta">
+                        Upload below — the dashboard will detect the sound events automatically.
+                        Click <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Use this ID</strong> next to each one,
+                        fill in the name &amp; duration, then click <strong className="text-[#1C1E27] dark:text-[#EAECF0]">Add to Catalog</strong>.
                       </span>
-                    </li>
-                  ))}
+                    </span>
+                  </li>
+
                 </ol>
                 <p className="text-meta pt-2 border-t border-[#5B9BF0]/20 leading-relaxed">
-                  Sound ID format: <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">namespace:event.name</code>
+                  Sound ID format:{" "}
+                  <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">
+                    namespace:event.name
+                  </code>
                   {" → e.g. "}
-                  <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">redstonecipher:music.my_song</code>
+                  <code className="bg-white dark:bg-[#2A2D38] px-1 rounded text-[#1C1E27] dark:text-[#EAECF0]">
+                    redstonecipher:music.my_song
+                  </code>
                 </p>
               </div>
             )}
@@ -499,25 +554,91 @@ export function MusicPage() {
                 </p>
               )}
 
+              {/* Detected sounds from the installed pack */}
+              {detectedSounds.length > 0 && (
+                <div className="rounded-lg bg-[#F0F5FF] dark:bg-[#181D2E] border border-[#5B9BF0]/20 p-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#5B9BF0]">
+                    Detected in your pack ({detectedSounds.length})
+                  </p>
+                  <div className="divide-y divide-[#D9D5D0]/60 dark:divide-[#363944]/60">
+                    {detectedSounds.map((s) => {
+                      const registered = tracks.some((t) => t.id === s.sound_id);
+                      return (
+                        <div key={s.sound_id} className="flex items-center gap-3 py-1.5">
+                          <code className="flex-1 text-[10px] font-mono text-[#1C1E27] dark:text-[#EAECF0] truncate min-w-0">
+                            {s.sound_id}
+                          </code>
+                          {registered ? (
+                            <span className="text-[10px] text-[#36B37E] flex-shrink-0 font-medium">
+                              ✓ registered
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setAddTrack((p) => ({ ...p, sound_id: s.sound_id }))}
+                              className="text-[10px] text-[#5B9BF0] hover:underline flex-shrink-0 font-medium"
+                            >
+                              Use this ID →
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-x-3 gap-y-3">
 
-                {/* Sound ID — full width */}
+                {/* Sound ID — full width with real-time validation */}
                 <div className="col-span-2">
                   <label className={LBL} htmlFor="sound-id">Sound ID</label>
-                  <input
-                    id="sound-id"
-                    placeholder="e.g. redstonecipher:music.my_song"
-                    value={addTrack.sound_id}
-                    onChange={(e) => setAddTrack((p) => ({ ...p, sound_id: e.target.value }))}
-                    className={`w-full font-mono ${INPUT}`}
-                  />
-                  <p className="mt-1 text-[10px] text-meta">
-                    Must match a key in your pack's{" "}
-                    <code className="text-[#1C1E27] dark:text-[#EAECF0]">sounds.json</code>
-                    {" — format: "}
-                    <code className="text-[#1C1E27] dark:text-[#EAECF0]">namespace:event.name</code>
+                  <div className="relative">
+                    <input
+                      id="sound-id"
+                      placeholder="e.g. redstonecipher:music.my_song"
+                      value={addTrack.sound_id}
+                      onChange={(e) => setAddTrack((p) => ({ ...p, sound_id: e.target.value }))}
+                      className={[
+                        "w-full font-mono pr-7",
+                        INPUT,
+                        soundIdValid === true  ? "!border-[#36B37E] focus:!ring-[#36B37E]" : "",
+                        soundIdValid === false ? "!border-[#F87171] focus:!ring-[#F87171]" : "",
+                      ].join(" ")}
+                      aria-invalid={soundIdValid === false}
+                      aria-describedby="sound-id-hint"
+                    />
+                    {soundIdValid !== null && (
+                      <span
+                        className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold select-none ${
+                          soundIdValid ? "text-[#36B37E]" : "text-[#F87171]"
+                        }`}
+                        aria-hidden
+                      >
+                        {soundIdValid ? "✓" : "✗"}
+                      </span>
+                    )}
+                  </div>
+                  <p id="sound-id-hint" className="mt-1 text-[10px] text-meta">
+                    {soundIdValid === false
+                      ? <span className="text-[#F87171]">Must be namespace:event.name with no spaces or extra colons.</span>
+                      : <>Must match a key in your pack’s{" "}
+                          <code className="text-[#1C1E27] dark:text-[#EAECF0]">sounds.json</code>
+                          {" — format: "}
+                          <code className="text-[#1C1E27] dark:text-[#EAECF0]">namespace:event.name</code>
+                        </>
+                    }
                   </p>
                 </div>
+
+                {/* /playsound preview */}
+                {soundIdValid === true && (
+                  <div className="col-span-2 rounded-lg bg-[#0D1117] px-3 py-2.5">
+                    <p className="text-[9px] text-[#4B5563] uppercase tracking-wider mb-1">Command that will run</p>
+                    <code className="text-[11px] text-[#36B37E] font-mono break-all">
+                      /playsound {soundIdValue} music @a ~ ~ ~ 1000000 1
+                    </code>
+                  </div>
+                )}
 
                 {/* Track name */}
                 <div>
@@ -732,6 +853,19 @@ function TrackRow({
         Queue
       </button>
     </div>
+  );
+}
+
+// ── Shared components ──────────────────────────────────────────────────────
+
+function StepBadge({ n }: { n: number }) {
+  return (
+    <span
+      className="w-5 h-5 rounded-full bg-[#5B9BF0] text-white text-[10px] font-bold
+                 flex items-center justify-center flex-shrink-0 mt-px"
+    >
+      {n}
+    </span>
   );
 }
 

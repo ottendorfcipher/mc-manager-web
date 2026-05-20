@@ -198,6 +198,7 @@ pub fn build_router(state: AppState) -> Router {
                 .post(handlers::music::upload_resource_pack)
                 .delete(handlers::music::delete_resource_pack)
         )
+        .route("/music/resource-pack/sounds", get(handlers::music::get_pack_sounds))
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),

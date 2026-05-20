@@ -256,6 +256,14 @@ export interface MusicState {
   queue:       MusicQueueEntry[];
 }
 
+/** A sound event detected from assets/<namespace>/sounds.json in the resource pack. */
+export interface DetectedSound {
+  /** Full Minecraft namespaced ID, e.g. `redstonecipher:music.my_song`. */
+  sound_id: string;
+  /** First `name` value from the sounds array, e.g. `redstonecipher/music/my_song`. */
+  path: string;
+}
+
 export interface DiscordSettings {
   /** `true` if a bot token is stored; the raw token is never returned. */
   bot_token_set:   boolean;
