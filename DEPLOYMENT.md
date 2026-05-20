@@ -1,6 +1,6 @@
 # redstoneCipher — Deployment Reference
 
-Last updated: 2026-05-13
+Last updated: 2026-05-20
 
 > **Migration note**: This project was migrated from Google Cloud (Firebase Hosting +
 > Cloud Run + GCE) to Hetzner-hosted bare servers in May 2026. All GCP projects
@@ -339,6 +339,158 @@ See [Whitelist](#whitelist) above.
 
 ---
 
+## Music Queue
+
+The music queue lets any user with the `music.play` permission queue vanilla or
+custom tracks that play for **all online players** simultaneously — no client
+mods required. It uses the vanilla `/playsound` command over the existing
+Minecraft console FIFO bridge.
+
+### How it works
+
+```
+Browser → POST /api/music/queue → Rust backend
+                                      │
+              ┌───────────────────────┤
+              │ 1. resolve track metadata
+              │ 2. stopsound @a music     (clears ambient/game music)
+              │ 3. playsound <id> music @a ~ ~ ~ 1000000 1
+              └──→ SSH → Tailscale → /opt/minecraft/console.fifo
+                                      │
+              ┌───────────────────────┤
+              │ 4. SSE broadcast new state
+              └──→ all open /music tabs update instantly
+```
+
+A background Tokio task polls elapsed time every 5 s and auto-advances the
+queue when the current track's duration expires.
+
+### Tracks
+
+**Vanilla** — 19 Minecraft 1.21 disc sounds (C418, Lena Raine, etc.) are
+baked into the binary. No configuration required.
+
+**Custom** — stored in the `music_custom_tracks` DB table. Require a resource
+pack uploaded to `/opt/redstonecipher/www/resource-pack.zip` and auto-registered
+in `server.properties` by the upload API.
+
+### Resource pack flow
+
+1. User uploads a `.zip` via `POST /api/music/resource-pack`.
+2. Backend saves to `/opt/redstonecipher/www/resource-pack.zip`.
+3. Backend runs `sha1sum` and writes `resource-pack` + `resource-pack-sha1`
+   into `server.properties` on the MC server via SSH (no restart needed).
+4. Players download the pack automatically on next (re)join.
+5. Backend parses `assets/<namespace>/sounds.json` in the zip and returns
+   detected sound events so the UI can offer one-click track registration.
+
+Starter template: `https://example.com/resource-pack-template.zip`
+
+### Sound ID format
+
+```
+namespace:event.name
+─────────  ──────────
+folder under     key in
+assets/          sounds.json
+
+e.g.  redstonecipher:music.my_song
+  file  →  assets/redstonecipher/sounds/music/my_song.ogg
+  JSON  →  assets/redstonecipher/sounds.json { "music.my_song": { ... } }
+```
+
+### Permissions
+
+| Key | Default roles | Description |
+|---|---|---|
+| `music.play` | `member`, `admin`, `global_admin` | Queue tracks, upload resource pack, register custom tracks |
+
+### API reference
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`    | `/api/music/tracks`               | Unified catalog (vanilla + custom) |
+| `GET`    | `/api/music/state`                | Now-playing + queue snapshot |
+| `GET`    | `/api/music/stream`               | SSE — fires on every state change |
+| `POST`   | `/api/music/queue`                | Enqueue a track |
+| `DELETE` | `/api/music/queue/:id`            | Remove a queued entry |
+| `POST`   | `/api/music/skip`                 | Skip current track |
+| `POST`   | `/api/music/stop`                 | Stop all + clear queue |
+| `POST`   | `/api/music/tracks`               | Register a custom track |
+| `DELETE` | `/api/music/tracks/:sound_id`     | Remove a custom track |
+| `GET`    | `/api/music/resource-pack`        | Pack status, SHA1, size |
+| `GET`    | `/api/music/resource-pack/sounds` | Sounds detected in installed pack |
+| `POST`   | `/api/music/resource-pack`        | Upload pack (multipart field `pack`) |
+| `DELETE` | `/api/music/resource-pack`        | Remove pack + clear server.properties |
+
+### DB schema
+
+```sql
+-- migration 0021
+CREATE TABLE music_queue (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sound_id     TEXT    NOT NULL,
+    display_name TEXT    NOT NULL,
+    requested_by TEXT    NOT NULL,
+    queued_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+-- migration 0022
+CREATE TABLE music_custom_tracks (
+    sound_id      TEXT    PRIMARY KEY,  -- e.g. "redstonecipher:music.my_song"
+    display_name  TEXT    NOT NULL,
+    artist        TEXT    NOT NULL DEFAULT '',
+    duration_secs INTEGER NOT NULL DEFAULT 180,
+    added_by      TEXT    NOT NULL,
+    added_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### Key file paths (web server)
+
+| Path | Purpose |
+|---|---|
+| `/opt/redstonecipher/www/resource-pack.zip` | Installed resource pack (served at `/resource-pack.zip`) |
+| `/opt/redstonecipher/www/resource-pack-template.zip` | Starter template (always present) |
+
+### Troubleshooting
+
+**Track queues but no sound plays**
+```bash
+# 1. Is MC running?
+ssh mc-server 'systemctl is-active minecraft'
+# 2. Does the FIFO exist?
+ssh mc-server 'test -p /opt/minecraft/console.fifo && echo OK'
+# 3. Backend SSH errors?
+journalctl -u redstonecipher -n 50 --no-pager | grep -i music
+```
+`"No player was found"` in the MC log is expected when nobody is online —
+the command reached the server; it will work once a player joins.
+
+**Custom track not audible after registration**
+- Confirm pack is installed: `GET /api/music/resource-pack` → `{"installed":true}`
+- Confirm `server.properties`: `grep resource-pack /opt/minecraft/server/server.properties`
+- Player must re-join after the pack is uploaded to trigger the download.
+- Sound ID must exactly match a key in `assets/<namespace>/sounds.json`.
+- Audio must be **OGG Vorbis** — other formats are silently ignored by Minecraft.
+
+**deploy-backend.sh rsync bug**
+The script incorrectly mixes local sources and remote destinations in one
+`rsync` call. Until fixed, deploy manually:
+```bash
+SERVER=root@203.0.113.10
+rsync -az backend/src/        $SERVER:/opt/redstonecipher/backend/src/
+rsync -az backend/Cargo.toml  $SERVER:/opt/redstonecipher/backend/
+rsync -az backend/Cargo.lock  $SERVER:/opt/redstonecipher/backend/
+rsync -az backend/migrations/ $SERVER:/opt/redstonecipher/backend/migrations/
+ssh $SERVER 'cd /opt/redstonecipher/backend && cargo build --release'
+ssh $SERVER 'systemctl stop redstonecipher && \
+  cp target/release/redstonecipher-server /opt/redstonecipher/redstonecipher-server && \
+  systemctl start redstonecipher'
+```
+
+---
+
 ## Service Dependencies
 
 ```
@@ -352,6 +504,10 @@ nginx                   →  redstonecipher.service (proxy_pass 127.0.0.1:8080)
 # World management (on-demand, triggered by API)
 POST /api/worlds/:id/activate  →  SSH → world-switch.sh  →  systemctl stop/start minecraft
 POST /api/worlds/:id/backups   →  SSH → world-backup.sh  →  tar.gz in backups/{slug}/daily/
+
+# Music queue (real-time, triggered by API)
+POST /api/music/queue  →  SSH → console.fifo → stopsound + playsound
+                       →  SSE broadcast → all /music tabs
 ```
 
 > **Note**: Per-world backups triggered via the API (`world-backup.sh`) are separate from the
@@ -362,6 +518,23 @@ POST /api/worlds/:id/backups   →  SSH → world-backup.sh  →  tar.gz in back
 ---
 
 ## Deployment History
+
+### 2026-05-20 — Music queue, custom tracks, resource pack
+
+- Migrations 0021 (`music_queue`) and 0022 (`music_custom_tracks`) applied.
+- New `music.play` permission seeded for `member`/`admin`/`global_admin`.
+- 19 vanilla disc sounds baked into the binary (no DB/config required).
+- Resource pack API: upload stores to `www/resource-pack.zip`, SHA-1 computed and
+  written to `server.properties` via SSH (no server restart needed).
+- `GET /api/music/resource-pack/sounds` added — parses installed pack's `sounds.json`
+  and returns detected sound events (powers the UI auto-detect panel).
+- Frontend `/music` page: Now Playing progress bar, Up Next queue, Track Catalog with
+  search, Custom Music setup card (pack upload, sounds auto-detect, Sound ID
+  validation with `/playsound` command preview, MM:SS duration picker).
+- Starter resource pack template published at `/resource-pack-template.zip`.
+- Build fixes: `postcss.config.js` restored (was missing → empty CSS bundle);
+  static assets (`favicon.svg`, weather images) moved to `frontend/public/`
+  so `vite build --emptyOutDir` no longer deletes them.
 
 ### 2026-05-13 — Multi-world management
 
