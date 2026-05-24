@@ -313,3 +313,39 @@ export const ROLE_COLORS: Record<Role, string> = {
 };
 
 export const ALL_ROLES: Role[] = ["visitor", "user", "member", "admin", "global_admin"];
+
+// ── Events — Countdowns ─────────────────────────────────────────────────────
+
+export interface Countdown {
+  id:           number;
+  title:        string;
+  duration_secs: number;
+  target:       string;
+  display_mode: string;
+  color:        string;
+  sound_id:     string | null;
+  status:       "pending" | "running" | "paused" | "finished" | "cancelled";
+  elapsed_secs: number;
+  created_by:   string;
+  created_at:   string;
+  started_at:   string | null;
+  finished_at:  string | null;
+}
+
+export interface ActiveCountdown {
+  id:             number;
+  title:          string;
+  duration_secs:  number;
+  remaining_secs: number;
+  target:         string;
+  display_mode:   string;
+  color:          string;
+  sound_id:       string | null;
+  status:         "running" | "paused";
+  created_by:     string;
+}
+
+export interface CountdownState {
+  active: ActiveCountdown | null;
+  recent: Countdown[];
+}

@@ -59,6 +59,14 @@ async fn main() -> anyhow::Result<()> {
         state.music_tx.clone(),
     );
 
+    // Spawn the countdown background task that ticks every second.
+    lib::minecraft::countdown_runner::spawn_countdown_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.countdown_active.clone(),
+        state.countdown_tx.clone(),
+    );
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),
