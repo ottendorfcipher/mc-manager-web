@@ -67,6 +67,22 @@ async fn main() -> anyhow::Result<()> {
         state.countdown_tx.clone(),
     );
 
+    // Spawn the rising-oceans background task.
+    lib::minecraft::rising_oceans_runner::spawn_rising_oceans_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.rising_oceans_active.clone(),
+        state.rising_oceans_tx.clone(),
+    );
+
+    // Spawn the bounty-board background task.
+    lib::minecraft::bounty_runner::spawn_bounty_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.bounty_board_active.clone(),
+        state.bounty_board_tx.clone(),
+    );
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),

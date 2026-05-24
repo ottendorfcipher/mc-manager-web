@@ -245,7 +245,28 @@ pub fn build_router(state: AppState) -> Router {
         .route("/events/countdowns/:id/pause",   post(handlers::events::pause))
         .route("/events/countdowns/:id/resume",  post(handlers::events::resume))
         .route("/events/countdowns/:id/cancel",  post(handlers::events::cancel))
-        .route("/events/countdowns/:id",         delete(handlers::events::delete));
+        .route("/events/countdowns/:id",         delete(handlers::events::delete))
+        // Events — Rising Oceans
+        .route("/events/rising-oceans/state",      get(handlers::rising_oceans::get_state))
+        .route("/events/rising-oceans/stream",     get(handlers::rising_oceans::stream))
+        .route("/events/rising-oceans",            post(handlers::rising_oceans::create))
+        .route("/events/rising-oceans/:id/start",  post(handlers::rising_oceans::start))
+        .route("/events/rising-oceans/:id/pause",  post(handlers::rising_oceans::pause))
+        .route("/events/rising-oceans/:id/resume", post(handlers::rising_oceans::resume))
+        .route("/events/rising-oceans/:id/cancel", post(handlers::rising_oceans::cancel))
+        .route("/events/rising-oceans/:id/revert", post(handlers::rising_oceans::revert))
+        .route("/events/rising-oceans/:id/keep",   post(handlers::rising_oceans::keep))
+        .route("/events/rising-oceans/:id",        delete(handlers::rising_oceans::delete))
+        // Events — Bounty Boards
+        .route("/events/bounty-board/state",       get(handlers::bounty_board::get_state))
+        .route("/events/bounty-board/stream",      get(handlers::bounty_board::stream))
+        .route("/events/bounty-board",             post(handlers::bounty_board::create))
+        .route("/events/bounty-board/:id/start",   post(handlers::bounty_board::start))
+        .route("/events/bounty-board/:id/pause",   post(handlers::bounty_board::pause))
+        .route("/events/bounty-board/:id/resume",  post(handlers::bounty_board::resume))
+        .route("/events/bounty-board/:id/finish",  post(handlers::bounty_board::finish))
+        .route("/events/bounty-board/:id/cancel",  post(handlers::bounty_board::cancel))
+        .route("/events/bounty-board/:id",         delete(handlers::bounty_board::delete));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

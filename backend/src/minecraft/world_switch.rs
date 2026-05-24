@@ -95,6 +95,33 @@ pub async fn list_world_backup_files(
     Ok(results)
 }
 
+/// Restore a `.tar.gz` world backup over the currently-active world.
+///
+/// Stops the minecraft service, extracts the archive into the live server
+/// directory (overwriting current world files), then restarts the service.
+/// Times out after 5 minutes for large extractions.
+pub async fn restore_world_backup(cfg: &Config, archive_path: &str) -> Result<()> {
+    let safe_path = shell_quote(archive_path);
+    // Stop MC, extract archive to /opt/minecraft/server (overwriting current world),
+    // restart MC, and emit "DONE" on success.
+    let cmd = format!(
+        "systemctl stop minecraft && \
+         tar -xzf {safe_path} -C /opt/minecraft/server && \
+         chown -R minecraft:minecraft /opt/minecraft/server && \
+         systemctl start minecraft && \
+         echo DONE"
+    );
+    let (out, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(300)).await?;
+    if out.contains("DONE") {
+        Ok(())
+    } else {
+        Err(AppError::ExternalCommand(format!(
+            "World restore failed: {}",
+            out.trim()
+        )))
+    }
+}
+
 // ── Directory management ──────────────────────────────────────────────────────
 
 /// Create the world storage and backup directory tree on mc-server-1.

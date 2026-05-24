@@ -1,11 +1,16 @@
 pub mod backup;
+pub mod bounty_runner;
 pub mod chat_watcher;
 pub mod console;
 pub mod countdown;
 pub mod countdown_runner;
+pub mod dimensions;
 pub mod give_item;
+pub mod mc_stats;
 pub mod music;
 pub mod player_data;
 pub mod players;
 pub mod properties;
+pub mod rising_oceans;
+pub mod rising_oceans_runner;
 pub mod world_switch;

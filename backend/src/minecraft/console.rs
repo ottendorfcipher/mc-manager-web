@@ -6,6 +6,24 @@ pub async fn send(cfg: &Config, command: &str) -> Result<bool> {
     ssh::fifo_command(cfg, command).await
 }
 
+/// Send multiple console commands in sequence. Returns `true` if all succeeded.
+/// Individual command failures are logged but do not abort the batch — useful
+/// for best-effort fanout (e.g. teleporting many players at once).
+pub async fn send_batch(cfg: &Config, commands: &[&str]) -> Result<bool> {
+    let mut all_ok = true;
+    for cmd in commands {
+        match ssh::fifo_command(cfg, cmd).await {
+            Ok(true)  => {}
+            Ok(false) => all_ok = false,
+            Err(e)    => {
+                tracing::warn!("console: batch command failed: {cmd} → {e}");
+                all_ok = false;
+            }
+        }
+    }
+    Ok(all_ok)
+}
+
 pub async fn set_gamerule(cfg: &Config, rule: &str, value: &str) -> Result<bool> {
     send(cfg, &format!("gamerule {rule} {value}")).await
 }
