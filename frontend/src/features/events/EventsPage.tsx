@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Timer, Play, Pause, Square, Trash2, Plus, Users, User,
+  Timer, Play, Pause, Square, Trash2, Plus, Users, User, Waves, Trophy,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
+import { RisingOceansPanel } from "./RisingOceansPanel";
+import { BountyBoardPanel } from "./BountyBoardPanel";
 import type { CountdownState, SoundEntry } from "@/types";
 
 const INPUT = [
@@ -43,22 +45,103 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// ── EventsPage ────────────────────────────────────────────────────────────────
+type EventTab = "countdowns" | "rising-oceans" | "bounty-board";
+
+// ── EventsPage (top-level: tabs + per-tab panels) ─────────────────────────────
 
 export function EventsPage() {
-  const qc = useQueryClient();
   const { hasPerm } = useAuthStore();
-  const canCreate = hasPerm("events.countdown.create");
-  const canManage = hasPerm("events.countdown.manage");
+  const [tab, setTab] = useState<EventTab>("countdowns");
 
-  // ── Countdown state (active + recent) ────────────────────────────────────────
+  // Permissions used by sub-panels (collected once at the top).
+  const canCountdownCreate  = hasPerm("events.countdown.create");
+  const canCountdownManage  = hasPerm("events.countdown.manage");
+  const canRisingCreate     = hasPerm("events.rising_oceans.create") || hasPerm("events.rising_oceans.manage");
+  const canRisingManage     = hasPerm("events.rising_oceans.manage");
+  const canBountyManage     = hasPerm("events.bounty_board.create") || hasPerm("events.bounty_board.manage");
+
+  const tabs = ([
+    { key: "countdowns"    as EventTab, label: "Countdowns",    Icon: Timer,  show: hasPerm("nav.events") || canCountdownCreate || canCountdownManage },
+    { key: "rising-oceans" as EventTab, label: "Rising Oceans", Icon: Waves,  show: hasPerm("nav.events") || canRisingCreate    || canRisingManage   },
+    { key: "bounty-board"  as EventTab, label: "Bounty Boards", Icon: Trophy, show: hasPerm("nav.events") || canBountyManage    },
+  ] as const).filter((t) => t.show);
+
+  return (
+    <div className="page-wide space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Events</h1>
+        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
+          Run timed countdowns, rising-oceans hazard events, and competitive bounty boards
+        </p>
+      </div>
+
+      {/* Tab bar — scrollable on mobile, keyboard arrow nav. */}
+      <div className="-mx-4 sm:mx-0 overflow-x-auto">
+        <div
+          role="tablist"
+          aria-label="Event types"
+          className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944] min-w-max sm:min-w-0 px-4 sm:px-0"
+          onKeyDown={(e) => {
+            const idx = tabs.findIndex((t) => t.key === tab);
+            if (e.key === "ArrowRight") setTab(tabs[(idx + 1) % tabs.length].key);
+            else if (e.key === "ArrowLeft") setTab(tabs[(idx - 1 + tabs.length) % tabs.length].key);
+          }}
+        >
+          {tabs.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              aria-controls={`tabpanel-${key}`}
+              id={`tab-${key}`}
+              onClick={() => setTab(key)}
+              data-testid={`events-tab-${key}`}
+              tabIndex={tab === key ? 0 : -1}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === key
+                  ? "border-[#5B9BF0] text-[#5B9BF0]"
+                  : "border-transparent text-sub hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+              }`}
+            >
+              <Icon className="w-4 h-4" aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div role="tabpanel" id="tabpanel-countdowns" aria-labelledby="tab-countdowns" hidden={tab !== "countdowns"}>
+        <CountdownsPanel canCreate={canCountdownCreate} canManage={canCountdownManage} />
+      </div>
+      <div role="tabpanel" id="tabpanel-rising-oceans" aria-labelledby="tab-rising-oceans" hidden={tab !== "rising-oceans"}>
+        {tab === "rising-oceans" && (
+          <RisingOceansPanel canCreate={canRisingCreate} canManage={canRisingManage} />
+        )}
+      </div>
+      <div role="tabpanel" id="tabpanel-bounty-board" aria-labelledby="tab-bounty-board" hidden={tab !== "bounty-board"}>
+        {tab === "bounty-board" && (
+          <BountyBoardPanel canManage={canBountyManage} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Countdowns panel (the original single-page countdown UI) ──────────────────
+
+function CountdownsPanel({
+  canCreate,
+  canManage,
+}: {
+  canCreate: boolean;
+  canManage: boolean;
+}) {
+  const qc = useQueryClient();
 
   const { data: countdownState } = useQuery<CountdownState>({
     queryKey: ["countdown-state"],
     queryFn:  () => api.get("/events/countdowns/state"),
   });
-
-  // ── SSE stream ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const es = new EventSource("/api/events/countdowns/stream", { withCredentials: true });
@@ -69,8 +152,6 @@ export function EventsPage() {
     };
     return () => es.close();
   }, [qc]);
-
-  // ── Smooth local countdown ticker ────────────────────────────────────────────
 
   const active = countdownState?.active ?? null;
   const [localRemaining, setLocalRemaining] = useState(0);
@@ -86,15 +167,11 @@ export function EventsPage() {
     return () => clearInterval(id);
   }, [active?.id, active?.remaining_secs, active?.status]);
 
-  // ── Track catalog (for music pairing dropdown) ──────────────────────────────
-
   const { data: tracks = [] } = useQuery<SoundEntry[]>({
     queryKey:  ["music-tracks"],
     queryFn:   () => api.get("/music/tracks"),
     staleTime: Infinity,
   });
-
-  // ── Mutations ────────────────────────────────────────────────────────────────
 
   const createMut  = useMutation({
     mutationFn: (body: CreateBody) => api.post("/events/countdowns", body),
@@ -118,15 +195,7 @@ export function EventsPage() {
   });
 
   return (
-    <div className="page-wide space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Events</h1>
-        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
-          Synchronized countdowns displayed in-game for all or selected players
-        </p>
-      </div>
-
-      {/* ── Active Countdown ─────────────────────────────────────────── */}
+    <div className="space-y-5">
       {active && (
         <ActiveCountdownCard
           active={active}
@@ -138,7 +207,6 @@ export function EventsPage() {
         />
       )}
 
-      {/* ── Create Form ──────────────────────────────────────────────── */}
       {canCreate && (
         <CreateCountdownForm
           tracks={tracks}
@@ -148,7 +216,6 @@ export function EventsPage() {
         />
       )}
 
-      {/* ── Recent Countdowns ────────────────────────────────────────── */}
       <RecentList
         items={countdownState?.recent ?? []}
         canManage={canManage}
@@ -202,7 +269,6 @@ function ActiveCountdownCard({
         </div>
       </div>
 
-      {/* Progress bar */}
       <div className="w-full h-2 bg-[#E5E7EB] dark:bg-[#363944] rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-1000 ${
@@ -212,7 +278,6 @@ function ActiveCountdownCard({
         />
       </div>
 
-      {/* Controls */}
       {canManage && (
         <div className="flex gap-2">
           {isPaused ? (
@@ -292,7 +357,6 @@ function CreateCountdownForm({
       auto_start: true,
     });
 
-    // Reset form
     setTitle("");
     setMins(5);
     setSecs(0);
@@ -310,7 +374,6 @@ function CreateCountdownForm({
         </p>
       )}
 
-      {/* Title */}
       <div>
         <label className={LBL}>Title</label>
         <input
@@ -324,7 +387,6 @@ function CreateCountdownForm({
         />
       </div>
 
-      {/* Duration */}
       <div className="flex gap-4">
         <div className="flex-1">
           <label className={LBL}>Minutes</label>
@@ -355,7 +417,6 @@ function CreateCountdownForm({
         </div>
       </div>
 
-      {/* Target */}
       <div>
         <label className={LBL}>Players</label>
         <div className="flex items-center gap-4">
@@ -392,7 +453,6 @@ function CreateCountdownForm({
         </div>
       </div>
 
-      {/* Display mode checkboxes */}
       <div>
         <label className={LBL}>Display</label>
         <div className="flex flex-wrap gap-4">
@@ -402,7 +462,6 @@ function CreateCountdownForm({
         </div>
       </div>
 
-      {/* Color + Music row */}
       <div className="flex gap-4">
         <div className="flex-1">
           <label className={LBL}>Color</label>
@@ -433,7 +492,6 @@ function CreateCountdownForm({
         </div>
       </div>
 
-      {/* Submit */}
       <div className="flex justify-end">
         <button
           type="submit"
@@ -458,9 +516,7 @@ function RecentList({
   canManage: boolean;
   onDelete: (id: number) => void;
 }) {
-  // Only show non-active countdowns in the recent list
   const recent = items.filter((c) => c.status !== "running" && c.status !== "paused");
-
   if (recent.length === 0) return null;
 
   return (

@@ -149,3 +149,25 @@ pub async fn remove_custom_track(pool: &SqlitePool, sound_id: &str) -> Result<bo
         .await?;
     Ok(r.rows_affected() > 0)
 }
+
+/// Update a custom track's display metadata.
+pub async fn update_custom_track(
+    pool:          &SqlitePool,
+    sound_id:      &str,
+    display_name:  &str,
+    artist:        &str,
+    duration_secs: i64,
+) -> Result<bool> {
+    let r = sqlx::query(
+        "UPDATE music_custom_tracks
+            SET display_name = ?, artist = ?, duration_secs = ?
+          WHERE sound_id = ?",
+    )
+    .bind(display_name)
+    .bind(artist)
+    .bind(duration_secs)
+    .bind(sound_id)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
+}
