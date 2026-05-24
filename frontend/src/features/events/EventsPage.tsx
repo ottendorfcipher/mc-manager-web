@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Timer, Play, Pause, Square, Trash2, Plus, Users, Waves, Trophy,
-  CheckSquare, XSquare, X, Pipette,
+  CheckSquare, XSquare, X, Pipette, Music2, ChevronUp, ChevronDown,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
+import { DiscIcon } from "@/components/DiscIcon";
 import { RisingOceansPanel } from "./RisingOceansPanel";
 import { BountyBoardPanel } from "./BountyBoardPanel";
 import type { CountdownState, SoundEntry, McPlayer } from "@/types";
@@ -334,6 +335,7 @@ interface CreateBody {
   display_mode?: string;
   color?:        string;
   sound_id?:     string;
+  sound_ids?:    string[];
   auto_start?:   boolean;
 }
 
@@ -358,7 +360,9 @@ function CreateCountdownForm({
   const [titleFinal, setTitleFinal] = useState(true);
   const [color, setColor]     = useState<string>("yellow");
   const [colorModalOpen, setColorModalOpen] = useState(false);
-  const [soundId, setSoundId] = useState("");
+  /** Ordered list of selected tracks (multi-track countdown). */
+  const [soundIds, setSoundIds] = useState<string[]>([]);
+  const [trackModalOpen, setTrackModalOpen] = useState(false);
 
   // All players who have ever joined the server.
   const { data: players = [] } = useQuery<McPlayer[]>({
@@ -376,9 +380,18 @@ function CreateCountdownForm({
   }, [players]);
 
   const totalSecs = mins * 60 + secs;
+
+  // Sum of selected tracks → caps the countdown duration when music is paired.
+  const musicTotalSecs = useMemo(() => {
+    if (soundIds.length === 0) return null;
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    return soundIds.reduce((sum, id) => sum + (byId.get(id)?.duration_secs ?? 0), 0);
+  }, [soundIds, tracks]);
+
   const targetValid = targetAll || selectedPlayers.size > 0;
+  const overMusicCap = musicTotalSecs !== null && totalSecs > musicTotalSecs;
   const canSubmit = title.trim().length > 0 && totalSecs > 0 && totalSecs <= 3600
-                    && targetValid && !disabled && !loading;
+                    && targetValid && !overMusicCap && !disabled && !loading;
 
   function togglePlayer(ign: string) {
     setSelectedPlayers((prev) => {
@@ -414,13 +427,14 @@ function CreateCountdownForm({
       target,
       display_mode: modes.join(",") || "actionbar",
       color,
-      sound_id: soundId || undefined,
+      sound_ids: soundIds.length > 0 ? soundIds : undefined,
       auto_start: true,
     });
 
     setTitle("");
     setMins(5);
     setSecs(0);
+    setSoundIds([]);
   }
 
   return (
@@ -543,25 +557,52 @@ function CreateCountdownForm({
         </div>
         <div className="flex-1">
           <label className={LBL}>Music (optional)</label>
-          <select
-            value={soundId}
-            onChange={(e) => setSoundId(e.target.value)}
+          <button
+            type="button"
+            onClick={() => setTrackModalOpen(true)}
             disabled={disabled}
-            className={`${INPUT} w-full`}
+            className={`${INPUT} w-full flex items-center gap-2 text-left`}
+            data-testid="countdown-music-trigger"
           >
-            <option value="">None</option>
-            {tracks.map((t) => (
-              <option key={t.id} value={t.id}>{t.display_name}</option>
-            ))}
-          </select>
+            <Music2 className="w-3.5 h-3.5 text-meta flex-shrink-0" aria-hidden />
+            <span className="flex-1 truncate">
+              {soundIds.length === 0
+                ? "None"
+                : soundIds.length === 1
+                  ? (tracks.find((t) => t.id === soundIds[0])?.display_name ?? soundIds[0])
+                  : `${soundIds.length} tracks`}
+            </span>
+            {musicTotalSecs !== null && (
+              <span className="text-[10px] text-meta font-mono tabular-nums">
+                {fmtTime(musicTotalSecs)}
+              </span>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Cap-violation hint */}
+      {overMusicCap && musicTotalSecs !== null && (
+        <p className="text-[11px] text-[#EF4444] -mt-2">
+          Countdown ({fmtTime(totalSecs)}) is longer than your selected music
+          ({fmtTime(musicTotalSecs)}). Add more tracks or shorten the countdown.
+        </p>
+      )}
 
       {colorModalOpen && (
         <ColorPickerModal
           value={color}
           onChange={setColor}
           onClose={() => setColorModalOpen(false)}
+        />
+      )}
+
+      {trackModalOpen && (
+        <TrackPickerModal
+          tracks={tracks}
+          selected={soundIds}
+          onChange={setSoundIds}
+          onClose={() => setTrackModalOpen(false)}
         />
       )}
 
@@ -947,6 +988,194 @@ function ColorPickerModal({
               );
             })}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── TrackPickerModal ──────────────────────────────────────────────────────────
+// Multi-select track picker with disc icons + reorderable selection list.
+// Selected order is preserved (it's the playback order).
+
+function TrackPickerModal({
+  tracks,
+  selected,
+  onChange,
+  onClose,
+}: {
+  tracks:   SoundEntry[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  onClose:  () => void;
+}) {
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tracks;
+    return tracks.filter(
+      (t) =>
+        t.display_name.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q),
+    );
+  }, [tracks, query]);
+
+  const selectedSet = new Set(selected);
+  const totalSecs   = selected
+    .map((id) => tracks.find((t) => t.id === id)?.duration_secs ?? 0)
+    .reduce((a, b) => a + b, 0);
+
+  function toggle(id: string) {
+    if (selectedSet.has(id)) {
+      onChange(selected.filter((s) => s !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  }
+
+  function move(id: string, dir: -1 | 1) {
+    const i = selected.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= selected.length) return;
+    const next = [...selected];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pick music tracks"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white dark:bg-[#1C1E27] rounded-xl shadow-2xl w-full max-w-md
+                      border border-[#D9D5D0] dark:border-[#363944] p-4 space-y-3
+                      max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
+            Pick music tracks
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+            aria-label="Close"
+          >
+            <X className="w-3.5 h-3.5" aria-hidden />
+          </button>
+        </div>
+
+        {/* Selected order (drag-free ↕ controls) */}
+        {selected.length > 0 && (
+          <div className="space-y-1 border border-[#D9D5D0] dark:border-[#363944] rounded-lg p-2 bg-[#F7F5F2] dark:bg-[#2A2D38]">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] uppercase tracking-wider text-meta font-medium">
+                Play order
+              </span>
+              <span className="text-[10px] text-meta font-mono tabular-nums">
+                {Math.floor(totalSecs / 60)}:{String(totalSecs % 60).padStart(2, "0")} total
+              </span>
+            </div>
+            {selected.map((id, i) => {
+              const t = tracks.find((x) => x.id === id);
+              return (
+                <div key={id} className="flex items-center gap-1.5 text-xs">
+                  <span className="w-4 text-meta font-mono text-right">{i + 1}.</span>
+                  <DiscIcon soundId={id} imageUrl={t?.image_url ?? null} size={18} />
+                  <span className="flex-1 truncate text-[#1C1E27] dark:text-[#EAECF0]">
+                    {t?.display_name ?? id}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => move(id, -1)}
+                    disabled={i === 0}
+                    className="p-0.5 text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0] disabled:opacity-30"
+                    aria-label="Move up"
+                  >
+                    <ChevronUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => move(id, 1)}
+                    disabled={i === selected.length - 1}
+                    className="p-0.5 text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0] disabled:opacity-30"
+                    aria-label="Move down"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggle(id)}
+                    className="p-0.5 text-meta hover:text-[#EF4444]"
+                    aria-label="Remove"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Search tracks…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={`${INPUT} w-full`}
+        />
+
+        {/* Track grid */}
+        <div className="grid grid-cols-3 gap-1.5 overflow-y-auto pr-1 -mr-1 min-h-0">
+          {filtered.length === 0 && (
+            <p className="col-span-3 text-xs text-meta italic text-center py-6">
+              No tracks match.
+            </p>
+          )}
+          {filtered.map((t) => {
+            const isSel = selectedSet.has(t.id);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => toggle(t.id)}
+                title={`${t.display_name} — ${t.artist}`}
+                className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-colors
+                            ${isSel
+                              ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]/30"
+                              : "border-[#D9D5D0] dark:border-[#363944] hover:border-[#9B9EA6]"}`}
+              >
+                <DiscIcon
+                  soundId={t.id}
+                  imageUrl={t.image_url}
+                  size={40}
+                  label={t.display_name}
+                />
+                <span className="text-[10px] font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate w-full text-center">
+                  {t.display_name}
+                </span>
+                <span className="text-[9px] text-meta font-mono tabular-nums">
+                  {Math.floor(t.duration_secs / 60)}:{String(t.duration_secs % 60).padStart(2, "0")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Done */}
+        <div className="flex justify-end gap-2 pt-1 border-t border-[#D9D5D0] dark:border-[#363944]">
+          <button type="button" onClick={() => onChange([])} className="btn-secondary text-xs">
+            Clear
+          </button>
+          <button type="button" onClick={onClose} className="btn-primary text-xs">
+            Done ({selected.length})
+          </button>
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ pub mod dimensions;
 pub mod give_item;
 pub mod mc_stats;
 pub mod music;
+pub mod pin_hud_runner;
 pub mod player_data;
 pub mod players;
 pub mod properties;

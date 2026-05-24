@@ -188,6 +188,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track)
                                      .put(handlers::music::update_custom_track))
         .route("/music/tracks",      post(handlers::music::add_custom_track))
+        .route("/music/tracks/:id/image",
+                                     post(handlers::music::upload_track_image)
+                                     .delete(handlers::music::delete_track_image))
         .route("/music/upload",      post(handlers::music::upload_oggs))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
@@ -204,6 +207,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),
+        )
+        .route(
+            "/players/:ign/pin-hud",
+            get(handlers::pin_hud::get).put(handlers::pin_hud::set),
         )
         // Worlds
         .route(

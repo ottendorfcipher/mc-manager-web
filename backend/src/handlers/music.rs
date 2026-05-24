@@ -26,6 +26,7 @@ use crate::{
 
 /// Unified catalog entry — merges the static vanilla catalog with user-added
 /// custom tracks from the database.  `is_custom` lets the UI badge custom ones.
+/// `image_url` is set for custom tracks that have artwork uploaded.
 #[derive(Clone, serde::Serialize)]
 pub struct CatalogEntry {
     pub id:            String,
@@ -33,6 +34,7 @@ pub struct CatalogEntry {
     pub artist:        String,
     pub duration_secs: u32,
     pub is_custom:     bool,
+    pub image_url:     Option<String>,
 }
 
 /// GET /api/music/tracks — vanilla catalog plus any registered custom tracks.
@@ -46,6 +48,7 @@ pub async fn list_tracks(
         artist:        e.artist.to_string(),
         duration_secs: e.duration_secs,
         is_custom:     false,
+        image_url:     None,
     }).collect();
 
     let custom: Vec<CatalogEntry> = music_queue::list_custom_tracks(&state.pool)
@@ -53,11 +56,13 @@ pub async fn list_tracks(
         .unwrap_or_default()
         .into_iter()
         .map(|t| CatalogEntry {
-            id:            t.sound_id,
+            id:            t.sound_id.clone(),
             display_name:  t.display_name,
             artist:        t.artist,
             duration_secs: t.duration_secs as u32,
             is_custom:     true,
+            image_url:     t.image_filename
+                .map(|f| format!("/uploads/music/images/{f}")),
         })
         .collect();
 
@@ -374,10 +379,109 @@ pub async fn remove_custom_track(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
+    // Best-effort: remove the image file too if one is registered.
+    if let Ok(Some(t)) = music_queue::get_custom_track(&state.pool, &sound_id).await {
+        if let Some(fname) = t.image_filename {
+            let path = format!("{TRACK_IMAGE_DIR}/{fname}");
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
+
     let found = music_queue::remove_custom_track(&state.pool, &sound_id).await?;
     if !found {
         return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /api/music/tracks/:sound_id/image ────────────────────────────────────
+
+const TRACK_IMAGE_DIR: &str = "/opt/redstonecipher/www/uploads/music/images";
+
+/// Upload artwork for a custom track (multipart form-data field `image`,
+/// accepts PNG/JPEG/WebP up to 2 MB).  Replaces any existing image.
+pub async fn upload_track_image(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    // Confirm the track exists and is custom
+    let track = music_queue::get_custom_track(&state.pool, &sound_id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Custom track '{sound_id}' not found")))?;
+
+    tokio::fs::create_dir_all(TRACK_IMAGE_DIR).await
+        .map_err(|e| AppError::ExternalCommand(format!("create image dir: {e}")))?;
+
+    let mut bytes: Option<Vec<u8>> = None;
+    let mut content_type: Option<String> = None;
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        if field.name() == Some("image") {
+            content_type = field.content_type().map(|s| s.to_string());
+            let data = field.bytes().await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            if data.len() > 2 * 1024 * 1024 {
+                return Err(AppError::BadRequest("Image must be ≤ 2 MB".into()));
+            }
+            bytes = Some(data.to_vec());
+        }
+    }
+
+    let data = bytes.ok_or_else(|| AppError::BadRequest("Missing multipart field 'image'".into()))?;
+
+    let ext = match content_type.as_deref() {
+        Some("image/png")  => "png",
+        Some("image/jpeg") | Some("image/jpg") => "jpg",
+        Some("image/webp") => "webp",
+        Some("image/gif")  => "gif",
+        _ => return Err(AppError::BadRequest("Image must be PNG, JPEG, WebP, or GIF".into())),
+    };
+
+    // Derive a deterministic filename from the sound_id (sanitised) plus ext.
+    let safe = track.sound_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect::<String>();
+    let filename = format!("{safe}.{ext}");
+    let path = format!("{TRACK_IMAGE_DIR}/{filename}");
+
+    // Remove any previously-stored image with a different extension
+    if let Some(prev) = track.image_filename.as_ref() {
+        if prev != &filename {
+            let _ = tokio::fs::remove_file(format!("{TRACK_IMAGE_DIR}/{prev}")).await;
+        }
+    }
+
+    tokio::fs::write(&path, &data).await
+        .map_err(|e| AppError::ExternalCommand(format!("write image: {e}")))?;
+
+    music_queue::set_custom_track_image(&state.pool, &sound_id, Some(&filename)).await?;
+
+    Ok(Json(serde_json::json!({
+        "url": format!("/uploads/music/images/{filename}"),
+    })))
+}
+
+/// Remove a custom track's image (keeps the track itself).
+pub async fn delete_track_image(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    let track = music_queue::get_custom_track(&state.pool, &sound_id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Custom track '{sound_id}' not found")))?;
+
+    if let Some(fname) = track.image_filename {
+        let _ = tokio::fs::remove_file(format!("{TRACK_IMAGE_DIR}/{fname}")).await;
+    }
+    music_queue::set_custom_track_image(&state.pool, &sound_id, None).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
