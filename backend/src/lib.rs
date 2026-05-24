@@ -299,7 +299,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/events/lobbies/:id/join",    post(handlers::lobbies::join))
         .route("/events/lobbies/:id/leave",   post(handlers::lobbies::leave))
         .route("/events/lobbies/:id/launch",  post(handlers::lobbies::launch))
-        .route("/events/lobbies/:id/close",   post(handlers::lobbies::close));
+        .route("/events/lobbies/:id/close",   post(handlers::lobbies::close))
+        // Parties (cross-app: targeting countdowns, music zones, lobbies, …)
+        .route("/parties",
+               get(handlers::parties::list).post(handlers::parties::create))
+        .route("/parties/:id",
+               patch(handlers::parties::update).delete(handlers::parties::delete))
+        .route("/parties/:id/members",
+               post(handlers::parties::add_member))
+        .route("/parties/:id/members/:ign",
+               delete(handlers::parties::remove_member));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

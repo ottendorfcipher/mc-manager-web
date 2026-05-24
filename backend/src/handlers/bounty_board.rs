@@ -176,7 +176,12 @@ pub async fn start(
     Path(id): Path<i64>,
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "events.bounty_board.manage")?;
+    do_start(&state, id).await?;
+    Ok(StatusCode::ACCEPTED)
+}
 
+/// Permission-free start helper.  Used by the lobby launch ceremony.
+pub async fn do_start(state: &AppState, id: i64) -> Result<()> {
     // Enforce single active
     {
         let guard = state.bounty_board_active.lock().await;
@@ -245,7 +250,7 @@ pub async fn start(
         &state.pool, &state.bounty_board_active, &state.bounty_board_tx,
     ).await;
 
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
 }
 
 // ── POST /api/events/bounty-board/:id/pause ─────────────────────────────────

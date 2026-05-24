@@ -227,7 +227,7 @@ pub async fn start(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn do_start(state: &AppState, id: i64, _actor: &str) -> Result<()> {
+pub async fn do_start(state: &AppState, id: i64, _actor: &str) -> Result<()> {
     // Check no other countdown is active
     {
         let guard = state.countdown_active.lock().await;

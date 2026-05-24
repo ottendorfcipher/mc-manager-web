@@ -13,6 +13,7 @@ import {
   Hourglass, Rocket,
 } from "lucide-react";
 import { api } from "@/api/client";
+import { PartyChipBar } from "@/components/PartyChipBar";
 import type {
   LobbyWithAttendees, McPlayer, Countdown, RisingOcean, BountyBoard,
   CountdownState, RisingOceanState, BountyBoardState,
@@ -484,6 +485,7 @@ function LobbyForm({
         </div>
         {!openToAll && (
           <div className="space-y-1.5">
+            <PartyChipBar selected={selected} onChange={setSelected} />
             <div className="flex items-center gap-2">
               <button type="button"
                 onClick={() => setSelected(new Set(sortedPlayers.map((p) => p.ign)))}

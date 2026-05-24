@@ -8,7 +8,6 @@
 //!      simultaneous TP into the linked event area.
 
 use std::time::Duration;
-use sqlx::SqlitePool;
 
 use crate::{
     config::Config,
@@ -19,6 +18,7 @@ use crate::{
         countdown as mc,
         dimensions::{self, DimensionSpec},
     },
+    state::AppState,
 };
 
 /// Name of the shared lobby dimension (one dimension reused for all lobbies).
@@ -118,11 +118,12 @@ const COUNTDOWN_SECS: u32 = 5;
 /// Run the bossbar countdown + brief blindness + simultaneous TP.
 /// Called as a fire-and-forget task by the launch handler.
 pub async fn run_launch_ceremony(
-    cfg:      &Config,
-    pool:     &SqlitePool,
-    lobby:    &PreGameLobby,
+    state:     &AppState,
+    lobby:     &PreGameLobby,
     attendees: &[LobbyAttendee],
 ) -> Result<()> {
+    let cfg = &state.config;
+    let pool = &state.pool;
     let igns: Vec<&str> = attendees.iter().map(|a| a.player_ign.as_str()).collect();
     let players_arg = igns.join(",");
 
@@ -192,12 +193,12 @@ pub async fn run_launch_ceremony(
     let _ = crate::db::lobbies::mark_attendees_status(pool, lobby.id, "launched").await;
     let _ = crate::db::lobbies::update_status(pool, lobby.id, "launched").await;
 
-    // 6. Optionally kick off the linked event (countdown / rising oceans /
-    //    bounty board).  We honour 'manual' lobbies as no-op and let the
-    //    admin start the event from its own tab.
+    // 6. Auto-start the linked event (countdown / rising oceans / bounty
+    //    board).  'manual' is a no-op — the admin starts the event from
+    //    its own tab.  We swallow errors here so a misconfigured event
+    //    doesn't undo the successful TP.
     if let Some(eid) = lobby.linked_event_id {
-        let started = trigger_linked_event(cfg, pool, &lobby.linked_event_type, eid).await;
-        if let Err(e) = started {
+        if let Err(e) = trigger_linked_event(state, &lobby.linked_event_type, eid).await {
             tracing::warn!(lobby_id = lobby.id, error = ?e,
                 "Linked event auto-start failed; admin must start it manually");
         }
@@ -205,30 +206,19 @@ pub async fn run_launch_ceremony(
     Ok(())
 }
 
-/// Best-effort: trigger the linked event by inserting its 'running' state
-/// through the existing handlers.  We don't bother with full HTTP plumbing
-/// here — call the relevant DB / runner code directly.
+/// Call the appropriate `do_start` helper for the linked event type.
 async fn trigger_linked_event(
-    _cfg:    &Config,
-    pool:    &SqlitePool,
-    kind:    &str,
-    id:      i64,
+    state: &AppState,
+    kind:  &str,
+    id:    i64,
 ) -> Result<()> {
     match kind {
-        "countdown" => {
-            // Best-effort: mark as 'pending' → 'running' in DB.  Full ceremony
-            // requires the countdown handler's do_start path; for now we let
-            // the admin click start from the Countdowns tab.
-            tracing::info!(id, "TODO: auto-start linked countdown from lobby launch");
-        }
-        "rising_oceans" => {
-            tracing::info!(id, "TODO: auto-start linked rising oceans from lobby launch");
-        }
-        "bounty_board" => {
-            tracing::info!(id, "TODO: auto-start linked bounty board from lobby launch");
-        }
-        _ => {}
+        "countdown"     => crate::handlers::events::do_start(state, id, "lobby").await,
+        "rising_oceans" => crate::handlers::rising_oceans::do_start(state, id).await,
+        "bounty_board"  => crate::handlers::bounty_board::do_start(state, id).await,
+        "manual"        => Ok(()),
+        other => Err(crate::error::AppError::BadRequest(format!(
+            "Unknown linked_event_type '{other}'"
+        ))),
     }
-    let _ = pool;
-    Ok(())
 }

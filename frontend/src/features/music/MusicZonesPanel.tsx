@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "@/api/client";
 import { DiscIcon } from "@/components/DiscIcon";
+import { PartyChipBar } from "@/components/PartyChipBar";
 import type { MusicZone, SoundEntry, McPlayer } from "@/types";
 
 const INPUT = [
@@ -496,6 +497,10 @@ function ZoneForm({
         </div>
         {!targetAll && (
           <div className="space-y-1.5">
+            <PartyChipBar
+              selected={selectedPlayers}
+              onChange={setSelectedPlayers}
+            />
             <div className="flex items-center gap-2">
               <button type="button"
                 onClick={() => setSelectedPlayers(new Set(sortedPlayers.map((p) => p.ign)))}
