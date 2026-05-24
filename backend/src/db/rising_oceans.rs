@@ -9,23 +9,32 @@ use crate::error::Result;
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, TS)]
 #[ts(export)]
 pub struct RisingOcean {
-    pub id:            i64,
-    pub status:        String,
-    pub center_x:      i64,
-    pub center_z:      i64,
-    pub radius:        i64,
-    pub start_y:       i64,
-    pub end_y:         i64,
-    pub current_y:     i64,
-    pub interval_secs: i64,
-    pub backup_id:     Option<i64>,
-    pub backup_path:   Option<String>,
-    pub world_slug:    String,
-    pub created_by:    String,
-    pub created_at:    String,
-    pub started_at:    Option<String>,
-    pub finished_at:   Option<String>,
-    pub reverted:      Option<i64>,
+    pub id:                i64,
+    pub status:            String,
+    pub center_x:          i64,
+    pub center_z:          i64,
+    pub radius:            i64,
+    pub start_y:           i64,
+    pub end_y:             i64,
+    pub current_y:         i64,
+    pub interval_secs:     i64,
+    /// Number of Y-levels filled per interval tick.  Ignored when
+    /// `rise_pattern_json` is set.
+    pub blocks_per_step:   i64,
+    /// When 1, the background task continuously TPs players back inside
+    /// the radius (cylindrical perimeter, all Y).
+    pub perimeter_enforce: i64,
+    /// Optional JSON array of per-step interval_secs overrides.  When set, the
+    /// event runs exactly `len(array)` steps with these custom delays.
+    pub rise_pattern_json: Option<String>,
+    pub backup_id:         Option<i64>,
+    pub backup_path:       Option<String>,
+    pub world_slug:        String,
+    pub created_by:        String,
+    pub created_at:        String,
+    pub started_at:        Option<String>,
+    pub finished_at:       Option<String>,
+    pub reverted:          Option<i64>,
 }
 
 /// Wire format for the SSE / state endpoint.
@@ -40,22 +49,26 @@ pub struct RisingOceanStatePayload {
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct ActiveRisingOceanPayload {
-    pub id:            i64,
-    pub status:        String,
-    pub center_x:      i64,
-    pub center_z:      i64,
-    pub radius:        i64,
-    pub start_y:       i64,
-    pub end_y:         i64,
-    pub current_y:     i64,
-    pub interval_secs: i64,
-    pub backup_id:     Option<i64>,
-    pub world_slug:    String,
-    pub created_by:    String,
+    pub id:                i64,
+    pub status:            String,
+    pub center_x:          i64,
+    pub center_z:          i64,
+    pub radius:            i64,
+    pub start_y:           i64,
+    pub end_y:             i64,
+    pub current_y:         i64,
+    pub interval_secs:     i64,
+    pub blocks_per_step:   i64,
+    pub perimeter_enforce: i64,
+    pub rise_pattern_json: Option<String>,
+    pub backup_id:         Option<i64>,
+    pub world_slug:        String,
+    pub created_by:        String,
 }
 
 // ── Queries ──────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     pool: &SqlitePool,
     center_x: i64,
@@ -64,12 +77,17 @@ pub async fn create(
     start_y: i64,
     end_y: i64,
     interval_secs: i64,
+    blocks_per_step: i64,
+    perimeter_enforce: bool,
+    rise_pattern_json: Option<&str>,
     world_slug: &str,
     created_by: &str,
 ) -> Result<RisingOcean> {
     let id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO rising_oceans (center_x, center_z, radius, start_y, end_y, current_y, interval_secs, world_slug, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "INSERT INTO rising_oceans
+            (center_x, center_z, radius, start_y, end_y, current_y, interval_secs,
+             blocks_per_step, perimeter_enforce, rise_pattern_json, world_slug, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id",
     )
     .bind(center_x)
@@ -79,6 +97,9 @@ pub async fn create(
     .bind(end_y)
     .bind(start_y) // current_y starts at start_y
     .bind(interval_secs)
+    .bind(blocks_per_step)
+    .bind(if perimeter_enforce { 1_i64 } else { 0_i64 })
+    .bind(rise_pattern_json)
     .bind(world_slug)
     .bind(created_by)
     .fetch_one(pool)

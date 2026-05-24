@@ -256,12 +256,15 @@ function Stat({ label, value }: { label: string; value: string }) {
 // ── Create form ──────────────────────────────────────────────────────────────
 
 interface CreateROBody {
-  center_x:      number;
-  center_z:      number;
-  radius:        number;
-  start_y:       number;
-  end_y:         number;
-  interval_secs: number;
+  center_x:          number;
+  center_z:          number;
+  radius:            number;
+  start_y:           number;
+  end_y:             number;
+  interval_secs:     number;
+  blocks_per_step?:   number;
+  perimeter_enforce?: boolean;
+  rise_pattern?:      number[];
 }
 
 function CreateROForm({
@@ -287,21 +290,46 @@ function CreateROForm({
   const [intMins, setIntMins] = useState(0);
   const [intSecs, setIntSecs] = useState(30);
 
+  // New: rise rate + perimeter + optional explicit pattern
+  const [blocksPerStep, setBlocksPerStep] = useState(1);
+  const [perimeterEnforce, setPerimeterEnforce] = useState(true);
+  const [useExplicitPattern, setUseExplicitPattern] = useState(false);
+  // Comma- or whitespace-separated list of seconds, one per step.
+  const [patternInput, setPatternInput] = useState("30,30,30,30,15,15,10,10,5,5");
+
   const intervalSecs = intDays * 86400 + intHours * 3600 + intMins * 60 + intSecs;
+
+  // Parse the explicit pattern string into an int[].
+  const parsedPattern: number[] = useExplicitPattern
+    ? patternInput
+        .split(/[\s,]+/)
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const patternInvalid =
+    useExplicitPattern && (parsedPattern.length === 0 || parsedPattern.some((n) => n < 1 || n > 3600));
 
   const handleSubmit = () => {
     onSubmit({
-      center_x:      centerX,
-      center_z:      centerZ,
+      center_x:          centerX,
+      center_z:          centerZ,
       radius,
-      start_y:       startY,
-      end_y:         endY,
-      interval_secs: intervalSecs,
+      start_y:           startY,
+      end_y:             endY,
+      interval_secs:     intervalSecs,
+      blocks_per_step:   useExplicitPattern ? 1 : blocksPerStep,
+      perimeter_enforce: perimeterEnforce,
+      rise_pattern:      useExplicitPattern ? parsedPattern : undefined,
     });
   };
 
   const totalLevels = endY - startY;
-  const totalTimeSecs = totalLevels > 0 ? totalLevels * intervalSecs : 0;
+  const stepsCount = useExplicitPattern
+    ? parsedPattern.length
+    : (totalLevels > 0 ? Math.ceil(totalLevels / Math.max(blocksPerStep, 1)) : 0);
+  const totalTimeSecs = useExplicitPattern
+    ? parsedPattern.reduce((a, b) => a + b, 0)
+    : (stepsCount > 0 ? stepsCount * intervalSecs : 0);
   const MAX_DURATION_SECS = 90 * 86400; // 90 days
   const durationExceedsMax = totalTimeSecs > MAX_DURATION_SECS;
 
@@ -309,8 +337,10 @@ function CreateROForm({
     radius >= 16 && radius <= 1024 &&
     startY >= -64 && startY <= 319 &&
     endY > startY && endY <= 319 &&
-    intervalSecs >= 5 &&
-    !durationExceedsMax;
+    (useExplicitPattern || intervalSecs >= 5) &&
+    !durationExceedsMax &&
+    !patternInvalid &&
+    blocksPerStep >= 1 && blocksPerStep <= 64;
 
   const canSubmit = valid && !disabled && !loading;
 
@@ -388,8 +418,87 @@ function CreateROForm({
               value={intSecs} onChange={(e) => setIntSecs(Math.max(0, Math.min(59, Number(e.target.value))))} />
           </div>
         </div>
-        {intervalSecs < 5 && (
+        {!useExplicitPattern && intervalSecs < 5 && (
           <p className="text-[10px] text-red-500 mt-0.5">Minimum 5 seconds per level</p>
+        )}
+      </fieldset>
+
+      {/* Blocks per step + perimeter shield */}
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className={LBL}>Blocks per step</label>
+          <input
+            type="number"
+            className={`${INPUT} w-full`}
+            min={1}
+            max={64}
+            value={blocksPerStep}
+            disabled={useExplicitPattern}
+            onChange={(e) => setBlocksPerStep(Math.max(1, Math.min(64, Number(e.target.value) || 1)))}
+          />
+          <p className="text-[10px] text-meta mt-0.5">How many Y-layers fill each interval (1–64)</p>
+        </div>
+        <div className="flex-1 flex flex-col">
+          <label className={LBL}>Perimeter shield</label>
+          <label className="flex items-center gap-2 mt-1 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={perimeterEnforce}
+              onChange={(e) => setPerimeterEnforce(e.target.checked)}
+              className="accent-[#5B9BF0]"
+            />
+            Push players back inside the radius
+          </label>
+          <p className="text-[10px] text-meta mt-1">
+            Sets the worldborder and TPs anyone outside back to centre every 2s.
+          </p>
+        </div>
+      </div>
+
+      {/* Optional explicit rise pattern */}
+      <fieldset>
+        <legend className={LBL}>Rise schedule</legend>
+        <div className="flex items-center gap-4 mb-2 text-xs">
+          <label className="flex items-center gap-1.5 text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
+            <input
+              type="radio"
+              checked={!useExplicitPattern}
+              onChange={() => setUseExplicitPattern(false)}
+              className="accent-[#5B9BF0]"
+            />
+            Uniform (interval × blocks-per-step)
+          </label>
+          <label className="flex items-center gap-1.5 text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
+            <input
+              type="radio"
+              checked={useExplicitPattern}
+              onChange={() => setUseExplicitPattern(true)}
+              className="accent-[#5B9BF0]"
+            />
+            Custom per-step
+          </label>
+        </div>
+        {useExplicitPattern && (
+          <>
+            <input
+              type="text"
+              className={`${INPUT} w-full font-mono`}
+              value={patternInput}
+              onChange={(e) => setPatternInput(e.target.value)}
+              placeholder="30, 30, 15, 15, 10, 5"
+            />
+            <p className="text-[10px] text-meta mt-1">
+              Comma-separated interval (seconds) for each step.  Each step still raises 1 Y level.
+              {parsedPattern.length > 0 && (
+                <span className="ml-1">
+                  → {parsedPattern.length} step{parsedPattern.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </p>
+            {patternInvalid && (
+              <p className="text-[10px] text-red-500 mt-1">Each value must be 1–3600 seconds.</p>
+            )}
+          </>
         )}
       </fieldset>
 

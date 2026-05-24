@@ -207,20 +207,28 @@ async fn do_start(state: &AppState, id: i64, _actor: &str) -> Result<()> {
     // Update DB
     countdowns::update_status(&state.pool, id, "running", 0).await?;
 
+    // Expand target into MC selectors (supports comma-separated lists).
+    let selectors = mc::expand_target(&row.target);
+
     // Set up bossbar if needed
     let display_mode = &row.display_mode;
     if display_mode.contains("bossbar") {
         let name = mc::format_countdown_text(&row.title, row.duration_secs, &row.color);
+        let bossbar_color = mc::nearest_bossbar_color(&row.color);
         let _ = mc::bossbar_add(&state.config, BOSSBAR_ID, &name).await;
-        let _ = mc::bossbar_set_players(&state.config, BOSSBAR_ID, &row.target).await;
+        // bossbar set players accepts a comma-separated selector list directly.
+        let players_arg = selectors.join(",");
+        let _ = mc::bossbar_set_players(&state.config, BOSSBAR_ID, &players_arg).await;
         let _ = mc::bossbar_set_max(&state.config, BOSSBAR_ID, row.duration_secs as u32).await;
         let _ = mc::bossbar_set_value(&state.config, BOSSBAR_ID, row.duration_secs as u32).await;
-        let _ = mc::bossbar_set_color(&state.config, BOSSBAR_ID, &row.color).await;
+        let _ = mc::bossbar_set_color(&state.config, BOSSBAR_ID, bossbar_color).await;
         let _ = mc::bossbar_set_visible(&state.config, BOSSBAR_ID, true).await;
     }
 
-    // Set title times for actionbar persistence
-    let _ = mc::set_title_times(&state.config, &row.target, 0, 25, 5).await;
+    // Set title times for actionbar persistence (per selector).
+    for sel in &selectors {
+        let _ = mc::set_title_times(&state.config, sel, 0, 25, 5).await;
+    }
 
     // Set in-memory state
     {
@@ -322,7 +330,9 @@ pub async fn cancel(
         if has_bossbar {
             let _ = mc::bossbar_remove(&state.config, BOSSBAR_ID).await;
         }
-        let _ = mc::clear_title(&state.config, &target).await;
+        for sel in mc::expand_target(&target) {
+            let _ = mc::clear_title(&state.config, &sel).await;
+        }
 
         countdowns::update_status(&state.pool, id, "cancelled", elapsed).await?;
     } else {

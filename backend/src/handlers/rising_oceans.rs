@@ -22,6 +22,7 @@ use crate::{
     },
     error::{AppError, Result},
     minecraft::{
+        console,
         rising_oceans_runner::{self, ActiveRisingOcean},
         world_switch,
     },
@@ -40,18 +41,25 @@ pub async fn get_state(
     let active = {
         let guard = state.rising_oceans_active.lock().await;
         guard.as_ref().map(|a| rising_oceans::ActiveRisingOceanPayload {
-            id:            a.id,
-            status:        if a.paused { "paused".into() } else { "running".into() },
-            center_x:      a.center_x,
-            center_z:      a.center_z,
-            radius:        a.radius,
-            start_y:       a.start_y,
-            end_y:         a.end_y,
-            current_y:     a.current_y,
-            interval_secs: a.interval_secs,
-            backup_id:     a.backup_id,
-            world_slug:    a.world_slug.clone(),
-            created_by:    a.created_by.clone(),
+            id:                a.id,
+            status:            if a.paused { "paused".into() } else { "running".into() },
+            center_x:          a.center_x,
+            center_z:          a.center_z,
+            radius:            a.radius,
+            start_y:           a.start_y,
+            end_y:             a.end_y,
+            current_y:         a.current_y,
+            interval_secs:     a.interval_secs,
+            blocks_per_step:   a.blocks_per_step,
+            perimeter_enforce: if a.perimeter_enforce { 1 } else { 0 },
+            rise_pattern_json: if a.rise_pattern.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&a.rise_pattern).ok()
+            },
+            backup_id:         a.backup_id,
+            world_slug:        a.world_slug.clone(),
+            created_by:        a.created_by.clone(),
         })
     };
 
@@ -113,12 +121,27 @@ pub struct CreateBody {
     pub end_y: i64,
     #[serde(default = "default_interval")]
     pub interval_secs: i64,
+    /// How many Y levels are filled per interval tick (default 1).
+    /// Ignored when `rise_pattern` is provided.
+    #[serde(default = "default_blocks_per_step")]
+    pub blocks_per_step: i64,
+    /// When true, players are pushed back inside the radius each tick.
+    #[serde(default = "default_perimeter_enforce")]
+    pub perimeter_enforce: bool,
+    /// Optional explicit schedule.  Array of `interval_secs` values, one per
+    /// step (each step still rises 1 block).  When set, overrides start_y/end_y
+    /// length: the event runs exactly `rise_pattern.len()` steps starting from
+    /// `start_y + 1`.
+    #[serde(default)]
+    pub rise_pattern: Option<Vec<i64>>,
 }
 
 fn default_radius() -> i64 { 256 }
 fn default_start_y() -> i64 { 64 }
 fn default_end_y() -> i64 { 100 }
 fn default_interval() -> i64 { 30 }
+fn default_blocks_per_step() -> i64 { 1 }
+fn default_perimeter_enforce() -> bool { true }
 
 /// 90 days in seconds.
 const MAX_EVENT_DURATION_SECS: i64 = 90 * 24 * 3600;
@@ -143,13 +166,37 @@ pub async fn create(
     if body.interval_secs < 5 {
         return Err(AppError::BadRequest("interval must be at least 5 seconds".into()));
     }
-    let total_levels = body.end_y - body.start_y;
-    let total_duration = total_levels.saturating_mul(body.interval_secs);
+    if body.blocks_per_step < 1 || body.blocks_per_step > 64 {
+        return Err(AppError::BadRequest("blocks_per_step must be 1–64".into()));
+    }
+
+    // Validate rise_pattern if present
+    if let Some(ref pat) = body.rise_pattern {
+        if pat.is_empty() || pat.len() > 1000 {
+            return Err(AppError::BadRequest("rise_pattern must contain 1–1000 entries".into()));
+        }
+        for (i, v) in pat.iter().enumerate() {
+            if *v < 1 || *v > 3600 {
+                return Err(AppError::BadRequest(format!(
+                    "rise_pattern[{i}] = {v} is out of range (1–3600 seconds)"
+                )));
+            }
+        }
+    }
+
+    // Total-duration check
+    let (total_levels, total_duration) = if let Some(ref pat) = body.rise_pattern {
+        let dur: i64 = pat.iter().sum();
+        (pat.len() as i64, dur)
+    } else {
+        let levels = (body.end_y - body.start_y).max(0);
+        let steps = ((levels + body.blocks_per_step - 1) / body.blocks_per_step).max(0);
+        (levels, steps.saturating_mul(body.interval_secs))
+    };
     if total_duration > MAX_EVENT_DURATION_SECS {
         let max_days = MAX_EVENT_DURATION_SECS / 86400;
         return Err(AppError::BadRequest(format!(
-            "Total event duration ({} levels × {}s interval = {}s) exceeds the {max_days}-day maximum",
-            total_levels, body.interval_secs, total_duration
+            "Total event duration ({total_levels} levels, {total_duration}s) exceeds the {max_days}-day maximum"
         )));
     }
 
@@ -157,6 +204,8 @@ pub async fn create(
     let world = worlds::get_active(&state.pool)
         .await?
         .ok_or_else(|| AppError::BadRequest("No active world found".into()))?;
+
+    let pattern_json = body.rise_pattern.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
 
     let row = rising_oceans::create(
         &state.pool,
@@ -166,6 +215,9 @@ pub async fn create(
         body.start_y,
         body.end_y,
         body.interval_secs,
+        body.blocks_per_step,
+        body.perimeter_enforce,
+        pattern_json.as_deref(),
         &world.slug,
         &actor.email,
     )
@@ -230,23 +282,56 @@ pub async fn start(
     rising_oceans::set_backup(&state.pool, id, backup_id, &backup_remote_path).await?;
     rising_oceans::update_status(&state.pool, id, "running").await?;
 
+    // ── Set worldborder for hard square containment (perimeter shield) ──────
+    if row.perimeter_enforce == 1 {
+        // worldborder set <diameter> <time-secs>
+        let diameter = (row.radius * 2).max(16);
+        let _ = console::send(
+            &state.config,
+            &format!("worldborder center {} {}", row.center_x, row.center_z),
+        ).await;
+        let _ = console::send(
+            &state.config,
+            &format!("worldborder set {diameter}"),
+        ).await;
+        let _ = console::send(
+            &state.config,
+            "worldborder damage buffer 0",
+        ).await;
+        let _ = console::send(
+            &state.config,
+            "worldborder damage amount 1",
+        ).await;
+    }
+
+    // Parse rise_pattern_json
+    let rise_pattern: Vec<i64> = row.rise_pattern_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
     // Populate in-memory state
     {
         let mut guard = state.rising_oceans_active.lock().await;
         *guard = Some(ActiveRisingOcean {
-            id:            row.id,
-            center_x:      row.center_x,
-            center_z:      row.center_z,
-            radius:        row.radius,
-            start_y:       row.start_y,
-            end_y:         row.end_y,
-            current_y:     row.start_y,
-            interval_secs: row.interval_secs,
-            backup_id:     Some(backup_id),
-            world_slug:    row.world_slug.clone(),
-            created_by:    row.created_by.clone(),
-            paused:        false,
-            last_tick_at:  Instant::now(),
+            id:                row.id,
+            center_x:          row.center_x,
+            center_z:          row.center_z,
+            radius:            row.radius,
+            start_y:           row.start_y,
+            end_y:             row.end_y,
+            current_y:         row.start_y,
+            interval_secs:     row.interval_secs,
+            blocks_per_step:   row.blocks_per_step,
+            perimeter_enforce: row.perimeter_enforce == 1,
+            rise_pattern,
+            step_idx:          0,
+            backup_id:         Some(backup_id),
+            world_slug:        row.world_slug.clone(),
+            created_by:        row.created_by.clone(),
+            paused:            false,
+            last_tick_at:      Instant::now(),
+            last_perimeter_sweep: Instant::now(),
         });
     }
 
@@ -319,13 +404,20 @@ pub async fn cancel(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "events.rising_oceans.manage")?;
 
-    {
+    let perimeter_was_on = {
         let mut guard = state.rising_oceans_active.lock().await;
-        let _ = guard
+        let was_on = guard
             .as_ref()
             .filter(|a| a.id == id)
+            .map(|a| a.perimeter_enforce)
             .ok_or_else(|| AppError::BadRequest("No active Rising Oceans event with that ID".into()))?;
         *guard = None;
+        was_on
+    };
+
+    // Reset worldborder to default size if perimeter was active
+    if perimeter_was_on {
+        let _ = console::send(&state.config, "worldborder set 60000000").await;
     }
 
     rising_oceans::update_status(&state.pool, id, "cancelled").await?;
