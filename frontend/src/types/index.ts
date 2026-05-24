@@ -353,38 +353,44 @@ export interface CountdownState {
 // ── Events — Rising Oceans ──────────────────────────────────────────────────
 
 export interface RisingOcean {
-  id:            number;
-  status:        "pending" | "running" | "paused" | "finished" | "cancelled";
-  center_x:      number;
-  center_z:      number;
-  radius:        number;
-  start_y:       number;
-  end_y:         number;
-  current_y:     number;
-  interval_secs: number;
-  backup_id:     number | null;
-  backup_path:   string | null;
-  world_slug:    string;
-  created_by:    string;
-  created_at:    string;
-  started_at:    string | null;
-  finished_at:   string | null;
-  reverted:      number | null;
+  id:                number;
+  status:            "pending" | "running" | "paused" | "finished" | "cancelled";
+  center_x:          number;
+  center_z:          number;
+  radius:            number;
+  start_y:           number;
+  end_y:             number;
+  current_y:         number;
+  interval_secs:     number;
+  blocks_per_step:   number;
+  perimeter_enforce: number;
+  rise_pattern_json: string | null;
+  backup_id:         number | null;
+  backup_path:       string | null;
+  world_slug:        string;
+  created_by:        string;
+  created_at:        string;
+  started_at:        string | null;
+  finished_at:       string | null;
+  reverted:          number | null;
 }
 
 export interface ActiveRisingOcean {
-  id:            number;
-  status:        string;
-  center_x:      number;
-  center_z:      number;
-  radius:        number;
-  start_y:       number;
-  end_y:         number;
-  current_y:     number;
-  interval_secs: number;
-  backup_id:     number | null;
-  world_slug:    string;
-  created_by:    string;
+  id:                number;
+  status:            string;
+  center_x:          number;
+  center_z:          number;
+  radius:            number;
+  start_y:           number;
+  end_y:             number;
+  current_y:         number;
+  interval_secs:     number;
+  blocks_per_step:   number;
+  perimeter_enforce: number;
+  rise_pattern_json: string | null;
+  backup_id:         number | null;
+  world_slug:        string;
+  created_by:        string;
 }
 
 export interface RisingOceanState {

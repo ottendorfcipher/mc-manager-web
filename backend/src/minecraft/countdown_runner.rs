@@ -133,6 +133,8 @@ pub fn spawn_countdown_task(
             let has_title_final = a.has_mode("title_final");
             drop(guard);
 
+            let selectors = mc::expand_target(&target);
+
             if remaining <= 0 {
                 // ── Finished ───────────────────────────────────────────────
                 let _ = countdowns::update_status(&pool, id, "finished", total_elapsed).await;
@@ -141,12 +143,12 @@ pub fn spawn_countdown_task(
                 if has_bossbar {
                     let _ = mc::bossbar_remove(&cfg, BOSSBAR_ID).await;
                 }
-                let _ = mc::clear_title(&cfg, &target).await;
-
-                // Show "GO!" / finished title
-                let _ = mc::set_title_times(&cfg, &target, 0, 40, 20).await;
-                let go_text = serde_json::json!({"text":"GO!","color":"green","bold":true}).to_string();
-                let _ = mc::show_title(&cfg, &target, &go_text).await;
+                for sel in &selectors {
+                    let _ = mc::clear_title(&cfg, sel).await;
+                    let _ = mc::set_title_times(&cfg, sel, 0, 40, 20).await;
+                    let go_text = serde_json::json!({"text":"GO!","color":"green","bold":true}).to_string();
+                    let _ = mc::show_title(&cfg, sel, &go_text).await;
+                }
 
                 // If sound paired, trigger music playback
                 if let Some(ref sid) = sound_id {
@@ -166,7 +168,9 @@ pub fn spawn_countdown_task(
             // ── Send MC display commands ───────────────────────────────────
             if has_actionbar {
                 let text = mc::format_countdown_text(&title, remaining, &color);
-                let _ = mc::show_actionbar(&cfg, &target, &text).await;
+                for sel in &selectors {
+                    let _ = mc::show_actionbar(&cfg, sel, &text).await;
+                }
             }
 
             if has_bossbar {
@@ -177,9 +181,11 @@ pub fn spawn_countdown_task(
             }
 
             if has_title_final && remaining <= 10 {
-                let _ = mc::set_title_times(&cfg, &target, 0, 25, 5).await;
                 let title_text = mc::format_final_title(remaining, &color);
-                let _ = mc::show_title(&cfg, &target, &title_text).await;
+                for sel in &selectors {
+                    let _ = mc::set_title_times(&cfg, sel, 0, 25, 5).await;
+                    let _ = mc::show_title(&cfg, sel, &title_text).await;
+                }
             }
 
             broadcast_state(&pool, &active, &tx).await;
