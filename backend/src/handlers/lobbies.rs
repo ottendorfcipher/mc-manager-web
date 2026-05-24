@@ -295,14 +295,14 @@ pub async fn launch(
 
     lobbies::update_status(&state.pool, id, "launching").await?;
 
-    // Fire-and-forget background ceremony (bossbar + fade + TP).
-    let cfg = state.config.clone();
-    let pool = state.pool.clone();
+    // Fire-and-forget background ceremony (bossbar + fade + TP + auto-start
+    // of the linked event).  AppState is cheap to clone (Arcs inside).
+    let state_clone = state.clone();
     let lobby_clone = lobby.clone();
     tokio::spawn(async move {
-        if let Err(e) = lobby_runner::run_launch_ceremony(&cfg, &pool, &lobby_clone, &active).await {
+        if let Err(e) = lobby_runner::run_launch_ceremony(&state_clone, &lobby_clone, &active).await {
             tracing::error!(lobby_id = id, error = ?e, "Lobby launch ceremony failed");
-            let _ = lobbies::update_status(&pool, id, "open").await;
+            let _ = lobbies::update_status(&state_clone.pool, id, "open").await;
         }
     });
 

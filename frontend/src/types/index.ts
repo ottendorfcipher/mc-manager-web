@@ -528,3 +528,24 @@ export interface LobbyAttendee {
 export interface LobbyWithAttendees extends PreGameLobby {
   attendees: LobbyAttendee[];
 }
+
+// ── Parties ────────────────────────────────────────────────────────────────
+
+export interface Party {
+  id:          number;
+  name:        string;
+  description: string | null;
+  owner_email: string;
+  color:       string;
+  created_at:  string;
+}
+
+export interface PartyMember {
+  party_id:   number;
+  player_ign: string;
+  added_at:   string;
+}
+
+export interface PartyWithMembers extends Party {
+  members: PartyMember[];
+}

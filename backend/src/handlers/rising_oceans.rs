@@ -234,7 +234,13 @@ pub async fn start(
     Path(id): Path<i64>,
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "events.rising_oceans.manage")?;
+    do_start(&state, id).await?;
+    Ok(StatusCode::ACCEPTED)
+}
 
+/// Permission-free start helper.  Callable from other handlers/runners
+/// (e.g. the lobby launch ceremony) that have already done their own auth.
+pub async fn do_start(state: &AppState, id: i64) -> Result<()> {
     // Enforce single active
     {
         let guard = state.rising_oceans_active.lock().await;
@@ -339,7 +345,7 @@ pub async fn start(
         &state.pool, &state.rising_oceans_active, &state.rising_oceans_tx,
     ).await;
 
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
 }
 
 // ── POST /api/events/rising-oceans/:id/pause ─────────────────────────────────
