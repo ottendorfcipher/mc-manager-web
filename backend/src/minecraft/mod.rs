@@ -6,6 +6,7 @@ pub mod countdown;
 pub mod countdown_runner;
 pub mod dimensions;
 pub mod give_item;
+pub mod lobby_runner;
 pub mod mc_stats;
 pub mod music;
 pub mod music_zone_runner;

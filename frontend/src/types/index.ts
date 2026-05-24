@@ -489,3 +489,42 @@ export interface BountyBoardState {
   active: ActiveBountyBoard | null;
   recent: BountyBoard[];
 }
+
+// ── Events — Pre-game lobbies ──────────────────────────────────────────────
+
+export interface PreGameLobby {
+  id:                    number;
+  name:                  string;
+  lobby_x:               number;
+  lobby_y:               number;
+  lobby_z:               number;
+  radius:                number;
+  max_players:           number;
+  allowed_players_json:  string | null;
+  linked_event_type:     "manual" | "countdown" | "rising_oceans" | "bounty_board";
+  linked_event_id:       number | null;
+  launch_dimension:      string;
+  launch_x:              number;
+  launch_y:              number;
+  launch_z:              number;
+  status:                "pending" | "open" | "locked" | "launching" | "launched" | "closed";
+  created_by:            string;
+  created_at:            string;
+  launched_at:           string | null;
+  closed_at:             string | null;
+}
+
+export interface LobbyAttendee {
+  lobby_id:            number;
+  player_ign:          string;
+  joined_at:           string;
+  pre_event_dimension: string | null;
+  pre_event_x:         number | null;
+  pre_event_y:         number | null;
+  pre_event_z:         number | null;
+  status:              "joined" | "launched" | "returned";
+}
+
+export interface LobbyWithAttendees extends PreGameLobby {
+  attendees: LobbyAttendee[];
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Timer, Play, Pause, Square, Trash2, Plus, Users, Waves, Trophy,
+  Timer, Play, Pause, Square, Trash2, Plus, Users, Waves, Trophy, DoorOpen,
   CheckSquare, XSquare, X, Pipette, Music2, ChevronUp, ChevronDown,
 } from "lucide-react";
 import { api } from "@/api/client";
@@ -9,6 +9,7 @@ import { useAuthStore } from "@/store/auth";
 import { DiscIcon } from "@/components/DiscIcon";
 import { RisingOceansPanel } from "./RisingOceansPanel";
 import { BountyBoardPanel } from "./BountyBoardPanel";
+import { LobbiesPanel } from "./LobbiesPanel";
 import type { CountdownState, SoundEntry, McPlayer } from "@/types";
 
 const INPUT = [
@@ -70,7 +71,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-type EventTab = "countdowns" | "rising-oceans" | "bounty-board";
+type EventTab = "countdowns" | "rising-oceans" | "bounty-board" | "lobbies";
 
 // ── EventsPage (top-level: tabs + per-tab panels) ─────────────────────────────
 
@@ -84,11 +85,13 @@ export function EventsPage() {
   const canRisingCreate     = hasPerm("events.rising_oceans.create") || hasPerm("events.rising_oceans.manage");
   const canRisingManage     = hasPerm("events.rising_oceans.manage");
   const canBountyManage     = hasPerm("events.bounty_board.create") || hasPerm("events.bounty_board.manage");
+  const canLobbyManage      = hasPerm("events.lobby.manage");
 
   const tabs = ([
-    { key: "countdowns"    as EventTab, label: "Countdowns",    Icon: Timer,  show: hasPerm("nav.events") || canCountdownCreate || canCountdownManage },
-    { key: "rising-oceans" as EventTab, label: "Rising Oceans", Icon: Waves,  show: hasPerm("nav.events") || canRisingCreate    || canRisingManage   },
-    { key: "bounty-board"  as EventTab, label: "Bounty Boards", Icon: Trophy, show: hasPerm("nav.events") || canBountyManage    },
+    { key: "countdowns"    as EventTab, label: "Countdowns",    Icon: Timer,    show: hasPerm("nav.events") || canCountdownCreate || canCountdownManage },
+    { key: "rising-oceans" as EventTab, label: "Rising Oceans", Icon: Waves,    show: hasPerm("nav.events") || canRisingCreate    || canRisingManage   },
+    { key: "bounty-board"  as EventTab, label: "Bounty Boards", Icon: Trophy,   show: hasPerm("nav.events") || canBountyManage    },
+    { key: "lobbies"       as EventTab, label: "Lobbies",       Icon: DoorOpen, show: hasPerm("nav.events") || canLobbyManage     },
   ] as const).filter((t) => t.show);
 
   return (
@@ -146,6 +149,11 @@ export function EventsPage() {
       <div role="tabpanel" id="tabpanel-bounty-board" aria-labelledby="tab-bounty-board" hidden={tab !== "bounty-board"}>
         {tab === "bounty-board" && (
           <BountyBoardPanel canManage={canBountyManage} />
+        )}
+      </div>
+      <div role="tabpanel" id="tabpanel-lobbies" aria-labelledby="tab-lobbies" hidden={tab !== "lobbies"}>
+        {tab === "lobbies" && (
+          <LobbiesPanel canManage={canLobbyManage} />
         )}
       </div>
     </div>

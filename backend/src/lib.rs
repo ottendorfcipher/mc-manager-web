@@ -289,7 +289,17 @@ pub fn build_router(state: AppState) -> Router {
         .route("/events/bounty-board/:id/resume",  post(handlers::bounty_board::resume))
         .route("/events/bounty-board/:id/finish",  post(handlers::bounty_board::finish))
         .route("/events/bounty-board/:id/cancel",  post(handlers::bounty_board::cancel))
-        .route("/events/bounty-board/:id",         delete(handlers::bounty_board::delete));
+        .route("/events/bounty-board/:id",         delete(handlers::bounty_board::delete))
+        // Events — Pre-game Lobbies
+        .route(
+            "/events/lobbies",
+            get(handlers::lobbies::list).post(handlers::lobbies::create),
+        )
+        .route("/events/lobbies/:id",         delete(handlers::lobbies::delete))
+        .route("/events/lobbies/:id/join",    post(handlers::lobbies::join))
+        .route("/events/lobbies/:id/leave",   post(handlers::lobbies::leave))
+        .route("/events/lobbies/:id/launch",  post(handlers::lobbies::launch))
+        .route("/events/lobbies/:id/close",   post(handlers::lobbies::close));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
