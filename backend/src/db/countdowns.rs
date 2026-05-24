@@ -6,19 +6,22 @@ use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Countdown {
-    pub id:            i64,
-    pub title:         String,
-    pub duration_secs: i64,
-    pub target:        String,
-    pub display_mode:  String,
-    pub color:         String,
-    pub sound_id:      Option<String>,
-    pub status:        String,
-    pub elapsed_secs:  i64,
-    pub created_by:    String,
-    pub created_at:    String,
-    pub started_at:    Option<String>,
-    pub finished_at:   Option<String>,
+    pub id:             i64,
+    pub title:          String,
+    pub duration_secs:  i64,
+    pub target:         String,
+    pub display_mode:   String,
+    pub color:          String,
+    pub sound_id:       Option<String>,
+    /// JSON array of sound IDs queued in sequence on countdown finish.
+    /// When NULL, falls back to `sound_id` (single track).
+    pub sound_ids_json: Option<String>,
+    pub status:         String,
+    pub elapsed_secs:   i64,
+    pub created_by:     String,
+    pub created_at:     String,
+    pub started_at:     Option<String>,
+    pub finished_at:    Option<String>,
 }
 
 // ── SSE / API payload types ────────────────────────────────────────────────────
@@ -39,25 +42,29 @@ pub struct ActiveCountdownPayload {
     pub display_mode:   String,
     pub color:          String,
     pub sound_id:       Option<String>,
+    pub sound_ids_json: Option<String>,
     pub status:         String,
     pub created_by:     String,
 }
 
 // ── DB operations ──────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
-    pool:         &SqlitePool,
-    title:        &str,
-    duration_secs: i64,
-    target:       &str,
-    display_mode: &str,
-    color:        &str,
-    sound_id:     Option<&str>,
-    created_by:   &str,
+    pool:           &SqlitePool,
+    title:          &str,
+    duration_secs:  i64,
+    target:         &str,
+    display_mode:   &str,
+    color:          &str,
+    sound_id:       Option<&str>,
+    sound_ids_json: Option<&str>,
+    created_by:     &str,
 ) -> Result<Countdown> {
     Ok(sqlx::query_as::<_, Countdown>(
-        "INSERT INTO countdowns (title, duration_secs, target, display_mode, color, sound_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        "INSERT INTO countdowns
+            (title, duration_secs, target, display_mode, color, sound_id, sound_ids_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *",
     )
     .bind(title)
@@ -66,6 +73,7 @@ pub async fn create(
     .bind(display_mode)
     .bind(color)
     .bind(sound_id)
+    .bind(sound_ids_json)
     .bind(created_by)
     .fetch_one(pool)
     .await?)

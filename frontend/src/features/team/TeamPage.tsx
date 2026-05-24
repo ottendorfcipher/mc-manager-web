@@ -1,12 +1,38 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw, UserMinus, MapPin, MapPinOff } from "lucide-react";
+import { X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { toast } from "@/components/Toast";
 import type { User, PlayerLink, McPlayer, Gamemode } from "@/types";
 import { ROLE_LEVELS } from "@/types";
+
+// ── Pin HUD hook ──────────────────────────────────────────────────────────────
+
+interface PinHudStatus { ign: string; show_team: boolean; show_private: boolean; }
+
+function usePinHud(ign: string, canAccess: boolean) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<PinHudStatus>({
+    queryKey: ["pin-hud", ign],
+    queryFn:  () => api.get(`/players/${encodeURIComponent(ign)}/pin-hud`),
+    enabled:  canAccess,
+    retry:    false,
+    staleTime: 30_000,
+  });
+  const updateMut = useMutation({
+    mutationFn: (body: { show_team: boolean; show_private: boolean }) =>
+      api.put(`/players/${encodeURIComponent(ign)}/pin-hud`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pin-hud", ign] }),
+  });
+  return {
+    data,
+    isLoading,
+    update: updateMut.mutate,
+    isPending: updateMut.isPending,
+  };
+}
 
 // ── Coord display hook ────────────────────────────────────────────────────────
 
@@ -106,6 +132,81 @@ export function TeamPage() {
               />
             ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function PinHudToggle({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean; canAdmin: boolean }) {
+  const canAccess = isSelf || canAdmin;
+  const { data, isLoading, update, isPending } = usePinHud(ign, canAccess);
+  const [open, setOpen]  = useState(false);
+
+  if (!canAccess) return null;
+  if (isLoading)  return <span className="text-[9px] text-meta ml-1">…</span>;
+
+  const showTeam    = data?.show_team    ?? false;
+  const showPrivate = data?.show_private ?? false;
+  const on          = showTeam || showPrivate;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={isPending}
+        title={on ? "Pin HUD: ON — click to configure" : "Pin HUD: OFF — click to enable"}
+        aria-label={`${ign} pin HUD ${on ? "on" : "off"}`}
+        aria-expanded={open}
+        className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium
+                    transition-colors disabled:opacity-40 ${
+          on
+            ? "bg-[#E0E7FF] dark:bg-[#1E3A5F] text-[#5B9BF0] hover:bg-[#C7D2FE]"
+            : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
+        }`}
+      >
+        <Compass className="w-2.5 h-2.5" />
+        <span>PIN</span>
+      </button>
+
+      {open && (
+        <>
+          {/* Click-outside scrim */}
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            aria-label={`Pin HUD prefs for ${ign}`}
+            className="absolute right-0 top-full mt-1 z-40 w-44 p-2 space-y-1.5
+                       rounded-lg shadow-lg border border-[#D9D5D0] dark:border-[#363944]
+                       bg-white dark:bg-[#1C1E27]"
+          >
+            <p className="text-[10px] uppercase tracking-wider text-meta font-medium px-1">
+              Show nearest pin
+            </p>
+            <label className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] cursor-pointer text-xs text-[#1C1E27] dark:text-[#EAECF0]">
+              <input
+                type="checkbox"
+                checked={showTeam}
+                onChange={(e) => update({ show_team: e.target.checked, show_private: showPrivate })}
+                disabled={isPending}
+                className="accent-[#5B9BF0]"
+              />
+              Public (team) pins
+            </label>
+            <label className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] cursor-pointer text-xs text-[#1C1E27] dark:text-[#EAECF0]">
+              <input
+                type="checkbox"
+                checked={showPrivate}
+                onChange={(e) => update({ show_team: showTeam, show_private: e.target.checked })}
+                disabled={isPending}
+                className="accent-[#5B9BF0]"
+              />
+              My private pins
+            </label>
+            <p className="text-[9px] text-meta px-1 pt-1 border-t border-[#D9D5D0] dark:border-[#363944]">
+              Shown in-game above your hotbar with distance.
+            </p>
+          </div>
+        </>
       )}
     </div>
   );
@@ -274,6 +375,11 @@ function UserCard({
                 </span>
                 <span className="text-meta">{GM_ICONS[link.gamemode]}</span>
                 <CoordToggleButton
+                  ign={link.ign}
+                  isSelf={isSelf}
+                  canAdmin={isGlobalAdmin || (ROLE_LEVELS[user.role] ?? 0) < myLevel}
+                />
+                <PinHudToggle
                   ign={link.ign}
                   isSelf={isSelf}
                   canAdmin={isGlobalAdmin || (ROLE_LEVELS[user.role] ?? 0) < myLevel}

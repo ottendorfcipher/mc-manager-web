@@ -83,6 +83,12 @@ async fn main() -> anyhow::Result<()> {
         state.bounty_board_tx.clone(),
     );
 
+    // Spawn the nearest-pin HUD task (self-paced, no channels).
+    lib::minecraft::pin_hud_runner::spawn_pin_hud_task(
+        cfg.clone(),
+        state.pool.clone(),
+    );
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),
