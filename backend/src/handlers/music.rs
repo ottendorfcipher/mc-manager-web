@@ -245,6 +245,127 @@ pub async fn add_custom_track(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Update the display metadata of an existing custom track.
+#[derive(Deserialize)]
+pub struct UpdateTrackBody {
+    pub display_name:  String,
+    #[serde(default)]
+    pub artist:        String,
+    #[serde(default = "default_duration")]
+    pub duration_secs: i64,
+}
+
+pub async fn update_custom_track(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+    Json(body): Json<UpdateTrackBody>,
+) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    if body.display_name.trim().is_empty() {
+        return Err(AppError::BadRequest("display_name is required".into()));
+    }
+    if body.duration_secs < 1 || body.duration_secs > 7200 {
+        return Err(AppError::BadRequest("duration_secs must be 1–7200".into()));
+    }
+
+    let found = music_queue::update_custom_track(
+        &state.pool,
+        &sound_id,
+        body.display_name.trim(),
+        body.artist.trim(),
+        body.duration_secs,
+    ).await?;
+    if !found {
+        return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /api/music/upload ────────────────────────────────────────────────────
+
+/// Upload one or more `.ogg` files. Each file is stored under the resource-pack
+/// sounds directory, registered as a custom track, and returned in the response.
+///
+/// Path layout:
+///   /opt/redstonecipher/www/uploads/music/{filename}.ogg
+/// Sound ID:
+///   redstonecipher:music.{filename_without_ext}
+pub async fn upload_oggs(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Vec<music_queue::CustomTrack>>> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    const UPLOAD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+    tokio::fs::create_dir_all(UPLOAD_DIR).await
+        .map_err(|e| AppError::ExternalCommand(format!("create upload dir: {e}")))?;
+
+    let mut created: Vec<music_queue::CustomTrack> = vec![];
+
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        if field.name() != Some("file") { continue; }
+
+        let original_name = field.file_name()
+            .map(|s| s.to_string())
+            .ok_or_else(|| AppError::BadRequest("Missing filename in upload".into()))?;
+
+        if !original_name.to_lowercase().ends_with(".ogg") {
+            return Err(AppError::BadRequest(
+                format!("'{original_name}' is not an .ogg file")
+            ));
+        }
+
+        let bytes = field.bytes().await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+        // Sanitise filename (alphanumeric + underscore + dot only)
+        let base = sanitise_filename(&original_name);
+        let stem = base.trim_end_matches(".ogg");
+        if stem.is_empty() {
+            return Err(AppError::BadRequest("Empty filename after sanitisation".into()));
+        }
+
+        // Write to disk
+        let path = format!("{UPLOAD_DIR}/{base}");
+        tokio::fs::write(&path, &bytes).await
+            .map_err(|e| AppError::ExternalCommand(format!("write {path}: {e}")))?;
+
+        let sound_id     = format!("redstonecipher:music.{stem}");
+        let display_name = stem.replace('_', " ");
+        let artist       = String::new();
+        let duration     = 180_i64; // unknown — default 3min
+
+        // Register in DB (replace if exists)
+        let _ = music_queue::remove_custom_track(&state.pool, &sound_id).await;
+        let track = music_queue::add_custom_track(
+            &state.pool,
+            &sound_id,
+            &display_name,
+            &artist,
+            duration,
+            &actor.email,
+        ).await?;
+        created.push(track);
+    }
+
+    if created.is_empty() {
+        return Err(AppError::BadRequest("No .ogg files in upload".into()));
+    }
+
+    Ok(Json(created))
+}
+
+fn sanitise_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
+        .collect()
+}
+
 /// Remove a registered custom track entry.
 pub async fn remove_custom_track(
     State(state): State<AppState>,

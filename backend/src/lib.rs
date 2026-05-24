@@ -185,8 +185,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/chat/send",    post(handlers::chat::send))
         // Music queue
         .route("/music/tracks",      get(handlers::music::list_tracks))
-        .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track))
+        .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track)
+                                     .put(handlers::music::update_custom_track))
         .route("/music/tracks",      post(handlers::music::add_custom_track))
+        .route("/music/upload",      post(handlers::music::upload_oggs))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))
