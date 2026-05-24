@@ -293,6 +293,11 @@ pub async fn update_custom_track(
 /// Upload one or more `.ogg` files. Each file is stored under the resource-pack
 /// sounds directory, registered as a custom track, and returned in the response.
 ///
+/// Long files are split losslessly into ~5-minute chunks via ffmpeg (`-c copy`).
+/// Each chunk becomes its own custom track named "Original (1/N)", "(2/N)", …
+/// — so the user can multi-select all of them in the disc picker to play the
+/// full song back-to-back.
+///
 /// Path layout:
 ///   /opt/redstonecipher/www/uploads/music/{filename}.ogg
 /// Sound ID:
@@ -335,27 +340,88 @@ pub async fn upload_oggs(
             return Err(AppError::BadRequest("Empty filename after sanitisation".into()));
         }
 
-        // Write to disk
-        let path = format!("{UPLOAD_DIR}/{base}");
-        tokio::fs::write(&path, &bytes).await
-            .map_err(|e| AppError::ExternalCommand(format!("write {path}: {e}")))?;
+        // Write the upload to disk first so ffmpeg can read it.
+        let raw_path = format!("{UPLOAD_DIR}/{base}");
+        tokio::fs::write(&raw_path, &bytes).await
+            .map_err(|e| AppError::ExternalCommand(format!("write {raw_path}: {e}")))?;
+        // Memory pressure: drop the buffered upload bytes asap.
+        drop(bytes);
 
-        let sound_id     = format!("redstonecipher:music.{stem}");
-        let display_name = stem.replace('_', " ");
-        let artist       = String::new();
-        let duration     = 180_i64; // unknown — default 3min
+        // Detect duration via ffprobe.
+        let duration = match probe_duration_secs(&raw_path).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(file = %raw_path, error = %e,
+                    "ffprobe failed; storing as single track with default duration");
+                180
+            }
+        };
 
-        // Register in DB (replace if exists)
-        let _ = music_queue::remove_custom_track(&state.pool, &sound_id).await;
-        let track = music_queue::add_custom_track(
-            &state.pool,
-            &sound_id,
-            &display_name,
-            &artist,
-            duration,
-            &actor.email,
-        ).await?;
-        created.push(track);
+        // Split when needed.  Sweet spot: ~5-minute slices (300s).
+        const CHUNK_SECS: i64 = 300;
+        let display_base = pretty_name(stem);
+
+        if duration <= CHUNK_SECS + 30 {
+            // Short file — register the original as a single track.
+            let sound_id = format!("redstonecipher:music.{stem}");
+            let _ = music_queue::remove_custom_track(&state.pool, &sound_id).await;
+            let track = music_queue::add_custom_track(
+                &state.pool,
+                &sound_id,
+                &display_base,
+                "",
+                duration,
+                &actor.email,
+            ).await?;
+            created.push(track);
+            continue;
+        }
+
+        // ── Split path ────────────────────────────────────────────────
+        let total_chunks = ((duration as f64) / (CHUNK_SECS as f64)).ceil() as i64;
+        let mut chunk_paths: Vec<(String, String, i64, i64)> = vec![]; // (sound_id, file_path, idx, dur)
+        for idx in 0..total_chunks {
+            let start = idx * CHUNK_SECS;
+            let this_dur = (duration - start).min(CHUNK_SECS);
+
+            let chunk_stem = format!("{stem}_part{}", idx + 1);
+            let chunk_path = format!("{UPLOAD_DIR}/{chunk_stem}.ogg");
+
+            if let Err(e) = run_ffmpeg_split(&raw_path, &chunk_path, start, this_dur).await {
+                // Clean up any partial outputs.
+                for (_, p, _, _) in &chunk_paths {
+                    let _ = tokio::fs::remove_file(p).await;
+                }
+                let _ = tokio::fs::remove_file(&chunk_path).await;
+                return Err(AppError::ExternalCommand(format!("ffmpeg split: {e}")));
+            }
+
+            chunk_paths.push((
+                format!("redstonecipher:music.{chunk_stem}"),
+                chunk_path,
+                idx + 1,
+                this_dur,
+            ));
+        }
+
+        // Remove the original — splits are the canonical artifacts now.
+        let _ = tokio::fs::remove_file(&raw_path).await;
+
+        // Register each split.  Naming "Original Name (1/N)" so the user
+        // can pick all of them in the disc modal to play them back-to-back.
+        for (sound_id, _path, n, dur) in &chunk_paths {
+            let display_name = format!("{display_base} ({}/{})", n, total_chunks);
+            let _ = music_queue::remove_custom_track(&state.pool, sound_id).await;
+            let track = music_queue::add_custom_track(
+                &state.pool,
+                sound_id,
+                &display_name,
+                "",
+                *dur,
+                &actor.email,
+            ).await?;
+            created.push(track);
+        }
     }
 
     if created.is_empty() {
@@ -369,6 +435,60 @@ fn sanitise_filename(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
         .collect()
+}
+
+/// Convert a sanitised stem into a presentable display name
+/// (underscores → spaces, title case).
+fn pretty_name(stem: &str) -> String {
+    stem.replace('_', " ")
+}
+
+/// Return the duration in seconds of an audio file via `ffprobe`.
+async fn probe_duration_secs(path: &str) -> std::result::Result<i64, String> {
+    let out = tokio::process::Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let txt = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let secs: f64 = txt.parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+    Ok(secs.round() as i64)
+}
+
+/// Losslessly extract `[start, start+duration]` from `input` into `output`
+/// using `ffmpeg -c copy`.  Re-encoding is avoided so the operation is fast
+/// and preserves audio quality.
+async fn run_ffmpeg_split(
+    input:    &str,
+    output:   &str,
+    start:    i64,
+    duration: i64,
+) -> std::result::Result<(), String> {
+    let out = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-y",                 // overwrite output
+            "-loglevel", "error",
+            "-ss", &start.to_string(),
+            "-i",  input,
+            "-t",  &duration.to_string(),
+            "-c",  "copy",
+            output,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(())
 }
 
 /// Remove a registered custom track entry.
