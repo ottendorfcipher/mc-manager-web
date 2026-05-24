@@ -7,6 +7,7 @@ import {
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { DiscIcon } from "@/components/DiscIcon";
+import { PartyChipBar } from "@/components/PartyChipBar";
 import { RisingOceansPanel } from "./RisingOceansPanel";
 import { BountyBoardPanel } from "./BountyBoardPanel";
 import { LobbiesPanel } from "./LobbiesPanel";
@@ -738,6 +739,21 @@ function PlayerPicker({
 
       {!targetAll && (
         <div className="space-y-2">
+          {/* Party quick-select chips */}
+          <PartyChipBar
+            selected={selected}
+            onChange={(next) => {
+              // Replace the parent's set with the new one.  Iterate diff so we
+              // call the toggle callback semantics correctly.
+              const cur = new Set(selected);
+              for (const ign of cur) {
+                if (!next.has(ign)) onToggle(ign);
+              }
+              for (const ign of next) {
+                if (!cur.has(ign)) onToggle(ign);
+              }
+            }}
+          />
           {/* Select all / none controls */}
           <div className="flex items-center gap-2">
             <button

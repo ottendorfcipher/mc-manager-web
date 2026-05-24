@@ -5,6 +5,7 @@ import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { toast } from "@/components/Toast";
+import { PartiesCard } from "./PartiesCard";
 import type { User, PlayerLink, McPlayer, Gamemode } from "@/types";
 import { ROLE_LEVELS } from "@/types";
 
@@ -133,6 +134,9 @@ export function TeamPage() {
             ))}
         </div>
       )}
+
+      {/* Parties — quick-select groups for events, music zones, lobbies */}
+      <PartiesCard />
     </div>
   );
 }
