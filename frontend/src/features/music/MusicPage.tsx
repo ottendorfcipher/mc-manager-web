@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Music2, SkipForward, Square, X, Search, Play, Upload,
-  Trash2, ChevronDown, Pencil, Disc3,
+  Trash2, ChevronDown, Pencil, Disc3, ImageIcon,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { McItemImage } from "@/components/McItemImage";
+import { DiscIcon } from "@/components/DiscIcon";
 import type { SoundEntry, MusicState, MusicQueueEntry } from "@/types";
 
 const INPUT = [
@@ -630,6 +631,9 @@ function CustomTrackCard({
     <div className="rounded-lg border border-[#D9D5D0] dark:border-[#363944]
                     bg-[#F7F5F2] dark:bg-[#1E212B] p-3
                     flex items-center gap-3">
+      {/* Disc icon (uploaded image, else procedural disc) */}
+      <TrackImageUploader trackId={track.id} imageUrl={track.image_url} label={track.display_name} />
+
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-medium truncate ${
           isPlaying ? "text-[#5B9BF0]" : "text-[#1C1E27] dark:text-[#EAECF0]"
@@ -687,4 +691,109 @@ function fmtDuration(secs: number): string {
 function soundIdToItemId(soundId: string): string | null {
   if (!soundId.startsWith("minecraft:music_disc.")) return null;
   return soundId.replace(":", ":").replace("music_disc.", "music_disc_");
+}
+
+// ── TrackImageUploader ────────────────────────────────────────────────────────
+// Click the disc → opens a hidden file input.  Uploads to
+// POST /api/music/tracks/:id/image (multipart, field `image`).  Right-click
+// (or the X button on hover) removes the image.
+
+function TrackImageUploader({
+  trackId,
+  imageUrl,
+  label,
+}: {
+  trackId:  string;
+  imageUrl: string | null;
+  label:    string;
+}) {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const uploadMut = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("image", file);
+      const res = await fetch(
+        `/api/music/tracks/${encodeURIComponent(trackId)}/image`,
+        { method: "POST", credentials: "include", body: form },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? res.statusText);
+      }
+      return res.json() as Promise<{ url: string }>;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["music-tracks"] }),
+  });
+
+  const removeMut = useMutation({
+    mutationFn: () =>
+      api.delete(`/music/tracks/${encodeURIComponent(trackId)}/image`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["music-tracks"] }),
+  });
+
+  function pickFile() {
+    fileRef.current?.click();
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) uploadMut.mutate(f);
+    e.target.value = "";
+  }
+
+  return (
+    <div className="relative flex-shrink-0 group">
+      <button
+        type="button"
+        onClick={pickFile}
+        disabled={uploadMut.isPending}
+        title={imageUrl ? "Click to replace image" : "Click to upload artwork"}
+        aria-label={`Upload artwork for ${label}`}
+        className="block rounded-full overflow-hidden ring-1 ring-[#D9D5D0] dark:ring-[#363944]
+                   hover:ring-[#5B9BF0] transition-shadow disabled:opacity-50"
+      >
+        <DiscIcon soundId={trackId} imageUrl={imageUrl} size={36} label={label} />
+      </button>
+
+      {/* Upload spinner overlay */}
+      {uploadMut.isPending && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+        </span>
+      )}
+
+      {/* Hover hint icon when no image yet */}
+      {!imageUrl && !uploadMut.isPending && (
+        <span className="absolute -bottom-0.5 -right-0.5 bg-[#5B9BF0] text-white rounded-full p-0.5
+                         opacity-0 group-hover:opacity-100 transition-opacity">
+          <ImageIcon className="w-2.5 h-2.5" aria-hidden />
+        </span>
+      )}
+
+      {/* Remove button (visible on hover when image set) */}
+      {imageUrl && !uploadMut.isPending && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); removeMut.mutate(); }}
+          disabled={removeMut.isPending}
+          title="Remove image"
+          aria-label="Remove image"
+          className="absolute -top-1 -right-1 bg-[#EF4444] text-white rounded-full p-0.5
+                     opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <X className="w-2.5 h-2.5" />
+        </button>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={onFileChange}
+        className="hidden"
+      />
+    </div>
+  );
 }

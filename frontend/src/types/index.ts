@@ -224,6 +224,10 @@ export interface SoundEntry {
   artist:        string;
   duration_secs: number;
   is_custom:     boolean;
+  /** Custom-track artwork URL (e.g. `/uploads/music/images/foo.png`).
+   *  Null for vanilla tracks — the UI renders a procedurally-coloured
+   *  disc icon for those. */
+  image_url:     string | null;
 }
 
 export interface ResourcePackInfo {
@@ -317,19 +321,21 @@ export const ALL_ROLES: Role[] = ["visitor", "user", "member", "admin", "global_
 // ── Events — Countdowns ─────────────────────────────────────────────────────
 
 export interface Countdown {
-  id:           number;
-  title:        string;
-  duration_secs: number;
-  target:       string;
-  display_mode: string;
-  color:        string;
-  sound_id:     string | null;
-  status:       "pending" | "running" | "paused" | "finished" | "cancelled";
-  elapsed_secs: number;
-  created_by:   string;
-  created_at:   string;
-  started_at:   string | null;
-  finished_at:  string | null;
+  id:             number;
+  title:          string;
+  duration_secs:  number;
+  target:         string;
+  display_mode:   string;
+  color:          string;
+  sound_id:       string | null;
+  /** JSON-encoded array of sound IDs played in sequence with the countdown. */
+  sound_ids_json: string | null;
+  status:         "pending" | "running" | "paused" | "finished" | "cancelled";
+  elapsed_secs:   number;
+  created_by:     string;
+  created_at:     string;
+  started_at:     string | null;
+  finished_at:    string | null;
 }
 
 export interface ActiveCountdown {
@@ -341,6 +347,7 @@ export interface ActiveCountdown {
   display_mode:   string;
   color:          string;
   sound_id:       string | null;
+  sound_ids_json: string | null;
   status:         "running" | "paused";
   created_by:     string;
 }

@@ -29,6 +29,9 @@ pub struct ActiveCountdown {
     pub display_mode:   String,
     pub color:          String,
     pub sound_id:       Option<String>,
+    /// Ordered list of sound IDs to enqueue on finish.  When `None`, falls
+    /// back to `sound_id`.
+    pub sound_ids:      Option<Vec<String>>,
     pub created_by:     String,
     /// Accumulated seconds elapsed before the most recent resume.
     pub elapsed_before_resume: i64,
@@ -86,6 +89,7 @@ pub async fn broadcast_state(
             display_mode:   a.display_mode.clone(),
             color:          a.color.clone(),
             sound_id:       a.sound_id.clone(),
+            sound_ids_json: a.sound_ids.as_ref().and_then(|v| serde_json::to_string(v).ok()),
             status:         if a.paused { "paused".into() } else { "running".into() },
             created_by:     a.created_by.clone(),
         })
@@ -126,6 +130,7 @@ pub fn spawn_countdown_task(
             let _display_mode = a.display_mode.clone();
             let color = a.color.clone();
             let sound_id = a.sound_id.clone();
+            let sound_ids = a.sound_ids.clone();
             let duration = a.duration_secs;
             let total_elapsed = a.total_elapsed();
             let has_actionbar = a.has_mode("actionbar");
@@ -150,9 +155,19 @@ pub fn spawn_countdown_task(
                     let _ = mc::show_title(&cfg, sel, &go_text).await;
                 }
 
-                // If sound paired, trigger music playback
-                if let Some(ref sid) = sound_id {
-                    let _ = crate::minecraft::music::play_all(&cfg, sid).await;
+                // Legacy single-track finish-sound (e.g. victory fanfare).
+                // Multi-track (sound_ids) is started at countdown START instead,
+                // because the user explicitly chose music that *accompanies* the
+                // countdown — not a finish sound.
+                if sound_ids.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+                    if let Some(ref sid) = sound_id {
+                        let _ = crate::minecraft::music::play_all(&cfg, sid).await;
+                    }
+                } else {
+                    // Multi-track was already started; stop it so the GO! moment
+                    // isn't drowned out.  (The track may have ended naturally on
+                    // its own already if the duration was tight.)
+                    let _ = crate::minecraft::music::stop_all(&cfg).await;
                 }
 
                 // Clear in-memory state

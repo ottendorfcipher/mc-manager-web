@@ -102,12 +102,16 @@ pub async fn clear(pool: &SqlitePool) -> Result<()> {
 /// A user-registered custom sound event from the server resource pack.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 pub struct CustomTrack {
-    pub sound_id:      String,
-    pub display_name:  String,
-    pub artist:        String,
-    pub duration_secs: i64,
-    pub added_by:      String,
-    pub added_at:      String,
+    pub sound_id:       String,
+    pub display_name:   String,
+    pub artist:         String,
+    pub duration_secs:  i64,
+    pub added_by:       String,
+    pub added_at:       String,
+    /// Name of an image stored under
+    /// /opt/redstonecipher/www/uploads/music/images/.  NULL means use
+    /// the client-side rendered disc fallback.
+    pub image_filename: Option<String>,
 }
 
 pub async fn list_custom_tracks(pool: &SqlitePool) -> Result<Vec<CustomTrack>> {
@@ -170,4 +174,30 @@ pub async fn update_custom_track(
     .execute(pool)
     .await?;
     Ok(r.rows_affected() > 0)
+}
+
+/// Persist a custom track's image filename.  Pass `None` to clear it.
+pub async fn set_custom_track_image(
+    pool:     &SqlitePool,
+    sound_id: &str,
+    filename: Option<&str>,
+) -> Result<bool> {
+    let r = sqlx::query("UPDATE music_custom_tracks SET image_filename = ? WHERE sound_id = ?")
+        .bind(filename)
+        .bind(sound_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// Fetch a single custom track row.
+pub async fn get_custom_track(pool: &SqlitePool, sound_id: &str) -> Result<Option<CustomTrack>> {
+    Ok(
+        sqlx::query_as::<_, CustomTrack>(
+            "SELECT * FROM music_custom_tracks WHERE sound_id = ?",
+        )
+        .bind(sound_id)
+        .fetch_optional(pool)
+        .await?,
+    )
 }
