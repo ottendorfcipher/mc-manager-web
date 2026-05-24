@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Timer, Play, Pause, Square, Trash2, Plus, Users, User, Waves, Trophy,
+  Timer, Play, Pause, Square, Trash2, Plus, Users, Waves, Trophy,
+  CheckSquare, XSquare, X, Pipette,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RisingOceansPanel } from "./RisingOceansPanel";
 import { BountyBoardPanel } from "./BountyBoardPanel";
-import type { CountdownState, SoundEntry } from "@/types";
+import type { CountdownState, SoundEntry, McPlayer } from "@/types";
 
 const INPUT = [
   "rounded-lg border border-[#D9D5D0] dark:border-[#363944]",
@@ -18,10 +19,33 @@ const INPUT = [
 ].join(" ");
 const LBL = "block text-[10px] font-medium text-meta uppercase tracking-wider mb-1";
 
-const MC_COLORS = [
-  "yellow", "gold", "green", "aqua", "blue", "red", "light_purple",
-  "dark_purple", "white",
-] as const;
+// Curated colour swatches shown in the color-picker modal.  Values are the
+// approximate hex equivalents of Minecraft's named chat colours.
+const COLOR_SWATCHES: { name: string; hex: string }[] = [
+  { name: "yellow",       hex: "#FFFF55" },
+  { name: "gold",         hex: "#FFAA00" },
+  { name: "green",        hex: "#55FF55" },
+  { name: "dark_green",   hex: "#00AA00" },
+  { name: "aqua",         hex: "#55FFFF" },
+  { name: "dark_aqua",    hex: "#00AAAA" },
+  { name: "blue",         hex: "#5555FF" },
+  { name: "dark_blue",    hex: "#0000AA" },
+  { name: "red",          hex: "#FF5555" },
+  { name: "dark_red",     hex: "#AA0000" },
+  { name: "light_purple", hex: "#FF55FF" },
+  { name: "dark_purple",  hex: "#AA00AA" },
+  { name: "white",        hex: "#FFFFFF" },
+  { name: "gray",         hex: "#AAAAAA" },
+  { name: "dark_gray",    hex: "#555555" },
+];
+
+/// Translate a value passed to the backend's `color` field into a CSS-safe
+/// hex string for previewing.  Named colours fall back to their swatch hex.
+function colorToHex(value: string): string {
+  if (value.startsWith("#")) return value;
+  const m = COLOR_SWATCHES.find((s) => s.name === value);
+  return m ? m.hex : "#FFFF55";
+}
 
 const STATUS_COLORS: Record<string, string> = {
   pending:   "bg-[#FEF3C7] text-[#92400E] dark:bg-[#78350F]/30 dark:text-[#FCD34D]",
@@ -328,15 +352,48 @@ function CreateCountdownForm({
   const [mins, setMins]       = useState(5);
   const [secs, setSecs]       = useState(0);
   const [targetAll, setTargetAll] = useState(true);
-  const [targetPlayer, setTargetPlayer] = useState("");
+  const [selectedPlayers, setSelectedPlayers] = useState<Set<string>>(new Set());
   const [actionbar, setActionbar] = useState(true);
   const [bossbar, setBossbar] = useState(false);
   const [titleFinal, setTitleFinal] = useState(true);
   const [color, setColor]     = useState<string>("yellow");
+  const [colorModalOpen, setColorModalOpen] = useState(false);
   const [soundId, setSoundId] = useState("");
 
+  // All players who have ever joined the server.
+  const { data: players = [] } = useQuery<McPlayer[]>({
+    queryKey: ["mc-players"],
+    queryFn:  () => api.get("/mc/players"),
+    refetchInterval: 30_000, // keep online-status reasonably fresh
+  });
+
+  // Sort: online first, then alphabetical
+  const sortedPlayers = useMemo(() => {
+    return [...players].sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.ign.localeCompare(b.ign);
+    });
+  }, [players]);
+
   const totalSecs = mins * 60 + secs;
-  const canSubmit = title.trim().length > 0 && totalSecs > 0 && totalSecs <= 3600 && !disabled && !loading;
+  const targetValid = targetAll || selectedPlayers.size > 0;
+  const canSubmit = title.trim().length > 0 && totalSecs > 0 && totalSecs <= 3600
+                    && targetValid && !disabled && !loading;
+
+  function togglePlayer(ign: string) {
+    setSelectedPlayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(ign)) next.delete(ign); else next.add(ign);
+      return next;
+    });
+  }
+
+  function selectAllPlayers() {
+    setSelectedPlayers(new Set(sortedPlayers.map((p) => p.ign)));
+  }
+  function selectNonePlayers() {
+    setSelectedPlayers(new Set());
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -347,10 +404,14 @@ function CreateCountdownForm({
     if (bossbar) modes.push("bossbar");
     if (titleFinal) modes.push("title_final");
 
+    // Target: "@a" for everyone, otherwise a comma-separated list of player
+    // names that the backend will fan out as separate per-player commands.
+    const target = targetAll ? "@a" : [...selectedPlayers].join(",");
+
     onSubmit({
       title: title.trim(),
       duration_secs: totalSecs,
-      target: targetAll ? "@a" : `@a[name=${targetPlayer.trim()}]`,
+      target,
       display_mode: modes.join(",") || "actionbar",
       color,
       sound_id: soundId || undefined,
@@ -417,64 +478,68 @@ function CreateCountdownForm({
         </div>
       </div>
 
-      <div>
-        <label className={LBL}>Players</label>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
-            <input
-              type="radio"
-              checked={targetAll}
-              onChange={() => setTargetAll(true)}
-              disabled={disabled}
-              className="accent-[#5B9BF0]"
-            />
-            <Users className="w-3.5 h-3.5" /> All
-          </label>
-          <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
-            <input
-              type="radio"
-              checked={!targetAll}
-              onChange={() => setTargetAll(false)}
-              disabled={disabled}
-              className="accent-[#5B9BF0]"
-            />
-            <User className="w-3.5 h-3.5" /> Specific
-          </label>
-          {!targetAll && (
-            <input
-              type="text"
-              value={targetPlayer}
-              onChange={(e) => setTargetPlayer(e.target.value)}
-              placeholder="PlayerName"
-              disabled={disabled}
-              className={`${INPUT} flex-1`}
-            />
-          )}
-        </div>
-      </div>
+      {/* ── Player selection ───────────────────────────────────────── */}
+      <PlayerPicker
+        players={sortedPlayers}
+        targetAll={targetAll}
+        setTargetAll={setTargetAll}
+        selected={selectedPlayers}
+        onToggle={togglePlayer}
+        onAll={selectAllPlayers}
+        onNone={selectNonePlayers}
+        disabled={disabled}
+      />
 
+      {/* ── Display modes (with visual previews) ───────────────────── */}
       <div>
         <label className={LBL}>Display</label>
-        <div className="flex flex-wrap gap-4">
-          <Checkbox label="Action Bar" checked={actionbar} onChange={setActionbar} disabled={disabled} />
-          <Checkbox label="Boss Bar" checked={bossbar} onChange={setBossbar} disabled={disabled} />
-          <Checkbox label="Final Titles (10s)" checked={titleFinal} onChange={setTitleFinal} disabled={disabled} />
+        <div className="grid grid-cols-3 gap-2">
+          <DisplayModeCard
+            kind="actionbar"
+            label="Action Bar"
+            checked={actionbar}
+            onChange={setActionbar}
+            disabled={disabled}
+            color={color}
+          />
+          <DisplayModeCard
+            kind="bossbar"
+            label="Boss Bar"
+            checked={bossbar}
+            onChange={setBossbar}
+            disabled={disabled}
+            color={color}
+          />
+          <DisplayModeCard
+            kind="title_final"
+            label="Final Titles"
+            checked={titleFinal}
+            onChange={setTitleFinal}
+            disabled={disabled}
+            color={color}
+          />
         </div>
       </div>
 
       <div className="flex gap-4">
+        {/* ── Color (modal picker) ────────────────────────────────── */}
         <div className="flex-1">
           <label className={LBL}>Color</label>
-          <select
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
+          <button
+            type="button"
+            onClick={() => setColorModalOpen(true)}
             disabled={disabled}
-            className={`${INPUT} w-full`}
+            className={`${INPUT} w-full flex items-center gap-2 text-left`}
+            data-testid="countdown-color-trigger"
           >
-            {MC_COLORS.map((c) => (
-              <option key={c} value={c}>{c.replace("_", " ")}</option>
-            ))}
-          </select>
+            <span
+              className="w-4 h-4 rounded border border-[#D9D5D0] dark:border-[#363944] flex-shrink-0"
+              style={{ backgroundColor: colorToHex(color) }}
+              aria-hidden
+            />
+            <span className="flex-1 truncate font-mono">{color}</span>
+            <Pipette className="w-3 h-3 text-meta" aria-hidden />
+          </button>
         </div>
         <div className="flex-1">
           <label className={LBL}>Music (optional)</label>
@@ -491,6 +556,14 @@ function CreateCountdownForm({
           </select>
         </div>
       </div>
+
+      {colorModalOpen && (
+        <ColorPickerModal
+          value={color}
+          onChange={setColor}
+          onClose={() => setColorModalOpen(false)}
+        />
+      )}
 
       <div className="flex justify-end">
         <button
@@ -563,27 +636,439 @@ function RecentList({
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
 
-function Checkbox({
+// ── PlayerPicker ──────────────────────────────────────────────────────────────
+// Visual player selector: avatar grid + select-all / select-none + per-player
+// toggle.  Uses mc-heads.net for avatars (same as the rest of the app).
+
+function PlayerPicker({
+  players,
+  targetAll,
+  setTargetAll,
+  selected,
+  onToggle,
+  onAll,
+  onNone,
+  disabled,
+}: {
+  players:      McPlayer[];
+  targetAll:    boolean;
+  setTargetAll: (v: boolean) => void;
+  selected:     Set<string>;
+  onToggle:     (ign: string) => void;
+  onAll:        () => void;
+  onNone:       () => void;
+  disabled:     boolean;
+}) {
+  return (
+    <div>
+      <label className={LBL}>Players</label>
+
+      {/* Mode toggle: All vs Specific */}
+      <div className="flex items-center gap-4 mb-2">
+        <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
+          <input
+            type="radio"
+            checked={targetAll}
+            onChange={() => setTargetAll(true)}
+            disabled={disabled}
+            className="accent-[#5B9BF0]"
+          />
+          <Users className="w-3.5 h-3.5" /> Everyone online
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
+          <input
+            type="radio"
+            checked={!targetAll}
+            onChange={() => setTargetAll(false)}
+            disabled={disabled}
+            className="accent-[#5B9BF0]"
+          />
+          Select specific players
+        </label>
+      </div>
+
+      {!targetAll && (
+        <div className="space-y-2">
+          {/* Select all / none controls */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onAll}
+              disabled={disabled || players.length === 0}
+              className="btn-secondary text-[10px] flex items-center gap-1 px-2 py-1"
+            >
+              <CheckSquare className="w-3 h-3" aria-hidden /> Select all
+            </button>
+            <button
+              type="button"
+              onClick={onNone}
+              disabled={disabled || selected.size === 0}
+              className="btn-secondary text-[10px] flex items-center gap-1 px-2 py-1"
+            >
+              <XSquare className="w-3 h-3" aria-hidden /> Select none
+            </button>
+            <span className="ml-auto text-[10px] text-meta tabular-nums">
+              {selected.size} / {players.length} selected
+            </span>
+          </div>
+
+          {/* Avatar grid */}
+          {players.length === 0 ? (
+            <p className="text-[10px] text-meta italic p-2">
+              No players found.  Has anyone joined the server yet?
+            </p>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1.5
+                            max-h-48 overflow-y-auto p-1 border border-[#D9D5D0] dark:border-[#363944]
+                            rounded-lg bg-white dark:bg-[#2A2D38]">
+              {players.map((p) => {
+                const isSel = selected.has(p.ign);
+                return (
+                  <button
+                    key={p.uuid || p.ign}
+                    type="button"
+                    onClick={() => onToggle(p.ign)}
+                    disabled={disabled}
+                    title={`${p.ign}${p.online ? " (online)" : ""}`}
+                    className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[10px]
+                                transition-colors min-w-0 ${
+                                  isSel
+                                    ? "bg-[#5B9BF0] text-white"
+                                    : "text-[#1C1E27] dark:text-[#EAECF0] hover:bg-[#F0EDE9] dark:hover:bg-[#363944]"
+                                }`}
+                  >
+                    <span className="relative flex-shrink-0">
+                      <img
+                        src={`https://mc-heads.net/avatar/${encodeURIComponent(p.ign)}/24`}
+                        alt=""
+                        className="w-5 h-5 rounded"
+                        loading="lazy"
+                      />
+                      {p.online && (
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#22C55E] ring-1 ring-white dark:ring-[#2A2D38]"
+                          aria-label="online"
+                        />
+                      )}
+                    </span>
+                    <span className="truncate font-medium">{p.ign}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DisplayModeCard ───────────────────────────────────────────────────────────
+// A checkbox+preview tile.  Each `kind` renders an SVG mock of what that
+// display mode looks like in Minecraft.
+
+function DisplayModeCard({
+  kind,
   label,
   checked,
   onChange,
   disabled,
+  color,
 }: {
+  kind: "actionbar" | "bossbar" | "title_final";
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   disabled: boolean;
+  color: string;
 }) {
+  const hex = colorToHex(color);
   return (
-    <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        className="accent-[#5B9BF0] rounded"
-      />
-      {label}
+    <label
+      className={`flex flex-col items-stretch gap-1 p-2 rounded-lg border cursor-pointer
+                  transition-colors ${
+                    checked
+                      ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]/30"
+                      : "border-[#D9D5D0] dark:border-[#363944] hover:border-[#9B9EA6]"
+                  }`}
+    >
+      <DisplayPreview kind={kind} color={hex} />
+      <div className="flex items-center gap-1.5 mt-0.5">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={disabled}
+          className="accent-[#5B9BF0]"
+        />
+        <span className="text-[11px] font-medium text-[#1C1E27] dark:text-[#EAECF0]">
+          {label}
+        </span>
+      </div>
     </label>
   );
+}
+
+function DisplayPreview({
+  kind,
+  color,
+}: {
+  kind: "actionbar" | "bossbar" | "title_final";
+  color: string;
+}) {
+  // 96 × 56 viewbox = MC HUD aspect-ish.  Sky on top, ground on bottom.
+  const skyTop    = "#5DA9FF";
+  const skyBottom = "#9CCEFF";
+  const ground    = "#7BAA48";
+
+  return (
+    <svg viewBox="0 0 96 56" className="w-full h-auto rounded border border-[#D9D5D0] dark:border-[#363944] bg-white">
+      <defs>
+        <linearGradient id={`sky-${kind}`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={skyTop} />
+          <stop offset="100%" stopColor={skyBottom} />
+        </linearGradient>
+      </defs>
+      <rect width="96" height="44" fill={`url(#sky-${kind})`} />
+      <rect y="44" width="96" height="12" fill={ground} />
+
+      {/* Hotbar (always shown for context) */}
+      <rect x="20" y="46" width="56" height="6" rx="0.5" fill="#1C1E27" opacity="0.85" />
+      {Array.from({ length: 9 }).map((_, i) => (
+        <rect
+          key={i}
+          x={20.5 + i * 6.2}
+          y={46.5}
+          width={5.5}
+          height={5}
+          fill="#3A3D48"
+          stroke="#6B6E78"
+          strokeWidth={0.2}
+        />
+      ))}
+
+      {/* Mode-specific HUD element */}
+      {kind === "bossbar" && (
+        <>
+          <rect x="14" y="3" width="68" height="5" rx="0.5" fill="#1C1E27" opacity="0.7" />
+          <rect x="14" y="3" width="48" height="5" rx="0.5" fill={color} />
+          <text x="48" y="14" textAnchor="middle" fontSize="3.5" fill="#FFF" fontWeight="bold">
+            Build Comp  3:21
+          </text>
+        </>
+      )}
+
+      {kind === "actionbar" && (
+        <text x="48" y="44" textAnchor="middle" fontSize="4" fill={color} fontWeight="bold">
+          Build Comp  3:21
+        </text>
+      )}
+
+      {kind === "title_final" && (
+        <>
+          <text x="48" y="26" textAnchor="middle" fontSize="14" fill={color} fontWeight="bold">3</text>
+          <text x="48" y="35" textAnchor="middle" fontSize="3.5" fill="#FFF" fontWeight="bold" opacity="0.85">
+            seconds!
+          </text>
+        </>
+      )}
+    </svg>
+  );
+}
+
+// ── ColorPickerModal ──────────────────────────────────────────────────────────
+// Small modal with: curated swatch palette, hex input, RGB inputs, and
+// CMYK inputs (converted to RGB on the fly).  All three input types stay in
+// sync with the same internal hex value.
+
+function ColorPickerModal({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onClose: () => void;
+}) {
+  // If the incoming value is a named colour, seed with its hex equivalent.
+  const initialHex = colorToHex(value);
+  const [hex, setHex] = useState(initialHex.toUpperCase());
+
+  // Derived state for the other input modes.
+  const rgb  = hexToRgb(hex)  ?? { r: 255, g: 255, b: 85 };
+  const cmyk = rgbToCmyk(rgb);
+
+  function commit(nextHex: string) {
+    setHex(nextHex.toUpperCase());
+  }
+
+  function handleSwatch(swatchName: string) {
+    onChange(swatchName);
+    onClose();
+  }
+
+  function handleApply() {
+    // Always send the hex value to the backend (MC supports #RRGGBB in
+    // text components; bossbars get mapped server-side to nearest named).
+    onChange(hex);
+    onClose();
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Color picker"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white dark:bg-[#1C1E27] rounded-xl shadow-2xl w-full max-w-sm
+                      border border-[#D9D5D0] dark:border-[#363944] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Pick a color</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+            aria-label="Close"
+          >
+            <X className="w-3.5 h-3.5" aria-hidden />
+          </button>
+        </div>
+
+        {/* Live swatch preview */}
+        <div className="flex items-center gap-2">
+          <span
+            className="w-10 h-10 rounded-lg border border-[#D9D5D0] dark:border-[#363944] flex-shrink-0"
+            style={{ backgroundColor: hex }}
+            aria-hidden
+          />
+          <div className="text-[10px] text-meta font-mono">{hex}</div>
+        </div>
+
+        {/* Curated swatches (named MC colors) */}
+        <div>
+          <label className={LBL}>Minecraft palette</label>
+          <div className="grid grid-cols-8 gap-1">
+            {COLOR_SWATCHES.map((s) => (
+              <button
+                key={s.name}
+                type="button"
+                onClick={() => handleSwatch(s.name)}
+                title={s.name}
+                className="w-6 h-6 rounded border border-[#D9D5D0] dark:border-[#363944]
+                           hover:scale-110 transition-transform"
+                style={{ backgroundColor: s.hex }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Hex */}
+        <div>
+          <label className={LBL}>Hex</label>
+          <input
+            type="text"
+            value={hex}
+            onChange={(e) => {
+              const v = e.target.value.toUpperCase().replace(/[^#0-9A-F]/g, "");
+              const withHash = v.startsWith("#") ? v : `#${v}`;
+              if (withHash.length <= 7) setHex(withHash);
+            }}
+            placeholder="#FFAA00"
+            className={`${INPUT} w-full font-mono`}
+            maxLength={7}
+          />
+        </div>
+
+        {/* RGB */}
+        <div>
+          <label className={LBL}>RGB</label>
+          <div className="flex gap-1">
+            {(["r", "g", "b"] as const).map((ch) => (
+              <input
+                key={ch}
+                type="number"
+                min={0}
+                max={255}
+                value={rgb[ch]}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(255, Number(e.target.value) || 0));
+                  const next = { ...rgb, [ch]: n };
+                  commit(rgbToHex(next));
+                }}
+                className={`${INPUT} w-full text-center tabular-nums`}
+                aria-label={ch.toUpperCase()}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* CMYK */}
+        <div>
+          <label className={LBL}>CMYK (%)</label>
+          <div className="flex gap-1">
+            {(["c", "m", "y", "k"] as const).map((ch) => (
+              <input
+                key={ch}
+                type="number"
+                min={0}
+                max={100}
+                value={Math.round(cmyk[ch])}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                  const next = { ...cmyk, [ch]: n };
+                  commit(rgbToHex(cmykToRgb(next)));
+                }}
+                className={`${INPUT} w-full text-center tabular-nums`}
+                aria-label={ch.toUpperCase()}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Apply */}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary text-xs">Cancel</button>
+          <button type="button" onClick={handleApply} className="btn-primary text-xs">Apply</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Color conversion helpers ─────────────────────────────────────────────────
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const v = hex.replace("#", "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(v)) return null;
+  return {
+    r: parseInt(v.slice(0, 2), 16),
+    g: parseInt(v.slice(2, 4), 16),
+    b: parseInt(v.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0").toUpperCase();
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+function rgbToCmyk({ r, g, b }: { r: number; g: number; b: number }): { c: number; m: number; y: number; k: number } {
+  const R = r / 255, G = g / 255, B = b / 255;
+  const k = 1 - Math.max(R, G, B);
+  if (k >= 1) return { c: 0, m: 0, y: 0, k: 100 };
+  const c = (1 - R - k) / (1 - k);
+  const m = (1 - G - k) / (1 - k);
+  const y = (1 - B - k) / (1 - k);
+  return { c: c * 100, m: m * 100, y: y * 100, k: k * 100 };
+}
+
+function cmykToRgb({ c, m, y, k }: { c: number; m: number; y: number; k: number }): { r: number; g: number; b: number } {
+  const C = c / 100, M = m / 100, Y = y / 100, K = k / 100;
+  return {
+    r: 255 * (1 - C) * (1 - K),
+    g: 255 * (1 - M) * (1 - K),
+    b: 255 * (1 - Y) * (1 - K),
+  };
 }
