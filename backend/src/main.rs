@@ -89,6 +89,12 @@ async fn main() -> anyhow::Result<()> {
         state.pool.clone(),
     );
 
+    // Spawn the music-zone task (region-triggered per-player playback).
+    lib::minecraft::music_zone_runner::spawn_music_zone_task(
+        cfg.clone(),
+        state.pool.clone(),
+    );
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),

@@ -192,6 +192,11 @@ pub fn build_router(state: AppState) -> Router {
                                      post(handlers::music::upload_track_image)
                                      .delete(handlers::music::delete_track_image))
         .route("/music/upload",      post(handlers::music::upload_oggs))
+        // Music zones — region-triggered per-player playback
+        .route("/music/zones",      get(handlers::music_zones::list)
+                                    .post(handlers::music_zones::create))
+        .route("/music/zones/:id",  axum::routing::patch(handlers::music_zones::update)
+                                    .delete(handlers::music_zones::delete))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))
