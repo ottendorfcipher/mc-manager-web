@@ -349,3 +349,108 @@ export interface CountdownState {
   active: ActiveCountdown | null;
   recent: Countdown[];
 }
+
+// ── Events — Rising Oceans ──────────────────────────────────────────────────
+
+export interface RisingOcean {
+  id:            number;
+  status:        "pending" | "running" | "paused" | "finished" | "cancelled";
+  center_x:      number;
+  center_z:      number;
+  radius:        number;
+  start_y:       number;
+  end_y:         number;
+  current_y:     number;
+  interval_secs: number;
+  backup_id:     number | null;
+  backup_path:   string | null;
+  world_slug:    string;
+  created_by:    string;
+  created_at:    string;
+  started_at:    string | null;
+  finished_at:   string | null;
+  reverted:      number | null;
+}
+
+export interface ActiveRisingOcean {
+  id:            number;
+  status:        string;
+  center_x:      number;
+  center_z:      number;
+  radius:        number;
+  start_y:       number;
+  end_y:         number;
+  current_y:     number;
+  interval_secs: number;
+  backup_id:     number | null;
+  world_slug:    string;
+  created_by:    string;
+}
+
+export interface RisingOceanState {
+  active: ActiveRisingOcean | null;
+  recent: RisingOcean[];
+}
+
+// ── Events — Bounty Boards ──────────────────────────────────────────────────
+
+export interface BountyBoard {
+  id:                            number;
+  title:                         string;
+  status:                        "pending" | "running" | "paused" | "finished" | "cancelled";
+  coord_broadcast_interval_secs: number;
+  coord_broadcast_threshold:     number;
+  reward_interval_secs:          number;
+  reward_items_json:             string;
+  rising_oceans_id:              number | null;
+  world_slug:                    string;
+  created_by:                    string;
+  created_at:                    string;
+  started_at:                    string | null;
+  finished_at:                   string | null;
+}
+
+export interface TrackedStat {
+  id:         number;
+  board_id:   number;
+  stat_key:   string;
+  label:      string;
+  mc_paths:   string;
+  stat_mode:  "delta" | "peak";
+  weight:     number;
+  enabled:    number;
+  sort_order: number;
+}
+
+export interface StatScore {
+  stat_key: string;
+  delta:    number;
+  weighted: number;
+}
+
+export interface LeaderboardEntry {
+  player_uuid:  string;
+  player_ign:   string;
+  total_score:  number;
+  stat_scores:  StatScore[];
+}
+
+export interface ActiveBountyBoard {
+  id:                            number;
+  title:                         string;
+  status:                        string;
+  coord_broadcast_interval_secs: number;
+  coord_broadcast_threshold:     number;
+  reward_interval_secs:          number;
+  reward_items_json:             string;
+  rising_oceans_id:              number | null;
+  world_slug:                    string;
+  created_by:                    string;
+  tracked_stats:                 TrackedStat[];
+  leaderboard:                   LeaderboardEntry[];
+}
+
+export interface BountyBoardState {
+  active: ActiveBountyBoard | null;
+  recent: BountyBoard[];
+}

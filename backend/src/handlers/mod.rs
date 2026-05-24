@@ -1,11 +1,13 @@
 pub mod auth;
 pub mod backups;
+pub mod bounty_board;
 pub mod discord_settings;
 pub mod bluemap_settings;
 pub mod budget;
 pub mod chat;
 pub mod coord_display;
 pub mod events;
+pub mod rising_oceans;
 pub mod give_item;
 pub mod kill_switch;
 pub mod map_pins;
