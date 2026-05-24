@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::db::chat::ChatMessage;
+use crate::db::countdowns::CountdownStatePayload;
 use crate::db::music_queue::MusicStatePayload;
 use crate::discord::{DiscordRelay, DiscordRuntimeConfig};
+use crate::minecraft::countdown_runner::ActiveCountdown;
 use crate::minecraft::music::CurrentTrack;
 use sqlx::SqlitePool;
 use tokio::sync::{broadcast, watch, Mutex, RwLock};
@@ -17,6 +19,9 @@ const CHAT_CHANNEL_CAPACITY: usize = 256;
 /// State changes are infrequent (track transitions, user actions), so a
 /// small capacity is sufficient.
 const MUSIC_CHANNEL_CAPACITY: usize = 32;
+
+/// Capacity of the countdown-state broadcast channel.
+const COUNTDOWN_CHANNEL_CAPACITY: usize = 32;
 
 /// Shared state cloned into every handler via Axum's `State` extractor.
 #[derive(Clone)]
@@ -37,6 +42,10 @@ pub struct AppState {
     pub music_tx:      broadcast::Sender<Arc<MusicStatePayload>>,
     /// Ephemeral now-playing state.  `None` when nothing is playing.
     pub music_current: Arc<Mutex<Option<CurrentTrack>>>,
+    /// Fanout channel for real-time countdown-state events.
+    pub countdown_tx:     broadcast::Sender<Arc<CountdownStatePayload>>,
+    /// Ephemeral active-countdown state.  `None` when no countdown is running.
+    pub countdown_active: Arc<Mutex<Option<ActiveCountdown>>>,
 }
 
 impl AppState {
@@ -51,6 +60,7 @@ impl AppState {
         ));
         let (discord_config_tx, _) = watch::channel(initial_discord);
         let (music_tx, _) = broadcast::channel(MUSIC_CHANNEL_CAPACITY);
+        let (countdown_tx, _) = broadcast::channel(COUNTDOWN_CHANNEL_CAPACITY);
         Self {
             pool,
             config,
@@ -63,6 +73,8 @@ impl AppState {
             discord_config_tx: Arc::new(discord_config_tx),
             music_tx,
             music_current: Arc::new(Mutex::new(None)),
+            countdown_tx,
+            countdown_active: Arc::new(Mutex::new(None)),
         }
     }
 }

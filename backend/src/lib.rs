@@ -233,7 +233,19 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/admin/discord-settings",
             get(handlers::discord_settings::get).put(handlers::discord_settings::put),
-        );
+        )
+        // Events — Countdowns
+        .route(
+            "/events/countdowns",
+            get(handlers::events::list).post(handlers::events::create),
+        )
+        .route("/events/countdowns/state",      get(handlers::events::get_state))
+        .route("/events/countdowns/stream",      get(handlers::events::stream))
+        .route("/events/countdowns/:id/start",   post(handlers::events::start))
+        .route("/events/countdowns/:id/pause",   post(handlers::events::pause))
+        .route("/events/countdowns/:id/resume",  post(handlers::events::resume))
+        .route("/events/countdowns/:id/cancel",  post(handlers::events::cancel))
+        .route("/events/countdowns/:id",         delete(handlers::events::delete));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
