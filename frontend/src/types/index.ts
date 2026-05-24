@@ -260,6 +260,28 @@ export interface MusicState {
   queue:       MusicQueueEntry[];
 }
 
+// ── Music zones (region-triggered per-player playback) ──────────────────────
+
+export interface MusicZone {
+  id:                  number;
+  name:                string;
+  dimension:           string;
+  center_x:            number;
+  center_z:            number;
+  radius:              number;
+  min_y:               number | null;
+  max_y:               number | null;
+  /** JSON-encoded array of sound IDs (use JSON.parse on the wire). */
+  sound_ids_json:      string;
+  /** JSON-encoded array of IGNs, or null for "everyone". */
+  target_players_json: string | null;
+  stop_on_leave:       number;  // 0/1
+  cooldown_secs:       number;
+  enabled:             number;  // 0/1
+  created_by:          string;
+  created_at:          string;
+}
+
 /** A sound event detected from assets/<namespace>/sounds.json in the resource pack. */
 export interface DetectedSound {
   /** Full Minecraft namespaced ID, e.g. `redstonecipher:music.my_song`. */
