@@ -191,7 +191,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/music/tracks/:id/image",
                                      post(handlers::music::upload_track_image)
                                      .delete(handlers::music::delete_track_image))
-        .route("/music/upload",      post(handlers::music::upload_oggs))
+                                     // Per-track artwork can be up to 2 MB (validated in
+                                     // the handler) — raise body limit accordingly.
+                                     .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
+        // OGG upload — bumped body limit to 512 MiB so multi-track sets and
+        // long uploads aren't rejected by Axum's 2 MiB default.
+        .route(
+            "/music/upload",
+            post(handlers::music::upload_oggs)
+                .layer(axum::extract::DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
         // Music zones — region-triggered per-player playback
         .route("/music/zones",      get(handlers::music_zones::list)
                                     .post(handlers::music_zones::create))
