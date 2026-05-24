@@ -877,9 +877,8 @@ function DisplayPreview({
 }
 
 // ── ColorPickerModal ──────────────────────────────────────────────────────────
-// Small modal with: curated swatch palette, hex input, RGB inputs, and
-// CMYK inputs (converted to RGB on the fly).  All three input types stay in
-// sync with the same internal hex value.
+// Compact modal — Minecraft swatch palette only.  Selecting a swatch commits
+// the named colour and closes the modal.
 
 function ColorPickerModal({
   value,
@@ -890,27 +889,8 @@ function ColorPickerModal({
   onChange: (v: string) => void;
   onClose: () => void;
 }) {
-  // If the incoming value is a named colour, seed with its hex equivalent.
-  const initialHex = colorToHex(value);
-  const [hex, setHex] = useState(initialHex.toUpperCase());
-
-  // Derived state for the other input modes.
-  const rgb  = hexToRgb(hex)  ?? { r: 255, g: 255, b: 85 };
-  const cmyk = rgbToCmyk(rgb);
-
-  function commit(nextHex: string) {
-    setHex(nextHex.toUpperCase());
-  }
-
   function handleSwatch(swatchName: string) {
     onChange(swatchName);
-    onClose();
-  }
-
-  function handleApply() {
-    // Always send the hex value to the backend (MC supports #RRGGBB in
-    // text components; bossbars get mapped server-side to nearest named).
-    onChange(hex);
     onClose();
   }
 
@@ -922,7 +902,7 @@ function ColorPickerModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white dark:bg-[#1C1E27] rounded-xl shadow-2xl w-full max-w-sm
+      <div className="bg-white dark:bg-[#1C1E27] rounded-xl shadow-2xl w-full max-w-xs
                       border border-[#D9D5D0] dark:border-[#363944] p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Pick a color</h3>
@@ -936,139 +916,39 @@ function ColorPickerModal({
           </button>
         </div>
 
-        {/* Live swatch preview */}
+        {/* Live swatch preview of current selection */}
         <div className="flex items-center gap-2">
           <span
-            className="w-10 h-10 rounded-lg border border-[#D9D5D0] dark:border-[#363944] flex-shrink-0"
-            style={{ backgroundColor: hex }}
+            className="w-8 h-8 rounded-lg border border-[#D9D5D0] dark:border-[#363944] flex-shrink-0"
+            style={{ backgroundColor: colorToHex(value) }}
             aria-hidden
           />
-          <div className="text-[10px] text-meta font-mono">{hex}</div>
+          <div className="text-[10px] text-meta font-mono truncate">{value}</div>
         </div>
 
-        {/* Curated swatches (named MC colors) */}
+        {/* Curated Minecraft palette */}
         <div>
           <label className={LBL}>Minecraft palette</label>
-          <div className="grid grid-cols-8 gap-1">
-            {COLOR_SWATCHES.map((s) => (
-              <button
-                key={s.name}
-                type="button"
-                onClick={() => handleSwatch(s.name)}
-                title={s.name}
-                className="w-6 h-6 rounded border border-[#D9D5D0] dark:border-[#363944]
-                           hover:scale-110 transition-transform"
-                style={{ backgroundColor: s.hex }}
-              />
-            ))}
+          <div className="grid grid-cols-5 gap-1.5">
+            {COLOR_SWATCHES.map((s) => {
+              const isSel = value === s.name;
+              return (
+                <button
+                  key={s.name}
+                  type="button"
+                  onClick={() => handleSwatch(s.name)}
+                  title={s.name}
+                  className={`aspect-square rounded transition-transform hover:scale-110
+                              ${isSel
+                                ? "ring-2 ring-[#5B9BF0] ring-offset-1 ring-offset-white dark:ring-offset-[#1C1E27]"
+                                : "border border-[#D9D5D0] dark:border-[#363944]"}`}
+                  style={{ backgroundColor: s.hex }}
+                />
+              );
+            })}
           </div>
-        </div>
-
-        {/* Hex */}
-        <div>
-          <label className={LBL}>Hex</label>
-          <input
-            type="text"
-            value={hex}
-            onChange={(e) => {
-              const v = e.target.value.toUpperCase().replace(/[^#0-9A-F]/g, "");
-              const withHash = v.startsWith("#") ? v : `#${v}`;
-              if (withHash.length <= 7) setHex(withHash);
-            }}
-            placeholder="#FFAA00"
-            className={`${INPUT} w-full font-mono`}
-            maxLength={7}
-          />
-        </div>
-
-        {/* RGB */}
-        <div>
-          <label className={LBL}>RGB</label>
-          <div className="flex gap-1">
-            {(["r", "g", "b"] as const).map((ch) => (
-              <input
-                key={ch}
-                type="number"
-                min={0}
-                max={255}
-                value={rgb[ch]}
-                onChange={(e) => {
-                  const n = Math.max(0, Math.min(255, Number(e.target.value) || 0));
-                  const next = { ...rgb, [ch]: n };
-                  commit(rgbToHex(next));
-                }}
-                className={`${INPUT} w-full text-center tabular-nums`}
-                aria-label={ch.toUpperCase()}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* CMYK */}
-        <div>
-          <label className={LBL}>CMYK (%)</label>
-          <div className="flex gap-1">
-            {(["c", "m", "y", "k"] as const).map((ch) => (
-              <input
-                key={ch}
-                type="number"
-                min={0}
-                max={100}
-                value={Math.round(cmyk[ch])}
-                onChange={(e) => {
-                  const n = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                  const next = { ...cmyk, [ch]: n };
-                  commit(rgbToHex(cmykToRgb(next)));
-                }}
-                className={`${INPUT} w-full text-center tabular-nums`}
-                aria-label={ch.toUpperCase()}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Apply */}
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="btn-secondary text-xs">Cancel</button>
-          <button type="button" onClick={handleApply} className="btn-primary text-xs">Apply</button>
         </div>
       </div>
     </div>
   );
-}
-
-// ── Color conversion helpers ─────────────────────────────────────────────────
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const v = hex.replace("#", "");
-  if (!/^[0-9A-Fa-f]{6}$/.test(v)) return null;
-  return {
-    r: parseInt(v.slice(0, 2), 16),
-    g: parseInt(v.slice(2, 4), 16),
-    b: parseInt(v.slice(4, 6), 16),
-  };
-}
-
-function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): string {
-  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0").toUpperCase();
-  return `#${h(r)}${h(g)}${h(b)}`;
-}
-
-function rgbToCmyk({ r, g, b }: { r: number; g: number; b: number }): { c: number; m: number; y: number; k: number } {
-  const R = r / 255, G = g / 255, B = b / 255;
-  const k = 1 - Math.max(R, G, B);
-  if (k >= 1) return { c: 0, m: 0, y: 0, k: 100 };
-  const c = (1 - R - k) / (1 - k);
-  const m = (1 - G - k) / (1 - k);
-  const y = (1 - B - k) / (1 - k);
-  return { c: c * 100, m: m * 100, y: y * 100, k: k * 100 };
-}
-
-function cmykToRgb({ c, m, y, k }: { c: number; m: number; y: number; k: number }): { r: number; g: number; b: number } {
-  const C = c / 100, M = m / 100, Y = y / 100, K = k / 100;
-  return {
-    r: 255 * (1 - C) * (1 - K),
-    g: 255 * (1 - M) * (1 - K),
-    b: 255 * (1 - Y) * (1 - K),
-  };
 }
