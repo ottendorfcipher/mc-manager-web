@@ -6,6 +6,7 @@ pub mod settings;
 pub mod backups;
 pub mod chat;
 pub mod kill_switch;
+pub mod lobbies;
 pub mod map_pins;
 pub mod music_queue;
 pub mod music_zones;
