@@ -253,6 +253,11 @@ pub async fn add_custom_track(
         &actor.email,
     ).await?;
 
+    // Rebuild resource pack so the new track is available in-game.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("add_custom_track: pack rebuild failed: {e}");
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -291,6 +296,12 @@ pub async fn update_custom_track(
     if !found {
         return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
     }
+
+    // Rebuild resource pack in case the sound_id mapping changed.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("update_custom_track: pack rebuild failed: {e}");
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
