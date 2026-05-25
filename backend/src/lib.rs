@@ -166,6 +166,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/players/:ign/give", post(handlers::give_item::give))
         // Player stats (MC statistics JSON)
         .route("/players/:ign/stats", get(handlers::player_stats::get))
+        // In-game sign-in link (QR code SSO)
+        .route("/players/:ign/link-token", post(handlers::link_token::create))
         // Map pins
         .route(
             "/map/pins",
@@ -328,6 +330,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login", get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
         .route("/auth/logout", get(handlers::auth::logout))
+        .route("/auth/link/:token", get(handlers::link_token::redeem))
         .route("/internal/budget-alert", post(handlers::budget::webhook))
         .route(
             "/internal/player-joined",
