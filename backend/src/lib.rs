@@ -164,6 +164,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/players/snapshots/:ign", get(handlers::player_data::get))
         // Give items to a player
         .route("/players/:ign/give", post(handlers::give_item::give))
+        // Player stats (MC statistics JSON)
+        .route("/players/:ign/stats", get(handlers::player_stats::get))
         // Map pins
         .route(
             "/map/pins",

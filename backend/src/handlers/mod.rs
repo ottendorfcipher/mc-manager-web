@@ -22,6 +22,7 @@ pub mod music;
 pub mod pending_players;
 pub mod permissions;
 pub mod player_data;
+pub mod player_stats;
 pub mod properties;
 pub mod roles;
 pub mod server;

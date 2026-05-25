@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Heart, MapPin, Package2, AlertTriangle,
-  Backpack, ChevronUp,
+  Backpack, ChevronUp, BarChart3,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
@@ -254,6 +255,13 @@ function DetailPanel({
               <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`} />
               {isOnline ? "Online" : "Offline"}
             </span>
+            <Link
+              to={`/players/${snap.ign}`}
+              className="flex items-center gap-1 text-xs text-[#5B9BF0] hover:text-[#4A8AD9]
+                         px-2 py-0.5 rounded-full bg-[#EFF6FF] dark:bg-[#1E3A5F]/30 font-medium"
+            >
+              <BarChart3 className="w-3 h-3" /> Stats
+            </Link>
           </div>
 
           {/* Location + dimension */}
