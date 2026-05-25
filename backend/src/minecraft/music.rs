@@ -95,7 +95,9 @@ pub struct CurrentTrack {
 pub async fn play_all(cfg: &Config, sound_id: &str) -> Result<bool> {
     // Silence ambient music that may already be playing on any client.
     let _ = console::send(cfg, "stopsound @a music").await;
-    console::send(cfg, &format!("playsound {sound_id} music @a ~ ~ ~ 1000000 1")).await
+    // MC resource locations must be lowercase — normalise defensively.
+    let sid = sound_id.to_ascii_lowercase();
+    console::send(cfg, &format!("playsound {sid} music @a ~ ~ ~ 1000000 1")).await
 }
 
 /// Send `/stopsound @a music` to silence all music-channel sounds for everyone.

@@ -37,6 +37,15 @@ const TICK_SECS: u64 = 5;
 
 pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool) {
     tokio::spawn(async move {
+        // On startup, clear all stale `is_playing` flags — sounds from the
+        // previous process are no longer actually audible.  We intentionally
+        // do NOT update `finished_at` so that the original cooldown window
+        // is preserved instead of penalising a restart with a fresh 30-min
+        // lockout.
+        if let Err(e) = clear_stale_playing(&pool).await {
+            warn!("music_zone: failed to clear stale playing state: {e:?}");
+        }
+
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         interval.tick().await; // skip the immediate first tick
 
@@ -47,6 +56,20 @@ pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool) {
             }
         }
     });
+}
+
+/// Reset any `is_playing = 1` rows left over from a previous process.
+async fn clear_stale_playing(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query(
+        "UPDATE music_zone_player_state SET is_playing = 0 WHERE is_playing = 1",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if rows > 0 {
+        tracing::info!("music_zone: cleared {rows} stale is_playing flag(s) from previous run");
+    }
+    Ok(())
 }
 
 // ── One tick ─────────────────────────────────────────────────────────────────
@@ -147,8 +170,13 @@ async fn process_zone(
 
         // ── Transitions ──────────────────────────────────────────────────
         match (was_in, inside, playing, track_done) {
-            // Entered the zone, not currently playing, cooldown OK → trigger
-            (false, true, false, _) if cooldown_ok => {
+            // Entered (or already inside after restart/track-end), not
+            // playing, cooldown OK → trigger first sound.
+            (_, true, false, _) if cooldown_ok => {
+                tracing::info!(
+                    "music_zone[{}]: triggering for {} (was_in={was_in})",
+                    zone.name, snap.ign,
+                );
                 let first = &sound_ids[0];
                 play_for(cfg, &snap.ign, first).await;
                 music_zones::upsert_state(
@@ -160,14 +188,20 @@ async fn process_zone(
                     None,
                 ).await?;
             }
-            // Entered while cooldown still active → just record presence
-            (false, true, false, _) => {
-                music_zones::set_in_zone(pool, zone.id, &snap.ign, true).await?;
+            // Inside but cooldown still active → just record presence
+            (_, true, false, _) => {
+                if !was_in {
+                    music_zones::set_in_zone(pool, zone.id, &snap.ign, true).await?;
+                }
             }
             // Still inside, currently playing, current track ended → next/finish
             (_, true, true, true) => {
                 let next_idx = cur_idx + 1;
                 if let Some(next_sid) = sound_ids.get(next_idx) {
+                    tracing::info!(
+                        "music_zone[{}]: advancing to track {next_idx} for {}",
+                        zone.name, snap.ign,
+                    );
                     play_for(cfg, &snap.ign, next_sid).await;
                     music_zones::upsert_state(
                         pool, zone.id, &snap.ign,
@@ -179,12 +213,20 @@ async fn process_zone(
                     ).await?;
                 } else {
                     // Whole sequence done → mark finished, start cooldown
+                    tracing::info!(
+                        "music_zone[{}]: sequence finished for {}",
+                        zone.name, snap.ign,
+                    );
                     music_zones::mark_finished(pool, zone.id, &snap.ign, &now_str).await?;
                     music_zones::set_in_zone(pool, zone.id, &snap.ign, true).await?;
                 }
             }
             // Left the zone, playing, stop_on_leave on → stop sound + finish
             (true, false, true, _) if zone.stop_on_leave == 1 => {
+                tracing::info!(
+                    "music_zone[{}]: {} left zone, stopping",
+                    zone.name, snap.ign,
+                );
                 stop_for(cfg, &snap.ign).await;
                 music_zones::mark_finished(pool, zone.id, &snap.ign, &now_str).await?;
                 music_zones::set_in_zone(pool, zone.id, &snap.ign, false).await?;
@@ -195,12 +237,8 @@ async fn process_zone(
                     music_zones::set_in_zone(pool, zone.id, &snap.ign, inside).await?;
                 }
             }
-            // Otherwise (e.g. inside + playing + not done) — just bump in_zone if changed
-            _ => {
-                if was_in != inside {
-                    music_zones::set_in_zone(pool, zone.id, &snap.ign, inside).await?;
-                }
-            }
+            // Otherwise (e.g. inside + playing + not done) — no-op
+            _ => {}
         }
     }
 
@@ -243,8 +281,10 @@ async fn play_for(cfg: &Config, ign: &str, sound_id: &str) {
     // Small pause so MC finishes processing the stop before the play arrives.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    match console::send(cfg, &format!("playsound {sound_id} music {sel} ~ ~ ~ 1000000 1")).await {
-        Ok(true)  => tracing::info!("music_zone: playing {sound_id} for {ign}"),
+    // MC resource locations must be lowercase — normalise defensively.
+    let sid = sound_id.to_ascii_lowercase();
+    match console::send(cfg, &format!("playsound {sid} music {sel} ~ ~ ~ 1000000 1")).await {
+        Ok(true)  => tracing::info!("music_zone: playing {sid} for {ign}"),
         Ok(false) => warn!("music_zone: playsound for {ign}: server offline"),
         Err(e)    => warn!("music_zone: playsound for {ign}: {e}"),
     }
