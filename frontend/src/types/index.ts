@@ -224,10 +224,12 @@ export interface SoundEntry {
   artist:        string;
   duration_secs: number;
   is_custom:     boolean;
-  /** Custom-track artwork URL (e.g. `/uploads/music/images/foo.png`).
+  /** Custom-track artwork URL (e.g. `/uploads/music/images/{uuid}.png`).
    *  Null for vanilla tracks — the UI renders a procedurally-coloured
    *  disc icon for those. */
   image_url:     string | null;
+  /** Custom-track audio URL (UUID-named, unguessable).  Null for vanilla. */
+  audio_url:     string | null;
 }
 
 export interface ResourcePackInfo {
@@ -548,4 +550,20 @@ export interface PartyMember {
 
 export interface PartyWithMembers extends Party {
   members: PartyMember[];
+}
+
+// ── Scheduled jobs ─────────────────────────────────────────────────────────
+
+export interface ScheduledJob {
+  id:             number;
+  name:           string;
+  cron_expr:      string;
+  action_type:    "console" | "announce" | "discord" | "backup" | "countdown";
+  action_payload: string; // JSON
+  enabled:        number; // 0/1
+  last_fire_at:   string | null;
+  next_fire_at:   string | null;
+  last_status:    string | null;
+  created_by:     string;
+  created_at:     string;
 }

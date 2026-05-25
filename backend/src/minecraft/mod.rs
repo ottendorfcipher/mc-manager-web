@@ -3,6 +3,8 @@ pub mod bounty_runner;
 pub mod chat_watcher;
 pub mod console;
 pub mod countdown;
+pub mod cron;
+pub mod scheduled_runner;
 pub mod countdown_runner;
 pub mod dimensions;
 pub mod give_item;

@@ -118,6 +118,11 @@ pub async fn refresh_snapshots(pool: &sqlx::SqlitePool, cfg: &Config) -> Result<
 
 // ── BlueMap live player markers ───────────────────────────────────────────────
 
+/// Tracks whether we've already warned about bluemap write failures so the
+/// log isn't flooded every 5 seconds.
+static BLUEMAP_WARNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 async fn write_bluemap_players(cfg: &Config, snapshots: &[RawSnapshot]) {
     let dim_map = [
         ("minecraft:overworld", "overworld"),
@@ -146,11 +151,15 @@ async fn write_bluemap_players(cfg: &Config, snapshots: &[RawSnapshot]) {
         let path = format!("{}/players.json", dir);
 
         if let Err(e) = std::fs::create_dir_all(&dir) {
-            tracing::warn!("bluemap live dir: {e}");
+            if !BLUEMAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!("bluemap live dir: {e} (further warnings suppressed)");
+            }
             continue;
         }
         if let Err(e) = std::fs::write(&path, payload.to_string()) {
-            tracing::warn!("bluemap players.json write: {e}");
+            if !BLUEMAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!("bluemap players.json write: {e} (further warnings suppressed)");
+            }
         }
     }
 }

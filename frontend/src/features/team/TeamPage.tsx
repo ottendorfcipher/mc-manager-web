@@ -11,7 +11,7 @@ import { ROLE_LEVELS } from "@/types";
 
 // ── Pin HUD hook ──────────────────────────────────────────────────────────────
 
-interface PinHudStatus { ign: string; show_team: boolean; show_private: boolean; }
+interface PinHudStatus { ign: string; show_team: boolean; show_private: boolean; show_events: boolean; }
 
 function usePinHud(ign: string, canAccess: boolean) {
   const qc = useQueryClient();
@@ -23,7 +23,7 @@ function usePinHud(ign: string, canAccess: boolean) {
     staleTime: 30_000,
   });
   const updateMut = useMutation({
-    mutationFn: (body: { show_team: boolean; show_private: boolean }) =>
+    mutationFn: (body: { show_team: boolean; show_private: boolean; show_events: boolean }) =>
       api.put(`/players/${encodeURIComponent(ign)}/pin-hud`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pin-hud", ign] }),
   });
@@ -151,7 +151,8 @@ function PinHudToggle({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean;
 
   const showTeam    = data?.show_team    ?? false;
   const showPrivate = data?.show_private ?? false;
-  const on          = showTeam || showPrivate;
+  const showEvents  = data?.show_events  ?? false;
+  const on          = showTeam || showPrivate || showEvents;
 
   return (
     <div className="relative">
@@ -190,7 +191,7 @@ function PinHudToggle({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean;
               <input
                 type="checkbox"
                 checked={showTeam}
-                onChange={(e) => update({ show_team: e.target.checked, show_private: showPrivate })}
+                onChange={(e) => update({ show_team: e.target.checked, show_private: showPrivate, show_events: showEvents })}
                 disabled={isPending}
                 className="accent-[#5B9BF0]"
               />
@@ -200,14 +201,24 @@ function PinHudToggle({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean;
               <input
                 type="checkbox"
                 checked={showPrivate}
-                onChange={(e) => update({ show_team: showTeam, show_private: e.target.checked })}
+                onChange={(e) => update({ show_team: showTeam, show_private: e.target.checked, show_events: showEvents })}
                 disabled={isPending}
                 className="accent-[#5B9BF0]"
               />
               My private pins
             </label>
+            <label className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] cursor-pointer text-xs text-[#1C1E27] dark:text-[#EAECF0]">
+              <input
+                type="checkbox"
+                checked={showEvents}
+                onChange={(e) => update({ show_team: showTeam, show_private: showPrivate, show_events: e.target.checked })}
+                disabled={isPending}
+                className="accent-[#5B9BF0]"
+              />
+              Active events
+            </label>
             <p className="text-[9px] text-meta px-1 pt-1 border-t border-[#D9D5D0] dark:border-[#363944]">
-              Shown in-game above your hotbar with distance.
+              Shown in-game above your hotbar with distance. Events = rising oceans + launched lobbies.
             </p>
           </div>
         </>

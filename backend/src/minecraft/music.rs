@@ -221,3 +221,106 @@ pub fn spawn_player_task(
         }
     });
 }
+
+// ── Storage backfill: UUID-rename legacy uploads ─────────────────────────────
+
+/// One-shot startup task that migrates legacy music uploads to UUID-named
+/// files so the public `/uploads/music/` URLs aren't trivially scrapable.
+///
+/// For each custom track row with `storage_filename = NULL`:
+///   1. Compute the legacy on-disk path from the sound_id.
+///   2. If the file exists, rename it to `{uuid}.ogg`.
+///   3. Update the row's `storage_filename` column.
+///
+/// Idempotent — safe to call on every boot.  Rows that already have a
+/// `storage_filename` are skipped.  Missing legacy files are logged as
+/// warnings (e.g. resource-pack-only entries with no upload).
+pub async fn backfill_uuid_storage(pool: &sqlx::SqlitePool) {
+    const UPLOAD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+
+    let rows = match crate::db::music_queue::list_custom_tracks(pool).await {
+        Ok(r)  => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "music: backfill could not read custom_tracks");
+            return;
+        }
+    };
+
+    for t in rows {
+        if t.storage_filename.is_some() { continue; }
+
+        // Derive the legacy filename from the sound_id stem.
+        // sound_id shape: "redstonecipher:music.{stem}"
+        let stem = t.sound_id
+            .rsplit_once(':')
+            .and_then(|(_, rest)| rest.strip_prefix("music."))
+            .unwrap_or(t.sound_id.as_str());
+        // Match the same sanitiser the upload handler used.
+        let safe_stem: String = stem.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        let legacy = format!("{UPLOAD_DIR}/{safe_stem}.ogg");
+
+        if !tokio::fs::try_exists(&legacy).await.unwrap_or(false) {
+            tracing::debug!(
+                sound_id = %t.sound_id,
+                "music backfill: no legacy file at {legacy} — skipping",
+            );
+            continue;
+        }
+
+        let new_uuid = uuid::Uuid::new_v4().simple().to_string();
+        let new_name = format!("{new_uuid}.ogg");
+        let new_path = format!("{UPLOAD_DIR}/{new_name}");
+
+        if let Err(e) = tokio::fs::rename(&legacy, &new_path).await {
+            tracing::warn!(
+                sound_id = %t.sound_id,
+                error = %e,
+                "music backfill: rename {legacy} -> {new_path} failed",
+            );
+            continue;
+        }
+        if let Err(e) = crate::db::music_queue::set_custom_track_storage(
+            pool, &t.sound_id, &new_name,
+        ).await {
+            tracing::warn!(sound_id = %t.sound_id, error = %e,
+                "music backfill: DB update failed");
+            // Try to rollback the rename so the legacy path keeps working.
+            let _ = tokio::fs::rename(&new_path, &legacy).await;
+            continue;
+        }
+        tracing::info!(sound_id = %t.sound_id, new_name,
+            "music backfill: renamed legacy upload to UUID");
+    }
+
+    // Image artwork: legacy filenames followed the sanitised sound_id.
+    // If image_filename looks NON-uuid-shaped, rename it too.
+    const IMG_DIR: &str = "/opt/redstonecipher/www/uploads/music/images";
+    let rows2 = match crate::db::music_queue::list_custom_tracks(pool).await {
+        Ok(r)  => r,
+        Err(_) => return,
+    };
+    for t in rows2 {
+        let Some(image) = t.image_filename else { continue; };
+        // UUID-simple is exactly 32 hex chars + '.' + ext.  Skip if already shaped.
+        let stem = image.split('.').next().unwrap_or("");
+        if stem.len() == 32 && stem.chars().all(|c| c.is_ascii_hexdigit()) { continue; }
+
+        let old_path = format!("{IMG_DIR}/{image}");
+        if !tokio::fs::try_exists(&old_path).await.unwrap_or(false) {
+            continue;
+        }
+        // Preserve extension.
+        let ext = image.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
+        let new_name = format!("{}.{}", uuid::Uuid::new_v4().simple(), ext);
+        let new_path = format!("{IMG_DIR}/{new_name}");
+        if tokio::fs::rename(&old_path, &new_path).await.is_ok() {
+            let _ = crate::db::music_queue::set_custom_track_image(
+                pool, &t.sound_id, Some(&new_name),
+            ).await;
+            tracing::info!(sound_id = %t.sound_id, new_name,
+                "music backfill: renamed legacy image to UUID");
+        }
+    }
+}

@@ -229,19 +229,32 @@ fn inside_zone(zone: &music_zones::MusicZone, snap: &player_snapshots::PlayerSna
 }
 
 async fn play_for(cfg: &Config, ign: &str, sound_id: &str) {
-    // Silence Minecraft's ambient music for just this player, then play.
+    // Use @p[name=IGN] selector so the command targets exactly one player.
     // Volume 1_000_000 = audible regardless of distance to the source.
-    let _ = console::send(cfg, &format!("stopsound {ign} music")).await;
-    let _ = console::send(
-        cfg,
-        &format!("playsound {sound_id} music {ign} ~ ~ ~ 1000000 1"),
-    ).await;
-    // Keep variable used by IDE; the call also silences our wrapper
-    let _ = mc_music::lookup(sound_id);
+    let sel = format!("@p[name={}]", ign);
+
+    // Silence ambient / previous zone music first.
+    match console::send(cfg, &format!("stopsound {sel} music")).await {
+        Ok(true)  => {}
+        Ok(false) => { warn!("music_zone: stopsound for {ign}: server offline"); return; }
+        Err(e)    => { warn!("music_zone: stopsound for {ign}: {e}"); return; }
+    }
+
+    // Small pause so MC finishes processing the stop before the play arrives.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    match console::send(cfg, &format!("playsound {sound_id} music {sel} ~ ~ ~ 1000000 1")).await {
+        Ok(true)  => tracing::info!("music_zone: playing {sound_id} for {ign}"),
+        Ok(false) => warn!("music_zone: playsound for {ign}: server offline"),
+        Err(e)    => warn!("music_zone: playsound for {ign}: {e}"),
+    }
 }
 
 async fn stop_for(cfg: &Config, ign: &str) {
-    let _ = console::send(cfg, &format!("stopsound {ign} music")).await;
+    let sel = format!("@p[name={}]", ign);
+    if let Err(e) = console::send(cfg, &format!("stopsound {sel} music")).await {
+        warn!("music_zone: stopsound for {ign}: {e}");
+    }
 }
 
 /// Build a `sound_id → duration_secs` lookup combining the vanilla catalog

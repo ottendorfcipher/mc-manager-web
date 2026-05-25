@@ -112,6 +112,10 @@ pub struct CustomTrack {
     /// /opt/redstonecipher/www/uploads/music/images/.  NULL means use
     /// the client-side rendered disc fallback.
     pub image_filename: Option<String>,
+    /// UUID-based name of the .ogg file on disk under
+    /// /opt/redstonecipher/www/uploads/music/.  NULL for legacy tracks
+    /// that haven't been backfilled yet (those use a sound-id-derived path).
+    pub storage_filename: Option<String>,
 }
 
 pub async fn list_custom_tracks(pool: &SqlitePool) -> Result<Vec<CustomTrack>> {
@@ -183,6 +187,20 @@ pub async fn set_custom_track_image(
     filename: Option<&str>,
 ) -> Result<bool> {
     let r = sqlx::query("UPDATE music_custom_tracks SET image_filename = ? WHERE sound_id = ?")
+        .bind(filename)
+        .bind(sound_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// Persist a custom track's on-disk storage filename (UUID-based).
+pub async fn set_custom_track_storage(
+    pool:     &SqlitePool,
+    sound_id: &str,
+    filename: &str,
+) -> Result<bool> {
+    let r = sqlx::query("UPDATE music_custom_tracks SET storage_filename = ? WHERE sound_id = ?")
         .bind(filename)
         .bind(sound_id)
         .execute(pool)
