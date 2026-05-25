@@ -190,11 +190,9 @@ function ZoneCard({
           <p className="text-[11px] text-meta mt-0.5">
             <code className="font-mono">{zone.dimension.replace("minecraft:", "")}</code>
             {" · "}
-            <code className="font-mono">({zone.center_x}, {zone.center_z})</code>
-            {" · r="}{zone.radius}
-            {zone.min_y !== null && zone.max_y !== null && (
-              <> · y {zone.min_y}–{zone.max_y}</>
-            )}
+            <code className="font-mono">({zone.x1}, {zone.y1}, {zone.z1})</code>
+            {" → "}
+            <code className="font-mono">({zone.x2}, {zone.y2}, {zone.z2})</code>
           </p>
           <p className="text-[11px] text-meta">
             {players ? (
@@ -261,11 +259,12 @@ function ZoneCard({
 interface ZoneBody {
   name:           string;
   dimension:      string;
-  center_x:       number;
-  center_z:       number;
-  radius:         number;
-  min_y:          number | null;
-  max_y:          number | null;
+  x1:             number;
+  y1:             number;
+  z1:             number;
+  x2:             number;
+  y2:             number;
+  z2:             number;
   sound_ids:      string[];
   target_players: string[] | null;
   stop_on_leave:  boolean;
@@ -299,12 +298,12 @@ function ZoneForm({
 
   const [name, setName]               = useState(initial?.name ?? "");
   const [dimension, setDimension]     = useState(initial?.dimension ?? "minecraft:overworld");
-  const [centerX, setCenterX]         = useState(initial?.center_x ?? 0);
-  const [centerZ, setCenterZ]         = useState(initial?.center_z ?? 0);
-  const [radius, setRadius]           = useState(initial?.radius ?? 32);
-  const [useY, setUseY]               = useState(initial?.min_y !== null && initial?.max_y !== null);
-  const [minY, setMinY]               = useState(initial?.min_y ?? 0);
-  const [maxY, setMaxY]               = useState(initial?.max_y ?? 256);
+  const [x1, setX1]                   = useState(initial?.x1 ?? 0);
+  const [y1, setY1]                   = useState(initial?.y1 ?? -64);
+  const [z1, setZ1]                   = useState(initial?.z1 ?? 0);
+  const [x2, setX2]                   = useState(initial?.x2 ?? 0);
+  const [y2, setY2]                   = useState(initial?.y2 ?? 320);
+  const [z2, setZ2]                   = useState(initial?.z2 ?? 0);
   const [soundIds, setSoundIds]       = useState<string[]>(initialSoundIds);
   const [stopOnLeave, setStopOnLeave] = useState(initial?.stop_on_leave === 1);
   // Cooldown editor — convert to/from mins/secs for nicer UI
@@ -336,11 +335,8 @@ function ZoneForm({
     onSubmit({
       name:           name.trim(),
       dimension,
-      center_x:       centerX,
-      center_z:       centerZ,
-      radius,
-      min_y:          useY ? minY : null,
-      max_y:          useY ? maxY : null,
+      x1, y1, z1,
+      x2, y2, z2,
       sound_ids:      soundIds,
       target_players: targetAll ? null : [...selectedPlayers],
       stop_on_leave:  stopOnLeave,
@@ -375,65 +371,60 @@ function ZoneForm({
         />
       </div>
 
-      {/* Geometry: dimension + center + radius */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div className="col-span-2 sm:col-span-1">
-          <label className={LBL}>Dimension</label>
-          <select
-            value={dimension}
-            onChange={(e) => setDimension(e.target.value)}
-            className={`${INPUT} w-full`}
-          >
-            {DIMENSIONS.map((d) => (
-              <option key={d.value} value={d.value}>{d.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={LBL}>Center X</label>
-          <input type="number" className={`${INPUT} w-full`}
-            value={centerX} onChange={(e) => setCenterX(Number(e.target.value) || 0)} />
-        </div>
-        <div>
-          <label className={LBL}>Center Z</label>
-          <input type="number" className={`${INPUT} w-full`}
-            value={centerZ} onChange={(e) => setCenterZ(Number(e.target.value) || 0)} />
-        </div>
-        <div>
-          <label className={LBL}>Radius</label>
-          <input type="number" className={`${INPUT} w-full`}
-            min={1} max={2048}
-            value={radius} onChange={(e) => setRadius(Math.max(1, Math.min(2048, Number(e.target.value) || 32)))} />
+      {/* Geometry: dimension + two corner points */}
+      <div>
+        <label className={LBL}>Dimension</label>
+        <select
+          value={dimension}
+          onChange={(e) => setDimension(e.target.value)}
+          className={`${INPUT} w-full sm:w-48`}
+        >
+          {DIMENSIONS.map((d) => (
+            <option key={d.value} value={d.value}>{d.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <label className={LBL}>Corner 1 (stand at one corner, press F3)</label>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">X</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={x1} onChange={(e) => setX1(Number(e.target.value) || 0)} />
+          </div>
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">Y</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={y1} onChange={(e) => setY1(Number(e.target.value) || 0)} />
+          </div>
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">Z</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={z1} onChange={(e) => setZ1(Number(e.target.value) || 0)} />
+          </div>
         </div>
       </div>
 
-      {/* Optional Y range */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs text-[#1C1E27] dark:text-[#EAECF0] cursor-pointer">
-          <input
-            type="checkbox"
-            checked={useY}
-            onChange={(e) => setUseY(e.target.checked)}
-            className="accent-[#5B9BF0]"
-          />
-          Restrict to Y range
-        </label>
-        {useY && (
-          <div className="flex gap-2 mt-1.5">
-            <div className="flex-1">
-              <label className={LBL}>Min Y</label>
-              <input type="number" className={`${INPUT} w-full`}
-                min={-64} max={319}
-                value={minY} onChange={(e) => setMinY(Number(e.target.value) || 0)} />
-            </div>
-            <div className="flex-1">
-              <label className={LBL}>Max Y</label>
-              <input type="number" className={`${INPUT} w-full`}
-                min={-64} max={319}
-                value={maxY} onChange={(e) => setMaxY(Number(e.target.value) || 0)} />
-            </div>
+      <div className="space-y-2">
+        <label className={LBL}>Corner 2 (opposite corner of the zone)</label>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">X</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={x2} onChange={(e) => setX2(Number(e.target.value) || 0)} />
           </div>
-        )}
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">Y</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={y2} onChange={(e) => setY2(Number(e.target.value) || 0)} />
+          </div>
+          <div>
+            <label className="block text-[9px] text-meta mb-0.5">Z</label>
+            <input type="number" className={`${INPUT} w-full`}
+              value={z2} onChange={(e) => setZ2(Number(e.target.value) || 0)} />
+          </div>
+        </div>
       </div>
 
       {/* Tracks (multi-select via modal) */}
