@@ -12,6 +12,7 @@ pub mod music_zones;
 pub mod parties;
 pub mod pin_hud;
 pub mod rising_oceans;
+pub mod scheduled_jobs;
 pub mod give_item;
 pub mod kill_switch;
 pub mod map_pins;

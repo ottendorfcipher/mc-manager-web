@@ -308,7 +308,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/parties/:id/members",
                post(handlers::parties::add_member))
         .route("/parties/:id/members/:ign",
-               delete(handlers::parties::remove_member));
+               delete(handlers::parties::remove_member))
+        // Scheduled jobs (cron-style automations)
+        .route("/scheduled-jobs",
+               get(handlers::scheduled_jobs::list).post(handlers::scheduled_jobs::create))
+        .route("/scheduled-jobs/:id",
+               patch(handlers::scheduled_jobs::update).delete(handlers::scheduled_jobs::delete))
+        .route("/scheduled-jobs/:id/run",
+               post(handlers::scheduled_jobs::run_now));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

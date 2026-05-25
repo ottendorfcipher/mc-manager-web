@@ -17,6 +17,7 @@ import { AdminPage }        from "@/features/admin/AdminPage";
 import { ChatPage }         from "@/features/chat/ChatPage";
 import { MusicPage }        from "@/features/music/MusicPage";
 import { EventsPage }       from "@/features/events/EventsPage";
+import { AutomationsPage }  from "@/features/automations/AutomationsPage";
 import { PlayersPage }      from "@/features/players/PlayersPage";
 import { Loader2 }          from "lucide-react";
 import { OnboardingWizard, isOnboardingComplete } from "@/features/onboarding/OnboardingWizard";
@@ -154,6 +155,7 @@ export default function App() {
                         <Route path="/chat"              element={<ErrorBoundary label="Chat"><ChatPage /></ErrorBoundary>} />
                         <Route path="/music"             element={<ErrorBoundary label="Music"><MusicPage /></ErrorBoundary>} />
                         <Route path="/events"            element={<ErrorBoundary label="Events"><EventsPage /></ErrorBoundary>} />
+                        <Route path="/automations"       element={<ErrorBoundary label="Automations"><AutomationsPage /></ErrorBoundary>} />
                         <Route path="/admin"             element={<ErrorBoundary label="Admin"><AdminPage /></ErrorBoundary>} />
                         <Route path="/admin/permissions" element={<ErrorBoundary label="Admin"><AdminPage /></ErrorBoundary>} />
                       </Routes>

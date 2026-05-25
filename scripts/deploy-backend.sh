@@ -14,15 +14,18 @@ REMOTE_SRC="/opt/redstonecipher/backend"
 REMOTE_BIN="/opt/redstonecipher/redstonecipher-server"
 BUILD_BIN="${REMOTE_SRC}/target/release/redstonecipher-server"
 
+echo "==> Ensuring nginx is set up (idempotent)..."
+ssh "${WEB_SERVER}" "bash -s" < "${REPO_ROOT}/scripts/setup-nginx.sh" || {
+    echo "WARNING: nginx setup failed — continuing.  Re-run scripts/setup-nginx.sh manually."
+}
+
 echo "==> Syncing source to ${WEB_SERVER}..."
 rsync -az \
-  "${REPO_ROOT}/backend/src/" \
   "${REPO_ROOT}/backend/Cargo.toml" \
   "${REPO_ROOT}/backend/Cargo.lock" \
-  "${WEB_SERVER}:${REMOTE_SRC}/Cargo.toml" \
-  "${WEB_SERVER}:${REMOTE_SRC}/Cargo.lock"
+  "${WEB_SERVER}:${REMOTE_SRC}/"
 
-rsync -az "${REPO_ROOT}/backend/src/"     "${WEB_SERVER}:${REMOTE_SRC}/src/"
+rsync -az "${REPO_ROOT}/backend/src/"        "${WEB_SERVER}:${REMOTE_SRC}/src/"
 rsync -az "${REPO_ROOT}/backend/migrations/" "${WEB_SERVER}:${REMOTE_SRC}/migrations/"
 
 echo "==> Building release binary on ${WEB_SERVER}..."
