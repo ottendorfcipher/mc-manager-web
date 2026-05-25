@@ -27,6 +27,8 @@ use crate::{
 /// Unified catalog entry — merges the static vanilla catalog with user-added
 /// custom tracks from the database.  `is_custom` lets the UI badge custom ones.
 /// `image_url` is set for custom tracks that have artwork uploaded.
+/// `audio_url` is set for custom tracks pointing to the (UUID-named) OGG
+/// behind the public `/uploads/music/` mount.
 #[derive(Clone, serde::Serialize)]
 pub struct CatalogEntry {
     pub id:            String,
@@ -35,6 +37,7 @@ pub struct CatalogEntry {
     pub duration_secs: u32,
     pub is_custom:     bool,
     pub image_url:     Option<String>,
+    pub audio_url:     Option<String>,
 }
 
 /// GET /api/music/tracks — vanilla catalog plus any registered custom tracks.
@@ -49,6 +52,7 @@ pub async fn list_tracks(
         duration_secs: e.duration_secs,
         is_custom:     false,
         image_url:     None,
+        audio_url:     None,
     }).collect();
 
     let custom: Vec<CatalogEntry> = music_queue::list_custom_tracks(&state.pool)
@@ -63,6 +67,8 @@ pub async fn list_tracks(
             is_custom:     true,
             image_url:     t.image_filename
                 .map(|f| format!("/uploads/music/images/{f}")),
+            audio_url:     t.storage_filename
+                .map(|f| format!("/uploads/music/{f}")),
         })
         .collect();
 
@@ -333,15 +339,19 @@ pub async fn upload_oggs(
         let bytes = field.bytes().await
             .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-        // Sanitise filename (alphanumeric + underscore + dot only)
+        // Sanitise filename — used for the sound_id (human-readable),
+        // NOT for the on-disk path.  On-disk uses a UUID so the public
+        // URL isn't trivially scrapable.
         let base = sanitise_filename(&original_name);
         let stem = base.trim_end_matches(".ogg");
         if stem.is_empty() {
             return Err(AppError::BadRequest("Empty filename after sanitisation".into()));
         }
+        let upload_uuid = uuid::Uuid::new_v4().simple().to_string();
+        let storage_filename = format!("{upload_uuid}.ogg");
 
         // Write the upload to disk first so ffmpeg can read it.
-        let raw_path = format!("{UPLOAD_DIR}/{base}");
+        let raw_path = format!("{UPLOAD_DIR}/{storage_filename}");
         tokio::fs::write(&raw_path, &bytes).await
             .map_err(|e| AppError::ExternalCommand(format!("write {raw_path}: {e}")))?;
         // Memory pressure: drop the buffered upload bytes asap.
@@ -362,7 +372,7 @@ pub async fn upload_oggs(
         let display_base = pretty_name(stem);
 
         if duration <= CHUNK_SECS + 30 {
-            // Short file — register the original as a single track.
+            // Short file — register the upload as a single track.
             let sound_id = format!("redstonecipher:music.{stem}");
             let _ = music_queue::remove_custom_track(&state.pool, &sound_id).await;
             let track = music_queue::add_custom_track(
@@ -373,23 +383,33 @@ pub async fn upload_oggs(
                 duration,
                 &actor.email,
             ).await?;
-            created.push(track);
+            // Record the UUID-named on-disk file.
+            let _ = music_queue::set_custom_track_storage(
+                &state.pool, &sound_id, &storage_filename,
+            ).await;
+            created.push(music_queue::CustomTrack {
+                storage_filename: Some(storage_filename.clone()),
+                ..track
+            });
             continue;
         }
 
         // ── Split path ────────────────────────────────────────────────
         let total_chunks = ((duration as f64) / (CHUNK_SECS as f64)).ceil() as i64;
-        let mut chunk_paths: Vec<(String, String, i64, i64)> = vec![]; // (sound_id, file_path, idx, dur)
+        // (sound_id, file_path, storage_filename, idx, dur)
+        let mut chunk_paths: Vec<(String, String, String, i64, i64)> = vec![];
         for idx in 0..total_chunks {
-            let start = idx * CHUNK_SECS;
+            let start    = idx * CHUNK_SECS;
             let this_dur = (duration - start).min(CHUNK_SECS);
 
-            let chunk_stem = format!("{stem}_part{}", idx + 1);
-            let chunk_path = format!("{UPLOAD_DIR}/{chunk_stem}.ogg");
+            let chunk_stem    = format!("{stem}_part{}", idx + 1);
+            let chunk_uuid    = uuid::Uuid::new_v4().simple().to_string();
+            let chunk_storage = format!("{chunk_uuid}.ogg");
+            let chunk_path    = format!("{UPLOAD_DIR}/{chunk_storage}");
 
             if let Err(e) = run_ffmpeg_split(&raw_path, &chunk_path, start, this_dur).await {
                 // Clean up any partial outputs.
-                for (_, p, _, _) in &chunk_paths {
+                for (_, p, _, _, _) in &chunk_paths {
                     let _ = tokio::fs::remove_file(p).await;
                 }
                 let _ = tokio::fs::remove_file(&chunk_path).await;
@@ -399,6 +419,7 @@ pub async fn upload_oggs(
             chunk_paths.push((
                 format!("redstonecipher:music.{chunk_stem}"),
                 chunk_path,
+                chunk_storage,
                 idx + 1,
                 this_dur,
             ));
@@ -409,7 +430,7 @@ pub async fn upload_oggs(
 
         // Register each split.  Naming "Original Name (1/N)" so the user
         // can pick all of them in the disc modal to play them back-to-back.
-        for (sound_id, _path, n, dur) in &chunk_paths {
+        for (sound_id, _path, storage, n, dur) in &chunk_paths {
             let display_name = format!("{display_base} ({}/{})", n, total_chunks);
             let _ = music_queue::remove_custom_track(&state.pool, sound_id).await;
             let track = music_queue::add_custom_track(
@@ -420,7 +441,13 @@ pub async fn upload_oggs(
                 *dur,
                 &actor.email,
             ).await?;
-            created.push(track);
+            let _ = music_queue::set_custom_track_storage(
+                &state.pool, sound_id, storage,
+            ).await;
+            created.push(music_queue::CustomTrack {
+                storage_filename: Some(storage.clone()),
+                ..track
+            });
         }
     }
 
@@ -561,15 +588,13 @@ pub async fn upload_track_image(
         _ => return Err(AppError::BadRequest("Image must be PNG, JPEG, WebP, or GIF".into())),
     };
 
-    // Derive a deterministic filename from the sound_id (sanitised) plus ext.
-    let safe = track.sound_id
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect::<String>();
-    let filename = format!("{safe}.{ext}");
+    // Use a UUID for the on-disk filename so the public URL isn't trivially
+    // scrapable from the (possibly-known) sound_id.
+    let image_uuid = uuid::Uuid::new_v4().simple().to_string();
+    let filename = format!("{image_uuid}.{ext}");
     let path = format!("{TRACK_IMAGE_DIR}/{filename}");
 
-    // Remove any previously-stored image with a different extension
+    // Remove the previously-stored image (different UUID).
     if let Some(prev) = track.image_filename.as_ref() {
         if prev != &filename {
             let _ = tokio::fs::remove_file(format!("{TRACK_IMAGE_DIR}/{prev}")).await;

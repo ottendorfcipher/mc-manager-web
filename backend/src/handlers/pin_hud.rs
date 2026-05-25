@@ -29,17 +29,21 @@ pub struct PinHudStatus {
     pub ign:          String,
     pub show_team:    bool,
     pub show_private: bool,
+    pub show_events:  bool,
 }
 
 #[derive(Deserialize)]
 pub struct SetPinHud {
     pub show_team:    bool,
     pub show_private: bool,
+    #[serde(default)]
+    pub show_events:  bool,
 }
 
 // Key helpers
 fn key_team(ign: &str)    -> String { format!("pin_hud:{ign}:show_team") }
 fn key_private(ign: &str) -> String { format!("pin_hud:{ign}:show_private") }
+fn key_events(ign: &str)  -> String { format!("pin_hud:{ign}:show_events") }
 fn key_owner(ign: &str)   -> String { format!("pin_hud:{ign}:owner") }
 
 // ── Permission helper ─────────────────────────────────────────────────────────
@@ -81,8 +85,12 @@ pub async fn get(
         .await?
         .map(|v| v == "true")
         .unwrap_or(false);
+    let show_events = prefs::get(&state.pool, &key_events(&ign))
+        .await?
+        .map(|v| v == "true")
+        .unwrap_or(false);
 
-    Ok(Json(PinHudStatus { ign, show_team, show_private }))
+    Ok(Json(PinHudStatus { ign, show_team, show_private, show_events }))
 }
 
 // ── PUT /api/players/:ign/pin-hud ─────────────────────────────────────────────
@@ -97,6 +105,7 @@ pub async fn set(
 
     prefs::set(&state.pool, &key_team(&ign),    if body.show_team    { "true" } else { "false" }).await?;
     prefs::set(&state.pool, &key_private(&ign), if body.show_private { "true" } else { "false" }).await?;
+    prefs::set(&state.pool, &key_events(&ign),  if body.show_events  { "true" } else { "false" }).await?;
 
     // Record the owner email so the runner can resolve which private pins
     // are visible to this IGN.

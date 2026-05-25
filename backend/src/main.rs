@@ -51,6 +51,9 @@ async fn main() -> anyhow::Result<()> {
 
     let state = lib::AppState::new(pool, cfg.clone(), initial_discord_cfg);
 
+    // Backfill legacy music uploads → UUID-named storage (idempotent).
+    lib::minecraft::music::backfill_uuid_storage(&state.pool).await;
+
     // Spawn the music-player background task that auto-advances the queue.
     lib::minecraft::music::spawn_player_task(
         cfg.clone(),
@@ -94,6 +97,9 @@ async fn main() -> anyhow::Result<()> {
         cfg.clone(),
         state.pool.clone(),
     );
+
+    // Spawn the scheduled-jobs runner (cron-style automations).
+    lib::minecraft::scheduled_runner::spawn_scheduled_task(state.clone());
 
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
