@@ -268,11 +268,12 @@ export interface MusicZone {
   id:                  number;
   name:                string;
   dimension:           string;
-  center_x:            number;
-  center_z:            number;
-  radius:              number;
-  min_y:               number | null;
-  max_y:               number | null;
+  x1:                  number;
+  y1:                  number;
+  z1:                  number;
+  x2:                  number;
+  y2:                  number;
+  z2:                  number;
   /** JSON-encoded array of sound IDs (use JSON.parse on the wire). */
   sound_ids_json:      string;
   /** JSON-encoded array of IGNs, or null for "everyone". */
