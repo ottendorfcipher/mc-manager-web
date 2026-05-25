@@ -461,7 +461,8 @@ pub async fn upload_oggs(
 fn sanitise_filename(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
-        .collect()
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 /// Convert a sanitised stem into a presentable display name
