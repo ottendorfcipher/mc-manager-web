@@ -9,11 +9,12 @@ pub struct MusicZone {
     pub id:                  i64,
     pub name:                String,
     pub dimension:           String,
-    pub center_x:            i64,
-    pub center_z:            i64,
-    pub radius:              i64,
-    pub min_y:               Option<i64>,
-    pub max_y:               Option<i64>,
+    pub x1:                  i64,
+    pub y1:                  i64,
+    pub z1:                  i64,
+    pub x2:                  i64,
+    pub y2:                  i64,
+    pub z2:                  i64,
     /// JSON-encoded array of sound IDs.
     pub sound_ids_json:      String,
     /// JSON-encoded array of IGNs, or NULL for "everyone".
@@ -43,11 +44,8 @@ pub async fn create(
     pool:                &SqlitePool,
     name:                &str,
     dimension:           &str,
-    center_x:            i64,
-    center_z:            i64,
-    radius:              i64,
-    min_y:               Option<i64>,
-    max_y:               Option<i64>,
+    x1: i64, y1: i64, z1: i64,
+    x2: i64, y2: i64, z2: i64,
     sound_ids_json:      &str,
     target_players_json: Option<&str>,
     stop_on_leave:       bool,
@@ -56,18 +54,15 @@ pub async fn create(
 ) -> Result<MusicZone> {
     Ok(sqlx::query_as::<_, MusicZone>(
         "INSERT INTO music_zones
-            (name, dimension, center_x, center_z, radius, min_y, max_y,
+            (name, dimension, x1, y1, z1, x2, y2, z2,
              sound_ids_json, target_players_json, stop_on_leave, cooldown_secs, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *",
     )
     .bind(name)
     .bind(dimension)
-    .bind(center_x)
-    .bind(center_z)
-    .bind(radius)
-    .bind(min_y)
-    .bind(max_y)
+    .bind(x1).bind(y1).bind(z1)
+    .bind(x2).bind(y2).bind(z2)
     .bind(sound_ids_json)
     .bind(target_players_json)
     .bind(if stop_on_leave { 1_i64 } else { 0_i64 })
@@ -106,11 +101,8 @@ pub async fn update(
     id:                  i64,
     name:                &str,
     dimension:           &str,
-    center_x:            i64,
-    center_z:            i64,
-    radius:              i64,
-    min_y:               Option<i64>,
-    max_y:               Option<i64>,
+    x1: i64, y1: i64, z1: i64,
+    x2: i64, y2: i64, z2: i64,
     sound_ids_json:      &str,
     target_players_json: Option<&str>,
     stop_on_leave:       bool,
@@ -119,19 +111,17 @@ pub async fn update(
 ) -> Result<bool> {
     let r = sqlx::query(
         "UPDATE music_zones SET
-            name = ?, dimension = ?, center_x = ?, center_z = ?, radius = ?,
-            min_y = ?, max_y = ?,
+            name = ?, dimension = ?,
+            x1 = ?, y1 = ?, z1 = ?,
+            x2 = ?, y2 = ?, z2 = ?,
             sound_ids_json = ?, target_players_json = ?,
             stop_on_leave = ?, cooldown_secs = ?, enabled = ?
           WHERE id = ?",
     )
     .bind(name)
     .bind(dimension)
-    .bind(center_x)
-    .bind(center_z)
-    .bind(radius)
-    .bind(min_y)
-    .bind(max_y)
+    .bind(x1).bind(y1).bind(z1)
+    .bind(x2).bind(y2).bind(z2)
     .bind(sound_ids_json)
     .bind(target_players_json)
     .bind(if stop_on_leave { 1_i64 } else { 0_i64 })

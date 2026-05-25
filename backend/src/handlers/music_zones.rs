@@ -31,12 +31,12 @@ pub struct CreateBody {
     pub name:           String,
     #[serde(default = "default_dimension")]
     pub dimension:      String,
-    pub center_x:       i64,
-    pub center_z:       i64,
-    #[serde(default = "default_radius")]
-    pub radius:         i64,
-    pub min_y:          Option<i64>,
-    pub max_y:          Option<i64>,
+    pub x1:             i64,
+    pub y1:             i64,
+    pub z1:             i64,
+    pub x2:             i64,
+    pub y2:             i64,
+    pub z2:             i64,
     /// 1+ sound IDs.  Plays in sequence (first one starts immediately).
     pub sound_ids:      Vec<String>,
     /// Optional player whitelist.  If empty/missing, the zone fires for everyone.
@@ -49,21 +49,12 @@ pub struct CreateBody {
 }
 
 fn default_dimension() -> String { "minecraft:overworld".into() }
-fn default_radius()    -> i64    { 32 }
 fn default_cooldown()  -> i64    { 1800 }
 
 fn validate(body: &CreateBody) -> Result<()> {
     let name = body.name.trim();
     if name.is_empty() || name.len() > 60 {
         return Err(AppError::BadRequest("Name must be 1–60 characters".into()));
-    }
-    if body.radius < 1 || body.radius > 2048 {
-        return Err(AppError::BadRequest("radius must be 1–2048".into()));
-    }
-    if let (Some(min), Some(max)) = (body.min_y, body.max_y) {
-        if max < min {
-            return Err(AppError::BadRequest("max_y must be >= min_y".into()));
-        }
     }
     if body.sound_ids.is_empty() {
         return Err(AppError::BadRequest("At least one sound is required".into()));
@@ -94,11 +85,8 @@ pub async fn create(
         &state.pool,
         body.name.trim(),
         &body.dimension,
-        body.center_x,
-        body.center_z,
-        body.radius,
-        body.min_y,
-        body.max_y,
+        body.x1, body.y1, body.z1,
+        body.x2, body.y2, body.z2,
         &sound_ids_json,
         target_players_json.as_deref(),
         body.stop_on_leave,
@@ -116,11 +104,12 @@ pub async fn create(
 pub struct UpdateBody {
     pub name:           String,
     pub dimension:      String,
-    pub center_x:       i64,
-    pub center_z:       i64,
-    pub radius:         i64,
-    pub min_y:          Option<i64>,
-    pub max_y:          Option<i64>,
+    pub x1:             i64,
+    pub y1:             i64,
+    pub z1:             i64,
+    pub x2:             i64,
+    pub y2:             i64,
+    pub z2:             i64,
     pub sound_ids:      Vec<String>,
     pub target_players: Option<Vec<String>>,
     pub stop_on_leave:  bool,
@@ -140,11 +129,8 @@ pub async fn update(
     let cb = CreateBody {
         name:           body.name.clone(),
         dimension:      body.dimension.clone(),
-        center_x:       body.center_x,
-        center_z:       body.center_z,
-        radius:         body.radius,
-        min_y:          body.min_y,
-        max_y:          body.max_y,
+        x1: body.x1, y1: body.y1, z1: body.z1,
+        x2: body.x2, y2: body.y2, z2: body.z2,
         sound_ids:      body.sound_ids.clone(),
         target_players: body.target_players.clone(),
         stop_on_leave:  body.stop_on_leave,
@@ -165,11 +151,8 @@ pub async fn update(
         id,
         body.name.trim(),
         &body.dimension,
-        body.center_x,
-        body.center_z,
-        body.radius,
-        body.min_y,
-        body.max_y,
+        body.x1, body.y1, body.z1,
+        body.x2, body.y2, body.z2,
         &sound_ids_json,
         target_players_json.as_deref(),
         body.stop_on_leave,
