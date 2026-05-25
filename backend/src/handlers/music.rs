@@ -778,6 +778,14 @@ pub async fn rebuild_resource_pack(
         tracing::warn!("rebuild_pack: could not update server.properties: {e}");
     }
 
+    // 8. Restart the MC server so it sends the new pack URL/SHA-1 to
+    //    clients on their next join.  server.properties is only read at
+    //    startup, so without this players keep the stale pack.
+    match crate::gcloud::ssh::run(cfg, "sudo systemctl restart minecraft").await {
+        Ok(_)  => tracing::info!("rebuild_pack: restarted MC server for new resource pack"),
+        Err(e) => tracing::warn!("rebuild_pack: MC restart failed (pack still updated): {e}"),
+    }
+
     tracing::info!(
         "rebuild_pack: built resource pack with {included}/{} tracks, sha1={sha1}",
         tracks.len(),
