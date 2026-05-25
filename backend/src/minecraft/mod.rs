@@ -14,6 +14,7 @@ pub mod music;
 pub mod music_zone_runner;
 pub mod pin_hud_runner;
 pub mod player_data;
+pub mod player_stats;
 pub mod players;
 pub mod properties;
 pub mod rising_oceans;
