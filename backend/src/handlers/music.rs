@@ -455,6 +455,11 @@ pub async fn upload_oggs(
         return Err(AppError::BadRequest("No .ogg files in upload".into()));
     }
 
+    // Auto-rebuild the server resource pack to include the new tracks.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("upload_oggs: pack rebuild failed: {e}");
+    }
+
     Ok(Json(created))
 }
 
@@ -539,6 +544,12 @@ pub async fn remove_custom_track(
     if !found {
         return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
     }
+
+    // Auto-rebuild the server resource pack without the removed track.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("remove_custom_track: pack rebuild failed: {e}");
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -635,6 +646,166 @@ pub async fn delete_track_image(
 
 const PACK_PATH: &str = "/opt/redstonecipher/www/resource-pack.zip";
 const PACK_URL:  &str = "https://example.com/resource-pack.zip";
+
+const TEMPLATE_PATH: &str = "/opt/redstonecipher/www/resource-pack-template.zip";
+const UPLOAD_DIR_MUSIC: &str = "/opt/redstonecipher/www/uploads/music";
+const LEGACY_MUSIC_DIR: &str = "/opt/redstonecipher/data/custom-music";
+
+/// Rebuild the server resource pack from the template + all custom tracks.
+///
+/// 1. Opens the template zip (pack.mcmeta + skeleton).
+/// 2. Finds OGG files for every custom track in the DB.
+/// 3. Builds a fresh `sounds.json` with entries for every found track.
+/// 4. Writes the new pack to PACK_PATH, computes SHA-1.
+/// 5. Updates `server.properties` on the MC server (no restart needed).
+///
+/// Best-effort — returns Ok(()) even when individual tracks are missing.
+pub async fn rebuild_resource_pack(
+    pool: &sqlx::SqlitePool,
+    cfg:  &crate::config::Config,
+) -> anyhow::Result<()> {
+    // 1. Read the template zip into memory.
+    let tpl_bytes = tokio::fs::read(TEMPLATE_PATH).await
+        .map_err(|e| anyhow::anyhow!("read template: {e}"))?;
+    let tpl_reader = std::io::Cursor::new(&tpl_bytes);
+    let mut tpl_archive = zip::ZipArchive::new(tpl_reader)
+        .map_err(|e| anyhow::anyhow!("parse template zip: {e}"))?;
+
+    // 2. Start a new zip in memory.
+    let buf = std::io::Cursor::new(Vec::<u8>::new());
+    let mut writer = zip::ZipWriter::new(buf);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // Copy template entries except sounds.json (we'll regenerate it).
+    for i in 0..tpl_archive.len() {
+        let mut entry = tpl_archive.by_index(i)?;
+        let name = entry.name().to_owned();
+        if name.ends_with("sounds.json") || name.ends_with("README.txt") {
+            continue;
+        }
+        if entry.is_dir() {
+            writer.add_directory(&name, opts)?;
+        } else {
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            writer.start_file(&name, opts)?;
+            std::io::Write::write_all(&mut writer, &data)?;
+        }
+    }
+
+    // 3. Gather all custom tracks and find their OGG files.
+    let tracks = music_queue::list_custom_tracks(pool).await.unwrap_or_default();
+    let mut sounds_map = serde_json::Map::new();
+    let mut included = 0u32;
+
+    for t in &tracks {
+        // Derive stem from sound_id: "redstonecipher:music.wolf_s_rain" → "wolf_s_rain"
+        let stem = t.sound_id
+            .strip_prefix("redstonecipher:music.")
+            .unwrap_or(&t.sound_id)
+            .to_ascii_lowercase();
+
+        // Find OGG file — check UUID storage first, then stem match in both dirs.
+        let ogg_bytes = find_track_ogg(&t.storage_filename, &stem).await;
+        let ogg_bytes = match ogg_bytes {
+            Some(b) => b,
+            None => {
+                tracing::warn!("rebuild_pack: no OGG found for {}, skipping", t.sound_id);
+                continue;
+            }
+        };
+
+        // Add OGG to zip: assets/redstonecipher/sounds/music/{stem}.ogg
+        let zip_path = format!("assets/redstonecipher/sounds/music/{stem}.ogg");
+        writer.start_file(&zip_path, opts)?;
+        std::io::Write::write_all(&mut writer, &ogg_bytes)?;
+
+        // Add entry to sounds.json
+        sounds_map.insert(
+            format!("music.{stem}"),
+            serde_json::json!({
+                "sounds": [{
+                    "name": format!("redstonecipher:music/{stem}"),
+                    "stream": true
+                }]
+            }),
+        );
+        included += 1;
+    }
+
+    // 4. Write sounds.json into the zip.
+    let sounds_json = serde_json::to_string_pretty(&sounds_map)
+        .unwrap_or_else(|_| "{}".to_string());
+    writer.start_file("assets/redstonecipher/sounds.json", opts)?;
+    std::io::Write::write_all(&mut writer, sounds_json.as_bytes())?;
+
+    let finished = writer.finish()?;
+    let pack_bytes = finished.into_inner();
+
+    // 5. Write to disk.
+    tokio::fs::write(PACK_PATH, &pack_bytes).await
+        .map_err(|e| anyhow::anyhow!("write pack: {e}"))?;
+
+    // 6. Compute SHA-1.
+    let sha1_out = tokio::process::Command::new("sha1sum")
+        .arg(PACK_PATH)
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("sha1sum: {e}"))?;
+    let sha1 = String::from_utf8_lossy(&sha1_out.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    // 7. Update server.properties on MC server.
+    let mut props = std::collections::HashMap::new();
+    props.insert("resource-pack".to_string(), PACK_URL.to_string());
+    props.insert("resource-pack-sha1".to_string(), sha1.clone());
+    if let Err(e) = crate::minecraft::properties::apply_updates_no_restart(cfg, &props).await {
+        tracing::warn!("rebuild_pack: could not update server.properties: {e}");
+    }
+
+    tracing::info!(
+        "rebuild_pack: built resource pack with {included}/{} tracks, sha1={sha1}",
+        tracks.len(),
+    );
+    Ok(())
+}
+
+/// Search for an OGG file for a custom track, checking multiple locations.
+async fn find_track_ogg(storage_filename: &Option<String>, stem: &str) -> Option<Vec<u8>> {
+    // 1. UUID-named file in uploads dir.
+    if let Some(ref sf) = storage_filename {
+        let path = format!("{UPLOAD_DIR_MUSIC}/{sf}");
+        if let Ok(b) = tokio::fs::read(&path).await {
+            return Some(b);
+        }
+    }
+
+    // 2. Stem-named file in uploads dir (legacy or pre-UUID).
+    for dir in [UPLOAD_DIR_MUSIC, LEGACY_MUSIC_DIR] {
+        // Try exact stem match first.
+        let path = format!("{dir}/{stem}.ogg");
+        if let Ok(b) = tokio::fs::read(&path).await {
+            return Some(b);
+        }
+        // Try case-insensitive scan.
+        if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.to_ascii_lowercase() == format!("{stem}.ogg") {
+                    if let Ok(b) = tokio::fs::read(entry.path()).await {
+                        return Some(b);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 
 // ── Sound detection ────────────────────────────────────────────────────────────
 
