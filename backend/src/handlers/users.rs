@@ -186,7 +186,7 @@ pub async fn set_player_gamemode(
     actor: AuthUser,
     Path((email, ign)): Path<(String, String)>,
     Json(body): Json<SetGamemodeBody>,
-) -> Result<StatusCode> {
+) -> Result<Json<serde_json::Value>> {
     // Members can set their own; admin+ can set anyone's
     let allowed = email == actor.email || actor.can_manage_users();
     if !allowed {
@@ -194,6 +194,8 @@ pub async fn set_player_gamemode(
     }
     players::set_gamemode(&state.pool, &email, &ign, &body.gamemode).await?;
     // Apply live to the server (best-effort; ignore if offline)
-    let _ = console::set_gamemode(&state.config, &ign, &body.gamemode).await;
-    Ok(StatusCode::NO_CONTENT)
+    let applied = console::set_gamemode(&state.config, &ign, &body.gamemode)
+        .await
+        .unwrap_or(false);
+    Ok(Json(serde_json::json!({ "saved": true, "applied": applied })))
 }
