@@ -211,6 +211,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/music/zones/:id",  axum::routing::patch(handlers::music_zones::update)
                                     .delete(handlers::music_zones::delete))
         .route("/music/zones/:id/clear-cooldown", post(handlers::music_zones::clear_cooldown))
+        // Scrolling credits — reusable cinematic text sequences for zones
+        .route("/credits",             get(handlers::credits::list)
+                                       .post(handlers::credits::create))
+        .route("/credits/:id",         patch(handlers::credits::update)
+                                       .delete(handlers::credits::delete))
+        .route("/credits/:id/preview", post(handlers::credits::preview))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))

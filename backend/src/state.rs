@@ -8,6 +8,7 @@ use crate::db::music_queue::MusicStatePayload;
 use crate::db::rising_oceans::RisingOceanStatePayload;
 use crate::discord::{DiscordRelay, DiscordRuntimeConfig};
 use crate::minecraft::bounty_runner::ActiveBountyBoard;
+use crate::minecraft::credits_runner::ActiveCreditsSet;
 use crate::minecraft::countdown_runner::ActiveCountdown;
 use crate::minecraft::music::CurrentTrack;
 use crate::minecraft::rising_oceans_runner::ActiveRisingOcean;
@@ -64,6 +65,8 @@ pub struct AppState {
     pub bounty_board_tx:     broadcast::Sender<Arc<BountyBoardStatePayload>>,
     /// Ephemeral active bounty-board state.  `None` when no board is running.
     pub bounty_board_active: Arc<Mutex<Option<ActiveBountyBoard>>>,
+    /// Tracks which (zone_id, player_ign) pairs have credits currently playing.
+    pub credits_active: ActiveCreditsSet,
 }
 
 impl AppState {
@@ -99,6 +102,7 @@ impl AppState {
             rising_oceans_active: Arc::new(Mutex::new(None)),
             bounty_board_tx,
             bounty_board_active: Arc::new(Mutex::new(None)),
+            credits_active: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 }

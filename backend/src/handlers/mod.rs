@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod backups;
 pub mod bounty_board;
+pub mod credits;
 pub mod discord_settings;
 pub mod bluemap_settings;
 pub mod budget;

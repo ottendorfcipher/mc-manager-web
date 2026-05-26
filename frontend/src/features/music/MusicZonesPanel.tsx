@@ -18,7 +18,7 @@ import {
 import { api } from "@/api/client";
 import { DiscIcon } from "@/components/DiscIcon";
 import { PartyChipBar } from "@/components/PartyChipBar";
-import type { MusicZone, SoundEntry, McPlayer } from "@/types";
+import type { MusicZone, SoundEntry, McPlayer, ScrollingCredits } from "@/types";
 
 const INPUT = [
   "rounded-lg border border-[#D9D5D0] dark:border-[#363944]",
@@ -60,6 +60,11 @@ export function MusicZonesPanel() {
     queryKey: ["mc-players"],
     queryFn:  () => api.get("/mc/players"),
     refetchInterval: 30_000,
+  });
+  const { data: creditsList = [] } = useQuery<ScrollingCredits[]>({
+    queryKey: ["credits"],
+    queryFn:  () => api.get("/credits"),
+    staleTime: Infinity,
   });
 
   const [creating, setCreating] = useState(false);
@@ -115,6 +120,7 @@ export function MusicZonesPanel() {
         <ZoneForm
           tracks={tracks}
           players={players}
+          creditsList={creditsList}
           initial={editing ?? undefined}
           loading={createMut.isPending || updateMut.isPending}
           onCancel={() => { setCreating(false); setEditing(null); }}
@@ -141,6 +147,7 @@ export function MusicZonesPanel() {
               key={z.id}
               zone={z}
               tracks={tracks}
+              creditsList={creditsList}
               onEdit={() => setEditing(z)}
               onDelete={() => {
                 if (confirm(`Delete music zone "${z.name}"?`)) deleteMut.mutate(z.id);
@@ -158,10 +165,11 @@ export function MusicZonesPanel() {
 // ── ZoneCard (read-only display) ──────────────────────────────────────────────
 
 function ZoneCard({
-  zone, tracks, onEdit, onDelete, onClearCooldown, clearingCooldown,
+  zone, tracks, creditsList, onEdit, onDelete, onClearCooldown, clearingCooldown,
 }: {
   zone:              MusicZone;
   tracks:            SoundEntry[];
+  creditsList:       ScrollingCredits[];
   onEdit:            () => void;
   onDelete:          () => void;
   onClearCooldown:   () => void;
@@ -211,6 +219,12 @@ function ZoneCard({
             {zone.stop_on_leave ? "stops on leave" : "plays to end"}
             {" · "}
             cooldown {fmtCooldown(zone.cooldown_secs)}
+            {zone.credits_id != null && (() => {
+              const cr = creditsList.find((c) => c.id === zone.credits_id);
+              return cr ? (
+                <><span className="mx-0.5">·</span><span title="Scrolling credits sequence">🎬 {cr.name}</span></>
+              ) : null;
+            })()}
           </p>
 
           {/* Track discs */}
@@ -287,22 +301,25 @@ interface ZoneBody {
   target_players: string[] | null;
   stop_on_leave:  boolean;
   cooldown_secs:  number;
+  credits_id:     number | null;
 }
 
 function ZoneForm({
   tracks,
   players,
+  creditsList,
   initial,
   loading,
   onSubmit,
   onCancel,
 }: {
-  tracks:   SoundEntry[];
-  players:  McPlayer[];
-  initial?: MusicZone;
-  loading:  boolean;
-  onSubmit: (body: ZoneBody) => void;
-  onCancel: () => void;
+  tracks:      SoundEntry[];
+  players:     McPlayer[];
+  creditsList: ScrollingCredits[];
+  initial?:    MusicZone;
+  loading:     boolean;
+  onSubmit:    (body: ZoneBody) => void;
+  onCancel:    () => void;
 }) {
   // Seed from existing zone if editing
   const initialSoundIds: string[] = (() => {
@@ -335,6 +352,7 @@ function ZoneForm({
     new Set(initialTargets ?? []),
   );
   const [trackModalOpen, setTrackModalOpen] = useState(false);
+  const [creditsId, setCreditsId] = useState<number | null>(initial?.credits_id ?? null);
 
   const cooldownSecs = cdMins * 60 + cdSecs;
   const targetValid  = targetAll || selectedPlayers.size > 0;
@@ -359,6 +377,7 @@ function ZoneForm({
       target_players: targetAll ? null : [...selectedPlayers],
       stop_on_leave:  stopOnLeave,
       cooldown_secs:  cooldownSecs,
+      credits_id:     creditsId,
     });
   }
 
@@ -604,6 +623,26 @@ function ZoneForm({
           <p className="text-[10px] text-meta mt-0.5">{fmtCooldown(cooldownSecs)}</p>
         </div>
       </div>
+
+      {/* Scrolling credits */}
+      {creditsList.length > 0 && (
+        <div>
+          <label className={LBL}>Scrolling credits (optional)</label>
+          <select
+            value={creditsId ?? ""}
+            onChange={(e) => setCreditsId(e.target.value ? Number(e.target.value) : null)}
+            className={`${INPUT} w-full sm:w-64`}
+          >
+            <option value="">None</option>
+            {creditsList.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-meta mt-0.5">
+            When triggered, credits will scroll on-screen alongside the music.
+          </p>
+        </div>
+      )}
 
       {/* Buttons */}
       <div className="flex justify-end gap-2 pt-1">

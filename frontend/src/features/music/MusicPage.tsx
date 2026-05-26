@@ -9,6 +9,7 @@ import { useAuthStore } from "@/store/auth";
 import { McItemImage } from "@/components/McItemImage";
 import { DiscIcon } from "@/components/DiscIcon";
 import { MusicZonesPanel } from "./MusicZonesPanel";
+import { CreditsPanel } from "./CreditsPanel";
 import type { SoundEntry, MusicState, MusicQueueEntry } from "@/types";
 
 const INPUT = [
@@ -435,6 +436,9 @@ export function MusicPage() {
 
           {/* ── Music Zones ── */}
           <MusicZonesPanel />
+
+          {/* ── Scrolling Credits ── */}
+          <CreditsPanel />
         </>
       )}
     </div>
