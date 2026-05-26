@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod bounty_boards;
 pub mod countdowns;
+pub mod credits;
 pub mod rising_oceans;
 pub mod settings;
 pub mod backups;

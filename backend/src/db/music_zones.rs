@@ -22,6 +22,8 @@ pub struct MusicZone {
     pub stop_on_leave:       i64,
     pub cooldown_secs:       i64,
     pub enabled:             i64,
+    /// Optional reference to a scrolling credits sequence.
+    pub credits_id:          Option<i64>,
     pub created_by:          String,
     pub created_at:          String,
 }
@@ -50,13 +52,14 @@ pub async fn create(
     target_players_json: Option<&str>,
     stop_on_leave:       bool,
     cooldown_secs:       i64,
+    credits_id:          Option<i64>,
     created_by:          &str,
 ) -> Result<MusicZone> {
     Ok(sqlx::query_as::<_, MusicZone>(
         "INSERT INTO music_zones
             (name, dimension, x1, y1, z1, x2, y2, z2,
-             sound_ids_json, target_players_json, stop_on_leave, cooldown_secs, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             sound_ids_json, target_players_json, stop_on_leave, cooldown_secs, credits_id, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *",
     )
     .bind(name)
@@ -67,6 +70,7 @@ pub async fn create(
     .bind(target_players_json)
     .bind(if stop_on_leave { 1_i64 } else { 0_i64 })
     .bind(cooldown_secs)
+    .bind(credits_id)
     .bind(created_by)
     .fetch_one(pool)
     .await?)
@@ -107,6 +111,7 @@ pub async fn update(
     target_players_json: Option<&str>,
     stop_on_leave:       bool,
     cooldown_secs:       i64,
+    credits_id:          Option<i64>,
     enabled:             bool,
 ) -> Result<bool> {
     let r = sqlx::query(
@@ -115,7 +120,7 @@ pub async fn update(
             x1 = ?, y1 = ?, z1 = ?,
             x2 = ?, y2 = ?, z2 = ?,
             sound_ids_json = ?, target_players_json = ?,
-            stop_on_leave = ?, cooldown_secs = ?, enabled = ?
+            stop_on_leave = ?, cooldown_secs = ?, credits_id = ?, enabled = ?
           WHERE id = ?",
     )
     .bind(name)
@@ -126,6 +131,7 @@ pub async fn update(
     .bind(target_players_json)
     .bind(if stop_on_leave { 1_i64 } else { 0_i64 })
     .bind(cooldown_secs)
+    .bind(credits_id)
     .bind(if enabled { 1_i64 } else { 0_i64 })
     .bind(id)
     .execute(pool)
