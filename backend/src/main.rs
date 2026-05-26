@@ -96,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
     lib::minecraft::music_zone_runner::spawn_music_zone_task(
         cfg.clone(),
         state.pool.clone(),
+        state.credits_active.clone(),
     );
 
     // Spawn the scheduled-jobs runner (cron-style automations).

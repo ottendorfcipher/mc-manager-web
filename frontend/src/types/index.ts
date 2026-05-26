@@ -280,9 +280,30 @@ export interface MusicZone {
   target_players_json: string | null;
   stop_on_leave:       number;  // 0/1
   cooldown_secs:       number;
+  credits_id:          number | null;
   enabled:             number;  // 0/1
   created_by:          string;
   created_at:          string;
+}
+
+// ── Scrolling Credits ────────────────────────────────────────────────────────
+
+export interface ScrollingCredits {
+  id:              number;
+  name:            string;
+  lines_json:      string;
+  scroll_speed_ms: number;
+  freeze_player:   number;  // 0/1
+  created_by:      string;
+  created_at:      string;
+}
+
+export interface CreditLine {
+  type:    "heading" | "line" | "blank";
+  text?:   string;
+  color:   string;
+  bold:    boolean;
+  italic:  boolean;
 }
 
 /** A sound event detected from assets/<namespace>/sounds.json in the resource pack. */

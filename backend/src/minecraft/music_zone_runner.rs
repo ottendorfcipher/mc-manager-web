@@ -31,9 +31,9 @@ use tracing::warn;
 
 use crate::{
     config::Config,
-    db::{music_queue, music_zones, player_snapshots},
+    db::{credits, music_queue, music_zones, player_snapshots},
     gcloud::ssh,
-    minecraft::{console, music as mc_music},
+    minecraft::{console, credits_runner, credits_runner::ActiveCreditsSet, music as mc_music},
 };
 
 /// How often we process zone logic (check boundaries, suppress ambient, etc.).
@@ -43,7 +43,7 @@ const SNAPSHOT_REFRESH_SECS: u64 = 5;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool) {
+pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool, credits_active: ActiveCreditsSet) {
     tokio::spawn(async move {
         // On startup, clear all stale `is_playing` flags — sounds from the
         // previous process are no longer actually audible.  We intentionally
@@ -70,7 +70,7 @@ pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool) {
                 ticks_since_refresh = 0;
             }
 
-            if let Err(e) = tick_once(&cfg, &pool, should_refresh).await {
+            if let Err(e) = tick_once(&cfg, &pool, should_refresh, &credits_active).await {
                 warn!("music_zone: tick error: {e:?}");
             }
         }
@@ -93,7 +93,7 @@ async fn clear_stale_playing(pool: &SqlitePool) -> anyhow::Result<()> {
 
 // ── One tick ─────────────────────────────────────────────────────────────────
 
-async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool) -> anyhow::Result<()> {
+async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool, credits_active: &ActiveCreditsSet) -> anyhow::Result<()> {
     let zones = music_zones::list_enabled(pool).await.unwrap_or_default();
     if zones.is_empty() {
         return Ok(());
@@ -110,7 +110,7 @@ async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool) -> 
     let duration_lookup = build_duration_lookup(pool).await;
 
     for zone in zones {
-        if let Err(e) = process_zone(cfg, pool, &zone, &duration_lookup, refresh_snapshots).await {
+        if let Err(e) = process_zone(cfg, pool, &zone, &duration_lookup, refresh_snapshots, credits_active).await {
             warn!("music_zone[{}]: {e:?}", zone.name);
         }
     }
@@ -125,6 +125,7 @@ async fn process_zone(
     zone:             &music_zones::MusicZone,
     duration_lookup:  &HashMap<String, u32>,
     should_suppress:  bool,
+    credits_active:   &ActiveCreditsSet,
 ) -> anyhow::Result<()> {
     // Resolve target player list (None = everyone online).
     let target_igns: Option<Vec<String>> = zone.target_players_json
@@ -211,6 +212,19 @@ async fn process_zone(
                     Some(&now_str),
                     None,
                 ).await?;
+
+                // Trigger scrolling credits if the zone has one linked.
+                if let Some(cid) = zone.credits_id {
+                    if let Ok(Some(creds)) = credits::get(pool, cid).await {
+                        credits_runner::spawn_credits_playback(
+                            cfg.clone(),
+                            zone.id,
+                            snap.ign.clone(),
+                            creds,
+                            credits_active.clone(),
+                        );
+                    }
+                }
             }
             // Inside but cooldown still active → just record presence
             (_, true, false, _) => {

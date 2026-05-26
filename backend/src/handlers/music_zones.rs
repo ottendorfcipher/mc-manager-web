@@ -46,6 +46,8 @@ pub struct CreateBody {
     pub stop_on_leave:  bool,
     #[serde(default = "default_cooldown")]
     pub cooldown_secs:  i64,
+    /// Optional reference to a scrolling credits sequence.
+    pub credits_id:     Option<i64>,
 }
 
 fn default_dimension() -> String { "minecraft:overworld".into() }
@@ -91,6 +93,7 @@ pub async fn create(
         target_players_json.as_deref(),
         body.stop_on_leave,
         body.cooldown_secs,
+        body.credits_id,
         &actor.email,
     )
     .await?;
@@ -114,6 +117,7 @@ pub struct UpdateBody {
     pub target_players: Option<Vec<String>>,
     pub stop_on_leave:  bool,
     pub cooldown_secs:  i64,
+    pub credits_id:     Option<i64>,
     pub enabled:        bool,
 }
 
@@ -135,6 +139,7 @@ pub async fn update(
         target_players: body.target_players.clone(),
         stop_on_leave:  body.stop_on_leave,
         cooldown_secs:  body.cooldown_secs,
+        credits_id:     body.credits_id,
     };
     validate(&cb)?;
 
@@ -157,6 +162,7 @@ pub async fn update(
         target_players_json.as_deref(),
         body.stop_on_leave,
         body.cooldown_secs,
+        body.credits_id,
         body.enabled,
     )
     .await?;
