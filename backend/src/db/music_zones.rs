@@ -212,6 +212,19 @@ pub async fn mark_finished(
     Ok(())
 }
 
+/// Clear cooldown for all players in a zone so it can re-trigger immediately.
+pub async fn clear_cooldowns(pool: &SqlitePool, zone_id: i64) -> Result<u64> {
+    let r = sqlx::query(
+        "UPDATE music_zone_player_state
+            SET finished_at = NULL
+          WHERE zone_id = ? AND finished_at IS NOT NULL AND is_playing = 0",
+    )
+    .bind(zone_id)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
 pub async fn set_in_zone(
     pool: &SqlitePool,
     zone_id: i64,

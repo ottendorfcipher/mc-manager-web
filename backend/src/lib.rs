@@ -210,6 +210,7 @@ pub fn build_router(state: AppState) -> Router {
                                     .post(handlers::music_zones::create))
         .route("/music/zones/:id",  axum::routing::patch(handlers::music_zones::update)
                                     .delete(handlers::music_zones::delete))
+        .route("/music/zones/:id/clear-cooldown", post(handlers::music_zones::clear_cooldown))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))

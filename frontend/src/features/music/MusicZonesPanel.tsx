@@ -13,7 +13,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MapPin, Plus, Trash2, Pencil, Music2, Users, User, ChevronUp, ChevronDown,
-  X, CheckSquare, XSquare,
+  X, CheckSquare, XSquare, TimerReset,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { DiscIcon } from "@/components/DiscIcon";
@@ -84,6 +84,9 @@ export function MusicZonesPanel() {
     mutationFn: (id: number) => api.delete(`/music/zones/${id}`),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["music-zones"] }),
   });
+  const clearCdMut = useMutation({
+    mutationFn: (id: number) => api.post(`/music/zones/${id}/clear-cooldown`),
+  });
 
   return (
     <div className="card space-y-3">
@@ -142,6 +145,8 @@ export function MusicZonesPanel() {
               onDelete={() => {
                 if (confirm(`Delete music zone "${z.name}"?`)) deleteMut.mutate(z.id);
               }}
+              onClearCooldown={() => clearCdMut.mutate(z.id)}
+              clearingCooldown={clearCdMut.isPending}
             />
           ))}
         </div>
@@ -153,12 +158,14 @@ export function MusicZonesPanel() {
 // ── ZoneCard (read-only display) ──────────────────────────────────────────────
 
 function ZoneCard({
-  zone, tracks, onEdit, onDelete,
+  zone, tracks, onEdit, onDelete, onClearCooldown, clearingCooldown,
 }: {
-  zone:     MusicZone;
-  tracks:   SoundEntry[];
-  onEdit:   () => void;
-  onDelete: () => void;
+  zone:              MusicZone;
+  tracks:            SoundEntry[];
+  onEdit:            () => void;
+  onDelete:          () => void;
+  onClearCooldown:   () => void;
+  clearingCooldown:  boolean;
 }) {
   const soundIds: string[] = useMemo(() => {
     try { return JSON.parse(zone.sound_ids_json) as string[]; } catch { return []; }
@@ -232,6 +239,17 @@ function ZoneCard({
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {zone.cooldown_secs > 0 && (
+            <button
+              type="button"
+              onClick={onClearCooldown}
+              disabled={clearingCooldown}
+              title="Clear cooldown for all players"
+              className="p-1 rounded text-meta hover:text-[#F59E0B] hover:bg-[#FEF3C7] dark:hover:bg-[#78350F]/30 disabled:opacity-40"
+            >
+              <TimerReset className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onEdit}
