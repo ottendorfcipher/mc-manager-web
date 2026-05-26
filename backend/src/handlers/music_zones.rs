@@ -166,6 +166,24 @@ pub async fn update(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ── POST /api/music/zones/:id/clear-cooldown ─────────────────────────────────
+
+pub async fn clear_cooldown(
+    State(state): State<AppState>,
+    actor:        AuthUser,
+    Path(id):     Path<i64>,
+) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+    let zone = music_zones::get(&state.pool, id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Music zone {id} not found")))?;
+    let cleared = music_zones::clear_cooldowns(&state.pool, id).await?;
+    tracing::info!(
+        "music_zone[{}]: {} cleared cooldowns ({cleared} player(s))",
+        zone.name, actor.email,
+    );
+    Ok(Json(serde_json::json!({ "cleared": cleared })))
+}
+
 // ── DELETE /api/music/zones/:id ───────────────────────────────────────────────
 
 pub async fn delete(
