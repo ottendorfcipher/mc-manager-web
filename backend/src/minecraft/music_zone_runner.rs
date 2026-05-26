@@ -32,10 +32,14 @@ use tracing::warn;
 use crate::{
     config::Config,
     db::{music_queue, music_zones, player_snapshots},
+    gcloud::ssh,
     minecraft::{console, music as mc_music},
 };
 
-const TICK_SECS: u64 = 5;
+/// How often we process zone logic (check boundaries, suppress ambient, etc.).
+const TICK_SECS: u64 = 2;
+/// How often we refresh player positions from the MC server (expensive SSH call).
+const SNAPSHOT_REFRESH_SECS: u64 = 5;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -53,9 +57,20 @@ pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         interval.tick().await; // skip the immediate first tick
 
+        let mut ticks_since_refresh: u64 = SNAPSHOT_REFRESH_SECS; // force refresh on first tick
+
         loop {
             interval.tick().await;
-            if let Err(e) = tick_once(&cfg, &pool).await {
+            ticks_since_refresh += TICK_SECS;
+
+            // Only refresh snapshots every SNAPSHOT_REFRESH_SECS — it's an
+            // expensive SSH round-trip (save-all + Python extractor).
+            let should_refresh = ticks_since_refresh >= SNAPSHOT_REFRESH_SECS;
+            if should_refresh {
+                ticks_since_refresh = 0;
+            }
+
+            if let Err(e) = tick_once(&cfg, &pool, should_refresh).await {
                 warn!("music_zone: tick error: {e:?}");
             }
         }
@@ -78,14 +93,18 @@ async fn clear_stale_playing(pool: &SqlitePool) -> anyhow::Result<()> {
 
 // ── One tick ─────────────────────────────────────────────────────────────────
 
-async fn tick_once(cfg: &Config, pool: &SqlitePool) -> anyhow::Result<()> {
+async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool) -> anyhow::Result<()> {
     let zones = music_zones::list_enabled(pool).await.unwrap_or_default();
     if zones.is_empty() {
         return Ok(());
     }
 
-    // Refresh snapshots so positions are current.  Best-effort.
-    let _ = crate::minecraft::player_data::refresh_snapshots(pool, cfg).await;
+    // Refresh snapshots periodically — this is expensive (SSH + Python).
+    // On non-refresh ticks we still process zones using the last-known positions,
+    // which keeps ambient suppression and track-done checks responsive.
+    if refresh_snapshots {
+        let _ = crate::minecraft::player_data::refresh_snapshots(pool, cfg).await;
+    }
 
     // Build sound-id → duration_secs lookup (vanilla catalog + custom tracks).
     let duration_lookup = build_duration_lookup(pool).await;
@@ -284,24 +303,21 @@ async fn play_for(cfg: &Config, ign: &str, sound_id: &str) {
     // Volume 1_000_000 = audible regardless of distance to the source.
     let sel = format!("@p[name={}]", ign);
 
-    // Stop any previous zone track (record channel) and vanilla ambient (music channel).
-    let _ = console::send(cfg, &format!("stopsound {sel} record")).await;
-    match console::send(cfg, &format!("stopsound {sel} music")).await {
-        Ok(true)  => {}
-        Ok(false) => { warn!("music_zone: stopsound for {ign}: server offline"); return; }
-        Err(e)    => { warn!("music_zone: stopsound for {ign}: {e}"); return; }
-    }
-
-    // Small pause so MC finishes processing the stop before the play arrives.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
     // MC resource locations must be lowercase — normalise defensively.
-    // Play on `record` channel to avoid collision with vanilla ambient music.
     let sid = sound_id.to_ascii_lowercase();
-    match console::send(cfg, &format!("playsound {sid} record {sel} ~ ~ ~ 1000000 1")).await {
+
+    // Batch all three commands (stop record, stop music, play) into a single
+    // SSH call to minimise latency.  The FIFO processes them in order so the
+    // stops complete before the play.
+    let cmds = vec![
+        format!("stopsound {sel} record"),
+        format!("stopsound {sel} music"),
+        format!("playsound {sid} record {sel} ~ ~ ~ 1000000 1"),
+    ];
+    match ssh::fifo_batch(cfg, &cmds).await {
         Ok(true)  => tracing::info!("music_zone: playing {sid} for {ign} (record channel)"),
-        Ok(false) => warn!("music_zone: playsound for {ign}: server offline"),
-        Err(e)    => warn!("music_zone: playsound for {ign}: {e}"),
+        Ok(false) => warn!("music_zone: play_for {ign}: server offline or FIFO unavailable"),
+        Err(e)    => warn!("music_zone: play_for {ign}: {e}"),
     }
 }
 
