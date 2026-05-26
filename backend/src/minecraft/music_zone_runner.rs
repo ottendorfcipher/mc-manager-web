@@ -101,7 +101,7 @@ async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool) -> 
 
     // Refresh snapshots periodically — this is expensive (SSH + Python).
     // On non-refresh ticks we still process zones using the last-known positions,
-    // which keeps ambient suppression and track-done checks responsive.
+    // which keeps track-done checks responsive without extra SSH calls.
     if refresh_snapshots {
         let _ = crate::minecraft::player_data::refresh_snapshots(pool, cfg).await;
     }
@@ -110,7 +110,7 @@ async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh_snapshots: bool) -> 
     let duration_lookup = build_duration_lookup(pool).await;
 
     for zone in zones {
-        if let Err(e) = process_zone(cfg, pool, &zone, &duration_lookup).await {
+        if let Err(e) = process_zone(cfg, pool, &zone, &duration_lookup, refresh_snapshots).await {
             warn!("music_zone[{}]: {e:?}", zone.name);
         }
     }
@@ -124,6 +124,7 @@ async fn process_zone(
     pool:             &SqlitePool,
     zone:             &music_zones::MusicZone,
     duration_lookup:  &HashMap<String, u32>,
+    should_suppress:  bool,
 ) -> anyhow::Result<()> {
     // Resolve target player list (None = everyone online).
     let target_igns: Option<Vec<String>> = zone.target_players_json
@@ -259,7 +260,13 @@ async fn process_zone(
                 if was_in {
                     music_zones::set_in_zone(pool, zone.id, &snap.ign, false).await?;
                 }
-                suppress_ambient(cfg, &snap.ign).await;
+                // Fire-and-forget on refresh ticks only — avoids blocking the
+                // tick loop if SSH hangs, and reduces SSH calls from every 2s to 5s.
+                if should_suppress {
+                    let cfg = cfg.clone();
+                    let ign = snap.ign.clone();
+                    tokio::spawn(async move { suppress_ambient(&cfg, &ign).await });
+                }
             }
             // Outside, not playing — record presence change
             (_, false, false, _) => {
@@ -268,9 +275,14 @@ async fn process_zone(
                 }
             }
             // Inside + playing + track not done → suppress vanilla ambient
-            // music every tick so it never gets a chance to fade in.
+            // music on refresh ticks (every 5s).  Fire-and-forget so a hung
+            // SSH cannot stall the tick loop.
             (_, true, true, false) => {
-                suppress_ambient(cfg, &snap.ign).await;
+                if should_suppress {
+                    let cfg = cfg.clone();
+                    let ign = snap.ign.clone();
+                    tokio::spawn(async move { suppress_ambient(&cfg, &ign).await });
+                }
             }
         }
     }
@@ -322,8 +334,8 @@ async fn play_for(cfg: &Config, ign: &str, sound_id: &str) {
 }
 
 /// Suppress vanilla ambient music for a player who has an active zone track.
-/// Called every tick while `is_playing == true` so ambient never gets a chance
-/// to fade in.
+/// Called via fire-and-forget `tokio::spawn` on refresh ticks (~every 5s) so
+/// a hung SSH cannot block the main tick loop.
 async fn suppress_ambient(cfg: &Config, ign: &str) {
     let sel = format!("@p[name={}]", ign);
     let _ = console::send(cfg, &format!("stopsound {sel} music")).await;
