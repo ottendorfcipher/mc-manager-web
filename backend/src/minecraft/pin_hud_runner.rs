@@ -43,7 +43,7 @@ pub fn spawn_pin_hud_task(cfg: Config, pool: SqlitePool) {
 async fn tick_once(cfg: &Config, pool: &SqlitePool) -> anyhow::Result<()> {
     // 1. Find all IGNs with HUD enabled (at least one toggle is "true")
     let raw: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT key FROM prefs
+        "SELECT DISTINCT key FROM preferences
           WHERE (key LIKE 'pin_hud:%:show_team'    AND value = 'true')
              OR (key LIKE 'pin_hud:%:show_private' AND value = 'true')
              OR (key LIKE 'pin_hud:%:show_events'  AND value = 'true')",
