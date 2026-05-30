@@ -23,7 +23,10 @@ use crate::{
     minecraft::console,
 };
 
-const TICK_SECS: u64 = 5;
+/// How often the action-bar title is refreshed.
+const TICK_SECS: u64 = 2;
+/// How often player positions are refreshed via SSH (expensive).
+const SNAPSHOT_REFRESH_SECS: u64 = 5;
 
 /// Spawn the background task.  Self-paced; no input channel needed.
 pub fn spawn_pin_hud_task(cfg: Config, pool: SqlitePool) {
@@ -31,16 +34,25 @@ pub fn spawn_pin_hud_task(cfg: Config, pool: SqlitePool) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         interval.tick().await; // skip the immediate first tick
 
+        let mut ticks_since_refresh: u64 = SNAPSHOT_REFRESH_SECS; // force refresh on first tick
+
         loop {
             interval.tick().await;
-            if let Err(e) = tick_once(&cfg, &pool).await {
+            ticks_since_refresh += TICK_SECS;
+
+            let should_refresh = ticks_since_refresh >= SNAPSHOT_REFRESH_SECS;
+            if should_refresh {
+                ticks_since_refresh = 0;
+            }
+
+            if let Err(e) = tick_once(&cfg, &pool, should_refresh).await {
                 warn!("pin_hud: tick error: {e:?}");
             }
         }
     });
 }
 
-async fn tick_once(cfg: &Config, pool: &SqlitePool) -> anyhow::Result<()> {
+async fn tick_once(cfg: &Config, pool: &SqlitePool, refresh: bool) -> anyhow::Result<()> {
     // 1. Find all IGNs with HUD enabled (at least one toggle is "true")
     let raw: Vec<String> = sqlx::query_scalar::<_, String>(
         "SELECT DISTINCT key FROM preferences
@@ -67,11 +79,18 @@ async fn tick_once(cfg: &Config, pool: &SqlitePool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 2. Refresh snapshots so positions are current.  Best-effort.
-    let _ = crate::minecraft::player_data::refresh_snapshots(pool, cfg).await;
+    // 2. Refresh snapshots periodically — expensive SSH call, fire-and-forget
+    //    so a hung SSH cannot block the action-bar updates.
+    if refresh {
+        let pool2 = pool.clone();
+        let cfg2 = cfg.clone();
+        tokio::spawn(async move {
+            let _ = crate::minecraft::player_data::refresh_snapshots(&pool2, &cfg2).await;
+        });
+    }
 
-    for ign in active_igns {
-        if let Err(e) = update_one(cfg, pool, &ign).await {
+    for ign in &active_igns {
+        if let Err(e) = update_one(cfg, pool, ign).await {
             warn!("pin_hud[{ign}]: {e:?}");
         }
     }
@@ -152,7 +171,8 @@ async fn update_one(cfg: &Config, pool: &SqlitePool, ign: &str) -> anyhow::Resul
     }).to_string();
 
     let cmd = format!("title {ign} actionbar {json}");
-    let _ = console::send(cfg, &cmd).await;
+    let cfg = cfg.clone();
+    tokio::spawn(async move { let _ = console::send(&cfg, &cmd).await; });
     Ok(())
 }
 
