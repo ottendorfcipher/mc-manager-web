@@ -238,7 +238,10 @@ pub fn spawn_player_task(
 /// `storage_filename` are skipped.  Missing legacy files are logged as
 /// warnings (e.g. resource-pack-only entries with no upload).
 pub async fn backfill_uuid_storage(pool: &sqlx::SqlitePool) {
-    const UPLOAD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+    // OGGs now live outside the web root for security; legacy backfill
+    // pulls files that were already there before the move (handlers/music.rs
+    // mirrors this constant).
+    const UPLOAD_DIR: &str = "/opt/redstonecipher/data/uploads/music";
 
     let rows = match crate::db::music_queue::list_custom_tracks(pool).await {
         Ok(r)  => r,
