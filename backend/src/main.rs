@@ -92,6 +92,110 @@ async fn main() -> anyhow::Result<()> {
         state.pool.clone(),
     );
 
+    // One-time data migration: relocate any OGGs still sitting under the
+    // public uploads dir into the private data dir.  Idempotent — once
+    // /www/uploads/music/ is drained of .ogg files, this is a no-op.
+    {
+        tokio::spawn(async move {
+            const OLD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+            const NEW_DIR: &str = "/opt/redstonecipher/data/uploads/music";
+            let _ = tokio::fs::create_dir_all(NEW_DIR).await;
+            let mut moved = 0u32;
+            if let Ok(mut rd) = tokio::fs::read_dir(OLD_DIR).await {
+                while let Ok(Some(e)) = rd.next_entry().await {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    // Only relocate .ogg files at the dir root — `images/`
+                    // subdir stays where the frontend `<img src>` tags
+                    // expect it.
+                    if !name.to_ascii_lowercase().ends_with(".ogg") { continue; }
+                    let from = e.path();
+                    let to   = format!("{NEW_DIR}/{name}");
+                    // /www/ and /data/ may live on different filesystems —
+                    // `rename(2)` returns EXDEV in that case.  Fall back
+                    // to copy + delete, which doesn't care about mounts.
+                    match tokio::fs::rename(&from, &to).await {
+                        Ok(()) => { moved += 1; }
+                        Err(_) => {
+                            match tokio::fs::copy(&from, &to).await {
+                                Ok(_) => {
+                                    if let Err(err) = tokio::fs::remove_file(&from).await {
+                                        tracing::warn!("ogg migrate: copied but cleanup failed for {from:?}: {err}");
+                                    }
+                                    moved += 1;
+                                }
+                                Err(err) => {
+                                    tracing::warn!("ogg migrate: copy {from:?} -> {to}: {err}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if moved > 0 {
+                tracing::info!("ogg migrate: moved {moved} file(s) out of the public web root");
+            }
+        });
+    }
+
+    // Self-heal: keep the file referenced by `resource-pack` in
+    // server.properties in sync with what's actually on disk.
+    //
+    // Triggers a rebuild when ANY of these is true:
+    //   • server.properties has no usable `resource-pack` URL
+    //     (e.g. first boot, or a manually-set external URL),
+    //   • the URL's local target file doesn't exist
+    //     (frontend deploy with `rsync --delete` wiped it,
+    //      or the session dir got pruned), OR
+    //   • the file's SHA-1 doesn't match `resource-pack-sha1`
+    //     (the property update silently failed at some point —
+    //      see the path bug in properties.rs).
+    //
+    // Without this, MC clients hit a SHA-1 mismatch on the URL,
+    // silently skip the pack, and every custom-music zone breaks.
+    {
+        let pool2 = state.pool.clone();
+        let cfg2  = cfg.clone();
+        tokio::spawn(async move {
+            let session = lib::handlers::music::current_pack_session(&cfg2).await;
+
+            let reason: Option<String> = match &session {
+                None => Some("no rotating-session URL in server.properties".into()),
+                Some(s) => {
+                    let path = s.path();
+                    let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+                    if !exists {
+                        Some(format!("pack file missing at {path}"))
+                    } else {
+                        let file_sha = tokio::process::Command::new("sha1sum")
+                            .arg(&path)
+                            .output()
+                            .await
+                            .ok()
+                            .map(|o| String::from_utf8_lossy(&o.stdout)
+                                .split_whitespace().next().unwrap_or("").to_string())
+                            .unwrap_or_default();
+                        let props_sha = lib::minecraft::properties::get_all(&cfg2).await
+                            .ok()
+                            .and_then(|m| m.get("resource-pack-sha1").cloned())
+                            .unwrap_or_default();
+                        if !file_sha.is_empty() && !props_sha.is_empty() && file_sha != props_sha {
+                            Some(format!("SHA mismatch (file={file_sha} props={props_sha})"))
+                        } else {
+                            None
+                        }
+                    }
+                }
+            };
+
+            if let Some(why) = reason {
+                tracing::warn!("startup: rebuilding resource pack ({why})");
+                if let Err(e) = lib::handlers::music::rebuild_resource_pack(&pool2, &cfg2).await {
+                    tracing::error!("startup: pack rebuild failed: {e}");
+                }
+            }
+        });
+    }
+
     // Spawn the music-zone task (region-triggered per-player playback).
     lib::minecraft::music_zone_runner::spawn_music_zone_task(
         cfg.clone(),

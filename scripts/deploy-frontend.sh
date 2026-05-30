@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Deploy the React frontend to the web server.
-# Excludes /map/ so BlueMap tiles are never deleted by a frontend deploy.
+#
+# The web server's www/ dir holds both static frontend assets AND
+# runtime-generated files (resource-pack.zip, packs/, uploads/, map/).
+# A naive `rsync --delete` would wipe the runtime files — each of the
+# excludes below protects one such category.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,9 +15,12 @@ cd "$REPO_ROOT/frontend"
 echo "Building frontend..."
 npm run build
 
-echo "Deploying to ${WEB_SERVER}:${REMOTE_DIR} (excluding /map/)..."
+echo "Deploying to ${WEB_SERVER}:${REMOTE_DIR}..."
 rsync -az --delete \
   --exclude '/map' \
+  --exclude '/packs' \
+  --exclude '/uploads' \
+  --exclude '/resource-pack.zip' \
   dist/ \
   "${WEB_SERVER}:${REMOTE_DIR}/"
 

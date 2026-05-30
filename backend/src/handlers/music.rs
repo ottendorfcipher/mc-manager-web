@@ -326,7 +326,10 @@ pub async fn upload_oggs(
 ) -> Result<Json<Vec<music_queue::CustomTrack>>> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
-    const UPLOAD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+    // OGGs land in /data/ — outside the nginx web root — so they're never
+    // directly downloadable.  The only way clients see them is via the
+    // bundled, UUID-rotating resource pack.
+    const UPLOAD_DIR: &str = UPLOAD_DIR_MUSIC;
     tokio::fs::create_dir_all(UPLOAD_DIR).await
         .map_err(|e| AppError::ExternalCommand(format!("create upload dir: {e}")))?;
 
@@ -654,13 +657,98 @@ pub async fn delete_track_image(
 }
 
 // ── POST /api/music/resource-pack ─────────────────────────────────────────────
+//
+// Resource-pack and OGG storage layout:
+//
+//   • Pack zip  → /opt/redstonecipher/www/packs/<session-uuid>/resource-pack.zip
+//     Each rebuild mints a fresh UUID — clients see a brand-new URL on every
+//     pack change, and any older URL (or a guessed one) returns 404.
+//     Old session dirs are pruned to PACK_SESSIONS_KEEP most-recent.
+//
+//   • OGGs       → /opt/redstonecipher/data/uploads/music/<uuid>.ogg
+//     Kept OUTSIDE the nginx web root so MC clients (and anyone else) can
+//     never download the raw audio directly — the only way to reach them
+//     is through the bundled pack zip.
+//
+// `PACK_URL_HOST` is built into the URLs we write to server.properties.
 
-const PACK_PATH: &str = "/opt/redstonecipher/www/resource-pack.zip";
-const PACK_URL:  &str = "https://redstonecipher.com/resource-pack.zip";
+const PACK_BASE_DIR:      &str  = "/opt/redstonecipher/www/packs";
+const PACK_URL_HOST:      &str  = "https://redstonecipher.com";
+const PACK_FILENAME:      &str  = "resource-pack.zip";
+const PACK_SESSIONS_KEEP: usize = 3;
 
-const TEMPLATE_PATH: &str = "/opt/redstonecipher/www/resource-pack-template.zip";
-const UPLOAD_DIR_MUSIC: &str = "/opt/redstonecipher/www/uploads/music";
-const LEGACY_MUSIC_DIR: &str = "/opt/redstonecipher/data/custom-music";
+const TEMPLATE_PATH:      &str = "/opt/redstonecipher/www/resource-pack-template.zip";
+
+const UPLOAD_DIR_MUSIC:   &str = "/opt/redstonecipher/data/uploads/music";
+/// Old public location of OGG files.  Still searched by `find_track_ogg`
+/// during the rolling migration to the private path above.
+const LEGACY_PUBLIC_MUSIC: &str = "/opt/redstonecipher/www/uploads/music";
+/// Even older legacy custom-music dir (pre-uploads).
+const LEGACY_CUSTOM_MUSIC: &str = "/opt/redstonecipher/data/custom-music";
+
+/// A single resource-pack session — minted on each rebuild/upload so the
+/// public URL rotates and old links go dead.
+///
+/// `pub` so the binary crate (main.rs) can pass it around for the
+/// startup self-heal; everything except `path()` stays opaque.
+#[derive(Debug, Clone)]
+pub struct PackSession { uuid: String }
+
+impl PackSession {
+    fn new() -> Self {
+        Self { uuid: uuid::Uuid::new_v4().simple().to_string() }
+    }
+    fn dir(&self)  -> String { format!("{PACK_BASE_DIR}/{}", self.uuid) }
+    /// Absolute path of the pack zip on the web server's filesystem.
+    pub fn path(&self) -> String { format!("{}/{PACK_FILENAME}", self.dir()) }
+    fn url(&self)  -> String { format!("{PACK_URL_HOST}/packs/{}/{PACK_FILENAME}", self.uuid) }
+}
+
+/// Resolve the currently-active session by reading the `resource-pack`
+/// value from server.properties and pulling the UUID out of the URL.
+/// Returns `None` if no pack is configured or the URL doesn't match the
+/// `/packs/<uuid>/resource-pack.zip` shape (e.g. a legacy flat path or
+/// a manually-set external URL).
+pub async fn current_pack_session(
+    cfg: &crate::config::Config,
+) -> Option<PackSession> {
+    let props = crate::minecraft::properties::get_all(cfg).await.ok()?;
+    let raw   = props.get("resource-pack")?.clone();
+    if raw.trim().is_empty() { return None; }
+    // server.properties stores `\:` as the escape — Properties format.
+    let clean  = raw.replace("\\:", ":");
+    let prefix = format!("{PACK_URL_HOST}/packs/");
+    let suffix = format!("/{PACK_FILENAME}");
+    let uuid   = clean.strip_prefix(&prefix)?.strip_suffix(&suffix)?.to_string();
+    Some(PackSession { uuid })
+}
+
+/// Best-effort cleanup of stale pack-session directories.  Sorts by
+/// mtime and drops everything past `PACK_SESSIONS_KEEP` so any client
+/// still mid-download on the previous one or two URLs can finish.
+async fn cleanup_old_pack_sessions(keep: usize) {
+    use std::time::SystemTime;
+    let mut entries: Vec<(SystemTime, std::path::PathBuf)> = Vec::new();
+    let mut rd = match tokio::fs::read_dir(PACK_BASE_DIR).await {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+    while let Ok(Some(e)) = rd.next_entry().await {
+        let mtime = e.metadata().await.ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        entries.push((mtime, e.path()));
+    }
+    entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    for (_, path) in entries.into_iter().skip(keep) {
+        if let Err(e) = tokio::fs::remove_dir_all(&path).await {
+            tracing::warn!("pack cleanup: remove {:?} failed: {e}", path);
+        }
+    }
+    // Also sweep the legacy flat /resource-pack.zip if it's still around
+    // from before the URL-rotation change.  Idempotent.
+    let _ = tokio::fs::remove_file("/opt/redstonecipher/www/resource-pack.zip").await;
+}
 
 /// Rebuild the server resource pack from the template + all custom tracks.
 ///
@@ -754,13 +842,18 @@ pub async fn rebuild_resource_pack(
     let finished = writer.finish()?;
     let pack_bytes = finished.into_inner();
 
-    // 5. Write to disk.
-    tokio::fs::write(PACK_PATH, &pack_bytes).await
+    // 5. Mint a fresh session UUID and write the pack into its own
+    //    directory.  The URL embeds this UUID so any old URL (or a
+    //    guessed one) returns 404 once we've rebuilt.
+    let session = PackSession::new();
+    tokio::fs::create_dir_all(session.dir()).await
+        .map_err(|e| anyhow::anyhow!("mkdir {}: {e}", session.dir()))?;
+    tokio::fs::write(session.path(), &pack_bytes).await
         .map_err(|e| anyhow::anyhow!("write pack: {e}"))?;
 
     // 6. Compute SHA-1.
     let sha1_out = tokio::process::Command::new("sha1sum")
-        .arg(PACK_PATH)
+        .arg(session.path())
         .output()
         .await
         .map_err(|e| anyhow::anyhow!("sha1sum: {e}"))?;
@@ -770,9 +863,9 @@ pub async fn rebuild_resource_pack(
         .unwrap_or("")
         .to_string();
 
-    // 7. Update server.properties on MC server.
+    // 7. Update server.properties on MC server with the new URL + SHA-1.
     let mut props = std::collections::HashMap::new();
-    props.insert("resource-pack".to_string(), PACK_URL.to_string());
+    props.insert("resource-pack".to_string(),      session.url());
     props.insert("resource-pack-sha1".to_string(), sha1.clone());
     if let Err(e) = crate::minecraft::properties::apply_updates_no_restart(cfg, &props).await {
         tracing::warn!("rebuild_pack: could not update server.properties: {e}");
@@ -781,7 +874,13 @@ pub async fn rebuild_resource_pack(
     // 8. Restart the MC server so it sends the new pack URL/SHA-1 to
     //    clients on their next join.  server.properties is only read at
     //    startup, so without this players keep the stale pack.
-    match crate::gcloud::ssh::run(cfg, "sudo systemctl restart minecraft").await {
+    //
+    //    `--no-block` returns immediately after systemd queues the job —
+    //    a graceful Paper restart can easily take 60-90 s (autosave +
+    //    plugin shutdown + chunk load on cold start), well over our 30 s
+    //    SSH timeout.  We don't need to wait for it to come back; clients
+    //    will retry the resource pack on reconnect.
+    match crate::gcloud::ssh::run(cfg, "sudo systemctl restart --no-block minecraft").await {
         Ok(_)  => {
             tracing::info!("rebuild_pack: restarted MC server for new resource pack");
             // The kick interrupted any in-progress zone music, so any
@@ -801,24 +900,36 @@ pub async fn rebuild_resource_pack(
     }
 
     tracing::info!(
-        "rebuild_pack: built resource pack with {included}/{} tracks, sha1={sha1}",
-        tracks.len(),
+        "rebuild_pack: built resource pack with {included}/{} tracks, sha1={sha1}, session={}",
+        tracks.len(), session.uuid,
     );
+
+    // 9. Prune older session dirs.  Keep the last PACK_SESSIONS_KEEP so
+    //    clients still mid-download on the previous URL can finish.
+    cleanup_old_pack_sessions(PACK_SESSIONS_KEEP).await;
+
     Ok(())
 }
 
 /// Search for an OGG file for a custom track, checking multiple locations.
+///
+/// Search order:
+///   1. UUID-named file in the new private dir (canonical location)
+///   2. UUID-named file in the legacy public dir (transition compat)
+///   3. Stem-named file in any known dir (very-old uploads)
 async fn find_track_ogg(storage_filename: &Option<String>, stem: &str) -> Option<Vec<u8>> {
-    // 1. UUID-named file in uploads dir.
+    // 1+2. UUID-named file.
     if let Some(ref sf) = storage_filename {
-        let path = format!("{UPLOAD_DIR_MUSIC}/{sf}");
-        if let Ok(b) = tokio::fs::read(&path).await {
-            return Some(b);
+        for dir in [UPLOAD_DIR_MUSIC, LEGACY_PUBLIC_MUSIC] {
+            let path = format!("{dir}/{sf}");
+            if let Ok(b) = tokio::fs::read(&path).await {
+                return Some(b);
+            }
         }
     }
 
-    // 2. Stem-named file in uploads dir (legacy or pre-UUID).
-    for dir in [UPLOAD_DIR_MUSIC, LEGACY_MUSIC_DIR] {
+    // 3. Stem-named file in uploads dir (legacy or pre-UUID).
+    for dir in [UPLOAD_DIR_MUSIC, LEGACY_PUBLIC_MUSIC, LEGACY_CUSTOM_MUSIC] {
         // Try exact stem match first.
         let path = format!("{dir}/{stem}.ogg");
         if let Ok(b) = tokio::fs::read(&path).await {
@@ -925,8 +1036,15 @@ fn parse_pack_sounds(pack_path: &str) -> Vec<DetectedSound> {
 ///
 /// Parse the installed resource pack's sounds.json files and return every
 /// detected sound event so the frontend can offer one-click registration.
-pub async fn get_pack_sounds(_: AuthUser) -> Json<Vec<DetectedSound>> {
-    Json(parse_pack_sounds(PACK_PATH))
+pub async fn get_pack_sounds(
+    State(state): State<AppState>,
+    _: AuthUser,
+) -> Json<Vec<DetectedSound>> {
+    let sounds = match current_pack_session(&state.config).await {
+        Some(s) => parse_pack_sounds(&s.path()),
+        None    => Vec::new(),
+    };
+    Json(sounds)
 }
 
 /// Upload a resource pack zip.  Saves it as a static file the game client can
@@ -957,13 +1075,15 @@ pub async fn upload_resource_pack(
         return Err(AppError::BadRequest("File must be a valid .zip archive".into()));
     }
 
-    tokio::fs::write(PACK_PATH, &bytes).await
-        .map_err(|e| AppError::ExternalCommand(format!("Could not save pack: {e}")))?
-    ;
+    let session = PackSession::new();
+    tokio::fs::create_dir_all(session.dir()).await
+        .map_err(|e| AppError::ExternalCommand(format!("mkdir {}: {e}", session.dir())))?;
+    tokio::fs::write(session.path(), &bytes).await
+        .map_err(|e| AppError::ExternalCommand(format!("Could not save pack: {e}")))?;
 
     // sha1sum is available on the Debian web server.
     let sha1_out = tokio::process::Command::new("sha1sum")
-        .arg(PACK_PATH)
+        .arg(session.path())
         .output()
         .await
         .map_err(|e| AppError::ExternalCommand(e.to_string()))?;
@@ -975,16 +1095,19 @@ pub async fn upload_resource_pack(
 
     // Update server.properties on the MC server (no restart).
     let mut props = std::collections::HashMap::new();
-    props.insert("resource-pack".to_string(),      PACK_URL.to_string());
+    props.insert("resource-pack".to_string(),      session.url());
     props.insert("resource-pack-sha1".to_string(), sha1.clone());
     if let Err(e) = crate::minecraft::properties::apply_updates_no_restart(&state.config, &props).await {
         tracing::warn!("Could not update server.properties with resource-pack URL: {e}");
     }
 
-    let detected = parse_pack_sounds(PACK_PATH);
+    let detected = parse_pack_sounds(&session.path());
+
+    // Prune older session dirs.
+    cleanup_old_pack_sessions(PACK_SESSIONS_KEEP).await;
 
     Ok(Json(serde_json::json!({
-        "url":        PACK_URL,
+        "url":        session.url(),
         "sha1":       sha1,
         "size_bytes": bytes.len(),
         "sounds":     detected,
@@ -992,11 +1115,17 @@ pub async fn upload_resource_pack(
 }
 
 /// Return info about the currently installed resource pack (or {installed:false}).
-pub async fn get_resource_pack(_: AuthUser) -> Json<serde_json::Value> {
-    match tokio::fs::metadata(PACK_PATH).await {
+pub async fn get_resource_pack(
+    State(state): State<AppState>,
+    _: AuthUser,
+) -> Json<serde_json::Value> {
+    let Some(session) = current_pack_session(&state.config).await else {
+        return Json(serde_json::json!({ "installed": false }));
+    };
+    match tokio::fs::metadata(&session.path()).await {
         Ok(meta) => {
             let sha1_out = tokio::process::Command::new("sha1sum")
-                .arg(PACK_PATH)
+                .arg(&session.path())
                 .output()
                 .await
                 .ok()
@@ -1005,7 +1134,7 @@ pub async fn get_resource_pack(_: AuthUser) -> Json<serde_json::Value> {
                 .unwrap_or_default();
             Json(serde_json::json!({
                 "installed":  true,
-                "url":        PACK_URL,
+                "url":        session.url(),
                 "sha1":       sha1_out,
                 "size_bytes": meta.len(),
             }))
@@ -1021,7 +1150,12 @@ pub async fn delete_resource_pack(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
-    let _ = tokio::fs::remove_file(PACK_PATH).await;
+    // Remove the currently-referenced session dir (if any).
+    if let Some(session) = current_pack_session(&state.config).await {
+        let _ = tokio::fs::remove_dir_all(session.dir()).await;
+    }
+    // And wipe any orphaned legacy file.
+    let _ = tokio::fs::remove_file("/opt/redstonecipher/www/resource-pack.zip").await;
 
     let mut props = std::collections::HashMap::new();
     props.insert("resource-pack".to_string(),      String::new());
