@@ -1,0 +1,27 @@
+# ── Rust / Cargo build outputs ──────────────────────────────────────────────
+backend/target/
+target/
+
+# ── Node / Vite build outputs ───────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# ── Editor / OS junk ────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# ── Local secrets / env ─────────────────────────────────────────────────────
+.env
+.env.local
+*.local
+
+# ── Database / runtime data (production lives on the VPS, not in git) ───────
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
