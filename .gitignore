@@ -17,10 +17,13 @@ Desktop.ini
 .env
 .env.local
 .env.*.local
+*.local
 *.pem
 *.key
 
 # ── Frontend (Node / Vite / React) ───────────────────────────────────────────
+node_modules/
+dist/
 frontend/node_modules/
 frontend/dist/
 frontend/certs/
@@ -29,12 +32,14 @@ frontend/test-results/
 frontend/blob-report/
 
 # ── Backend (Rust / Cargo) ───────────────────────────────────────────────────
+target/
 backend/target/
 
 # ── SQLite databases ─────────────────────────────────────────────────────────
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
 

@@ -51,6 +51,9 @@ async fn main() -> anyhow::Result<()> {
 
     let state = lib::AppState::new(pool, cfg.clone(), initial_discord_cfg);
 
+    // Backfill legacy music uploads → UUID-named storage (idempotent).
+    lib::minecraft::music::backfill_uuid_storage(&state.pool).await;
+
     // Spawn the music-player background task that auto-advances the queue.
     lib::minecraft::music::spawn_player_task(
         cfg.clone(),
@@ -58,6 +61,46 @@ async fn main() -> anyhow::Result<()> {
         state.music_current.clone(),
         state.music_tx.clone(),
     );
+
+    // Spawn the countdown background task that ticks every second.
+    lib::minecraft::countdown_runner::spawn_countdown_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.countdown_active.clone(),
+        state.countdown_tx.clone(),
+    );
+
+    // Spawn the rising-oceans background task.
+    lib::minecraft::rising_oceans_runner::spawn_rising_oceans_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.rising_oceans_active.clone(),
+        state.rising_oceans_tx.clone(),
+    );
+
+    // Spawn the bounty-board background task.
+    lib::minecraft::bounty_runner::spawn_bounty_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.bounty_board_active.clone(),
+        state.bounty_board_tx.clone(),
+    );
+
+    // Spawn the nearest-pin HUD task (self-paced, no channels).
+    lib::minecraft::pin_hud_runner::spawn_pin_hud_task(
+        cfg.clone(),
+        state.pool.clone(),
+    );
+
+    // Spawn the music-zone task (region-triggered per-player playback).
+    lib::minecraft::music_zone_runner::spawn_music_zone_task(
+        cfg.clone(),
+        state.pool.clone(),
+        state.credits_active.clone(),
+    );
+
+    // Spawn the scheduled-jobs runner (cron-style automations).
+    lib::minecraft::scheduled_runner::spawn_scheduled_task(state.clone());
 
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(

@@ -224,6 +224,12 @@ export interface SoundEntry {
   artist:        string;
   duration_secs: number;
   is_custom:     boolean;
+  /** Custom-track artwork URL (e.g. `/uploads/music/images/{uuid}.png`).
+   *  Null for vanilla tracks — the UI renders a procedurally-coloured
+   *  disc icon for those. */
+  image_url:     string | null;
+  /** Custom-track audio URL (UUID-named, unguessable).  Null for vanilla. */
+  audio_url:     string | null;
 }
 
 export interface ResourcePackInfo {
@@ -254,6 +260,50 @@ export interface NowPlaying {
 export interface MusicState {
   now_playing: NowPlaying | null;
   queue:       MusicQueueEntry[];
+}
+
+// ── Music zones (region-triggered per-player playback) ──────────────────────
+
+export interface MusicZone {
+  id:                  number;
+  name:                string;
+  dimension:           string;
+  x1:                  number;
+  y1:                  number;
+  z1:                  number;
+  x2:                  number;
+  y2:                  number;
+  z2:                  number;
+  /** JSON-encoded array of sound IDs (use JSON.parse on the wire). */
+  sound_ids_json:      string;
+  /** JSON-encoded array of IGNs, or null for "everyone". */
+  target_players_json: string | null;
+  stop_on_leave:       number;  // 0/1
+  cooldown_secs:       number;
+  credits_id:          number | null;
+  enabled:             number;  // 0/1
+  created_by:          string;
+  created_at:          string;
+}
+
+// ── Scrolling Credits ────────────────────────────────────────────────────────
+
+export interface ScrollingCredits {
+  id:              number;
+  name:            string;
+  lines_json:      string;
+  scroll_speed_ms: number;
+  freeze_player:   number;  // 0/1
+  created_by:      string;
+  created_at:      string;
+}
+
+export interface CreditLine {
+  type:    "heading" | "line" | "blank";
+  text?:   string;
+  color:   string;
+  bold:    boolean;
+  italic:  boolean;
 }
 
 /** A sound event detected from assets/<namespace>/sounds.json in the resource pack. */
@@ -313,3 +363,229 @@ export const ROLE_COLORS: Record<Role, string> = {
 };
 
 export const ALL_ROLES: Role[] = ["visitor", "user", "member", "admin", "global_admin"];
+
+// ── Events — Countdowns ─────────────────────────────────────────────────────
+
+export interface Countdown {
+  id:             number;
+  title:          string;
+  duration_secs:  number;
+  target:         string;
+  display_mode:   string;
+  color:          string;
+  sound_id:       string | null;
+  /** JSON-encoded array of sound IDs played in sequence with the countdown. */
+  sound_ids_json: string | null;
+  status:         "pending" | "running" | "paused" | "finished" | "cancelled";
+  elapsed_secs:   number;
+  created_by:     string;
+  created_at:     string;
+  started_at:     string | null;
+  finished_at:    string | null;
+}
+
+export interface ActiveCountdown {
+  id:             number;
+  title:          string;
+  duration_secs:  number;
+  remaining_secs: number;
+  target:         string;
+  display_mode:   string;
+  color:          string;
+  sound_id:       string | null;
+  sound_ids_json: string | null;
+  status:         "running" | "paused";
+  created_by:     string;
+}
+
+export interface CountdownState {
+  active: ActiveCountdown | null;
+  recent: Countdown[];
+}
+
+// ── Events — Rising Oceans ──────────────────────────────────────────────────
+
+export interface RisingOcean {
+  id:                number;
+  status:            "pending" | "running" | "paused" | "finished" | "cancelled";
+  center_x:          number;
+  center_z:          number;
+  radius:            number;
+  start_y:           number;
+  end_y:             number;
+  current_y:         number;
+  interval_secs:     number;
+  blocks_per_step:   number;
+  perimeter_enforce: number;
+  rise_pattern_json: string | null;
+  backup_id:         number | null;
+  backup_path:       string | null;
+  world_slug:        string;
+  created_by:        string;
+  created_at:        string;
+  started_at:        string | null;
+  finished_at:       string | null;
+  reverted:          number | null;
+}
+
+export interface ActiveRisingOcean {
+  id:                number;
+  status:            string;
+  center_x:          number;
+  center_z:          number;
+  radius:            number;
+  start_y:           number;
+  end_y:             number;
+  current_y:         number;
+  interval_secs:     number;
+  blocks_per_step:   number;
+  perimeter_enforce: number;
+  rise_pattern_json: string | null;
+  backup_id:         number | null;
+  world_slug:        string;
+  created_by:        string;
+}
+
+export interface RisingOceanState {
+  active: ActiveRisingOcean | null;
+  recent: RisingOcean[];
+}
+
+// ── Events — Bounty Boards ──────────────────────────────────────────────────
+
+export interface BountyBoard {
+  id:                            number;
+  title:                         string;
+  status:                        "pending" | "running" | "paused" | "finished" | "cancelled";
+  coord_broadcast_interval_secs: number;
+  coord_broadcast_threshold:     number;
+  reward_interval_secs:          number;
+  reward_items_json:             string;
+  rising_oceans_id:              number | null;
+  world_slug:                    string;
+  created_by:                    string;
+  created_at:                    string;
+  started_at:                    string | null;
+  finished_at:                   string | null;
+}
+
+export interface TrackedStat {
+  id:         number;
+  board_id:   number;
+  stat_key:   string;
+  label:      string;
+  mc_paths:   string;
+  stat_mode:  "delta" | "peak";
+  weight:     number;
+  enabled:    number;
+  sort_order: number;
+}
+
+export interface StatScore {
+  stat_key: string;
+  delta:    number;
+  weighted: number;
+}
+
+export interface LeaderboardEntry {
+  player_uuid:  string;
+  player_ign:   string;
+  total_score:  number;
+  stat_scores:  StatScore[];
+}
+
+export interface ActiveBountyBoard {
+  id:                            number;
+  title:                         string;
+  status:                        string;
+  coord_broadcast_interval_secs: number;
+  coord_broadcast_threshold:     number;
+  reward_interval_secs:          number;
+  reward_items_json:             string;
+  rising_oceans_id:              number | null;
+  world_slug:                    string;
+  created_by:                    string;
+  tracked_stats:                 TrackedStat[];
+  leaderboard:                   LeaderboardEntry[];
+}
+
+export interface BountyBoardState {
+  active: ActiveBountyBoard | null;
+  recent: BountyBoard[];
+}
+
+// ── Events — Pre-game lobbies ──────────────────────────────────────────────
+
+export interface PreGameLobby {
+  id:                    number;
+  name:                  string;
+  lobby_x:               number;
+  lobby_y:               number;
+  lobby_z:               number;
+  radius:                number;
+  max_players:           number;
+  allowed_players_json:  string | null;
+  linked_event_type:     "manual" | "countdown" | "rising_oceans" | "bounty_board";
+  linked_event_id:       number | null;
+  launch_dimension:      string;
+  launch_x:              number;
+  launch_y:              number;
+  launch_z:              number;
+  status:                "pending" | "open" | "locked" | "launching" | "launched" | "closed";
+  created_by:            string;
+  created_at:            string;
+  launched_at:           string | null;
+  closed_at:             string | null;
+}
+
+export interface LobbyAttendee {
+  lobby_id:            number;
+  player_ign:          string;
+  joined_at:           string;
+  pre_event_dimension: string | null;
+  pre_event_x:         number | null;
+  pre_event_y:         number | null;
+  pre_event_z:         number | null;
+  status:              "joined" | "launched" | "returned";
+}
+
+export interface LobbyWithAttendees extends PreGameLobby {
+  attendees: LobbyAttendee[];
+}
+
+// ── Parties ────────────────────────────────────────────────────────────────
+
+export interface Party {
+  id:          number;
+  name:        string;
+  description: string | null;
+  owner_email: string;
+  color:       string;
+  created_at:  string;
+}
+
+export interface PartyMember {
+  party_id:   number;
+  player_ign: string;
+  added_at:   string;
+}
+
+export interface PartyWithMembers extends Party {
+  members: PartyMember[];
+}
+
+// ── Scheduled jobs ─────────────────────────────────────────────────────────
+
+export interface ScheduledJob {
+  id:             number;
+  name:           string;
+  cron_expr:      string;
+  action_type:    "console" | "announce" | "discord" | "backup" | "countdown";
+  action_payload: string; // JSON
+  enabled:        number; // 0/1
+  last_fire_at:   string | null;
+  next_fire_at:   string | null;
+  last_status:    string | null;
+  created_by:     string;
+  created_at:     string;
+}

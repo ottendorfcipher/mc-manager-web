@@ -1,12 +1,39 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw, UserMinus, MapPin, MapPinOff } from "lucide-react";
+import { X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
 import { toast } from "@/components/Toast";
+import { PartiesCard } from "./PartiesCard";
 import type { User, PlayerLink, McPlayer, Gamemode } from "@/types";
 import { ROLE_LEVELS } from "@/types";
+
+// ── Pin HUD hook ──────────────────────────────────────────────────────────────
+
+interface PinHudStatus { ign: string; show_team: boolean; show_private: boolean; show_events: boolean; }
+
+function usePinHud(ign: string, canAccess: boolean) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<PinHudStatus>({
+    queryKey: ["pin-hud", ign],
+    queryFn:  () => api.get(`/players/${encodeURIComponent(ign)}/pin-hud`),
+    enabled:  canAccess,
+    retry:    false,
+    staleTime: 30_000,
+  });
+  const updateMut = useMutation({
+    mutationFn: (body: { show_team: boolean; show_private: boolean; show_events: boolean }) =>
+      api.put(`/players/${encodeURIComponent(ign)}/pin-hud`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pin-hud", ign] }),
+  });
+  return {
+    data,
+    isLoading,
+    update: updateMut.mutate,
+    isPending: updateMut.isPending,
+  };
+}
 
 // ── Coord display hook ────────────────────────────────────────────────────────
 
@@ -58,7 +85,7 @@ export function TeamPage() {
   );
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="page">
       <div>
         <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Team</h1>
         <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
@@ -73,12 +100,16 @@ export function TeamPage() {
           placeholder="Search by name or email…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
+          className="flex-1 h-11 rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
         />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["users", "mc-players"] })}
-          className="btn-secondary p-2"
-          aria-label="Refresh"
+          onClick={() => {
+            qc.invalidateQueries({ queryKey: ["users"] });
+            qc.invalidateQueries({ queryKey: ["mc-players"] });
+          }}
+          className="icon-btn flex-shrink-0"
+          aria-label="Refresh team list"
+          title="Refresh"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
@@ -107,36 +138,148 @@ export function TeamPage() {
             ))}
         </div>
       )}
+
+      {/* Parties — quick-select groups for events, music zones, lobbies */}
+      <PartiesCard />
     </div>
+  );
+}
+
+// ── Action chip styling ──────────────────────────────────────────────────────
+//
+// All inline action buttons (PIN, XYZ) share these classes so the row looks
+// consistent and every target meets the 32×32 px minimum tap recommendation
+// from Apple HIG / Material Design.
+const CHIP_BASE =
+  "inline-flex items-center gap-1 h-8 px-2.5 rounded-md text-xs font-semibold " +
+  "transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1";
+
+function PinHudToggle({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean; canAdmin: boolean }) {
+  const canAccess = isSelf || canAdmin;
+  const { data, isLoading, update, isPending } = usePinHud(ign, canAccess);
+  const [open, setOpen]  = useState(false);
+
+  if (!canAccess) return null;
+  if (isLoading)  return <span className="text-[10px] text-meta ml-1">…</span>;
+
+  const showTeam    = data?.show_team    ?? false;
+  const showPrivate = data?.show_private ?? false;
+  const showEvents  = data?.show_events  ?? false;
+  const on          = showTeam || showPrivate || showEvents;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={isPending}
+        title={on ? "Pin HUD: ON — tap to configure" : "Pin HUD: OFF — tap to enable"}
+        aria-label={`${ign} pin HUD ${on ? "on" : "off"}`}
+        aria-expanded={open}
+        className={`${CHIP_BASE} ${
+          on
+            ? "bg-[#E0E7FF] dark:bg-[#1E3A5F] text-[#3B7DD8] dark:text-[#9CC1F5] hover:bg-[#C7D2FE] dark:hover:bg-[#264A75]"
+            : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#A8AEBB] hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
+        }`}
+      >
+        <Compass className="w-3.5 h-3.5" />
+        <span>PIN</span>
+      </button>
+
+      {open && (
+        <>
+          {/* Scrim — darker on mobile (modal-ish), invisible on desktop */}
+          <div
+            className="fixed inset-0 z-30 bg-black/30 sm:bg-transparent"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-label={`Pin HUD prefs for ${ign}`}
+            className="
+              fixed inset-x-4 bottom-4 z-40 max-w-sm mx-auto p-3 space-y-2
+              sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full
+              sm:mt-2 sm:mx-0 sm:w-56 sm:p-2
+              rounded-xl shadow-xl border border-[#D9D5D0] dark:border-[#363944]
+              bg-white dark:bg-[#1C1E27]
+            "
+          >
+            <p className="text-[10px] uppercase tracking-wider text-meta font-semibold px-1">
+              Show nearest pin
+            </p>
+            <PinHudOption
+              checked={showTeam}
+              onChange={(v) => update({ show_team: v, show_private: showPrivate, show_events: showEvents })}
+              disabled={isPending}
+              label="Public (team) pins"
+            />
+            <PinHudOption
+              checked={showPrivate}
+              onChange={(v) => update({ show_team: showTeam, show_private: v, show_events: showEvents })}
+              disabled={isPending}
+              label="My private pins"
+            />
+            <PinHudOption
+              checked={showEvents}
+              onChange={(v) => update({ show_team: showTeam, show_private: showPrivate, show_events: v })}
+              disabled={isPending}
+              label="Active events"
+            />
+            <p className="text-[10px] leading-snug text-meta px-1 pt-2 border-t border-[#D9D5D0] dark:border-[#363944]">
+              Shown in-game above your hotbar with distance. Events = rising oceans + launched lobbies.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PinHudOption({
+  checked, onChange, disabled, label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled: boolean;
+  label: string;
+}) {
+  return (
+    <label className="flex items-center gap-2 px-1 py-2 sm:py-1 rounded hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] cursor-pointer text-sm sm:text-xs text-[#1C1E27] dark:text-[#EAECF0]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        className="accent-[#5B9BF0] w-4 h-4"
+      />
+      {label}
+    </label>
   );
 }
 
 function CoordToggleButton({ ign, isSelf, canAdmin }: { ign: string; isSelf: boolean; canAdmin: boolean }) {
   const canAccess = isSelf || canAdmin;
   const { data, isLoading, toggle, isPending } = useCoordDisplay(ign, canAccess);
-  const canToggle = isSelf || canAdmin;
 
   if (!canAccess) return null;
-  if (isLoading) return <span className="text-[9px] text-meta ml-1">…</span>;
+  if (isLoading) return <span className="text-[10px] text-meta ml-1">…</span>;
 
   const on = data?.enabled ?? false;
   return (
     <button
-      onClick={() => canToggle && toggle(!on)}
-      disabled={isPending || !canToggle}
-      title={on ? "Coords HUD: ON — click to turn off" : "Coords HUD: OFF — click to turn on"}
+      onClick={() => toggle(!on)}
+      disabled={isPending}
+      title={on ? "Coords HUD: ON — tap to turn off" : "Coords HUD: OFF — tap to turn on"}
       aria-label={`${ign} coordinate display ${on ? "on" : "off"}`}
-      className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium
-                  transition-colors disabled:opacity-40 ${
+      className={`${CHIP_BASE} ${
         on
-          ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E] hover:bg-[#D1FAE5]"
-          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-meta hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
+          ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#0E8A57] dark:text-[#6EE7B7] hover:bg-[#D1FAE5] dark:hover:bg-[#0A3F2D]"
+          : "bg-[#F0EDE9] dark:bg-[#2A2D38] text-[#6B6E78] dark:text-[#A8AEBB] hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"
       }`}
     >
       {on
-        ? <MapPin    className="w-2.5 h-2.5" />
-        : <MapPinOff className="w-2.5 h-2.5" />}
-      <span>{on ? "XYZ" : "XYZ"}</span>
+        ? <MapPin    className="w-3.5 h-3.5" />
+        : <MapPinOff className="w-3.5 h-3.5" />}
+      <span>XYZ</span>
     </button>
   );
 }
@@ -200,6 +343,7 @@ function UserCard({
 
   const isSelf      = user.email === me;
   const targetLevel = ROLE_LEVELS[user.role] ?? 0;
+  const canAdmin    = isGlobalAdmin || targetLevel < myLevel;
   // Show remove button only when the actor has permission, isn't targeting
   // themselves, and outranks the target (global_admin bypasses the level check).
   const showRemove  = canRemove && !isSelf && (isGlobalAdmin || targetLevel < myLevel);
@@ -213,8 +357,8 @@ function UserCard({
     <>
       {/* Remove confirmation dialog */}
       {confirmRemove && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" role="alertdialog">
-          <div className="card max-w-sm w-full mx-4 space-y-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" role="alertdialog">
+          <div className="card max-w-sm w-full space-y-4">
             <h2 className="text-lg font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
               Remove {user.display_name}?
             </h2>
@@ -235,93 +379,138 @@ function UserCard({
         </div>
       )}
 
-      <div className="card flex gap-4">
-        {/* Avatar */}
-        <div
-          className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm"
-          style={{ backgroundColor: avatarBg }}
-        >
-          {user.avatar_url
-            ? <img src={user.avatar_url} className="w-11 h-11 rounded-full" alt="" />
-            : initials}
-        </div>
+      <div className="card space-y-3">
+        {/* ── Header: avatar + identity + remove ───────────────────────── */}
+        <div className="flex items-start gap-3">
+          <div
+            className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm"
+            style={{ backgroundColor: avatarBg }}
+          >
+            {user.avatar_url
+              ? <img src={user.avatar_url} className="w-11 h-11 rounded-full" alt="" />
+              : initials}
+          </div>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0 space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
-            {user.display_name}
-          </span>
-          {isSelf && <span className="text-xs text-meta">(you)</span>}
-          <RoleBadge role={user.role} />
-        </div>
-        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{user.email}</p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+                {user.display_name}
+              </span>
+              {isSelf && <span className="text-xs text-meta">(you)</span>}
+              <RoleBadge role={user.role} />
+            </div>
+            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] truncate">
+              {user.email}
+            </p>
+          </div>
 
-        {/* Player links — self-service gamemode + unlink */}
-        <div className="flex flex-wrap gap-2 mt-1">
-          {links.map((link) => {
-            const online = mcPlayers.find((p) => p.ign === link.ign)?.online ?? false;
-            return (
-              <div
-                key={link.ign}
-                className="flex items-center gap-1.5 bg-[#F0EDE9] dark:bg-[#2A2D38] rounded-lg px-2 py-1 text-xs"
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`}
-                />
-                <span className="font-mono text-[#1C1E27] dark:text-[#EAECF0]">
-                  {link.ign}
-                </span>
-                <span className="text-meta">{GM_ICONS[link.gamemode]}</span>
-                <CoordToggleButton
-                  ign={link.ign}
-                  isSelf={isSelf}
-                  canAdmin={isGlobalAdmin || (ROLE_LEVELS[user.role] ?? 0) < myLevel}
-                />
-                {(isSelf || isGlobalAdmin || targetLevel < myLevel) && (
-                  <select
-                    value={link.gamemode}
-                    onChange={(e) =>
-                      gmMut.mutate({ ign: link.ign, gamemode: e.target.value })
-                    }
-                    disabled={gmMut.isPending}
-                    className="text-xs bg-transparent text-meta focus:outline-none disabled:opacity-50"
-                    aria-label={`${link.ign} gamemode`}
-                  >
-                    {GAMEMODES.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                )}
-                {isSelf && (
-                  <button
-                    onClick={() => unlinkMut.mutate(link.ign)}
-                    aria-label={`Unlink ${link.ign}`}
-                    className="text-[#F87171] hover:text-red-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {links.length === 0 && (
-            <span className="text-xs text-meta">⛏ No linked players</span>
+          {showRemove && (
+            <button
+              onClick={() => setConfirmRemove(true)}
+              title={`Remove ${user.display_name} from the team`}
+              aria-label={`Remove ${user.display_name}`}
+              className="icon-btn-danger flex-shrink-0 w-9 h-9 min-w-0 min-h-0 sm:min-w-[44px] sm:min-h-[44px]"
+            >
+              <UserMinus className="w-4 h-4" />
+            </button>
           )}
         </div>
-      </div>
 
-      {/* Remove button */}
-      {showRemove && (
-        <button
-          onClick={() => setConfirmRemove(true)}
-          title={`Remove ${user.display_name} from the team`}
-          className="flex-shrink-0 self-start p-1.5 rounded hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] text-meta hover:text-[#F87171] transition-colors"
-        >
-          <UserMinus className="w-4 h-4" />
-        </button>
-      )}
+        {/* ── Linked players ────────────────────────────────────────────── */}
+        {links.length === 0 ? (
+          <p className="text-xs text-meta pl-14">⛏ No linked players</p>
+        ) : (
+          <div className="space-y-2 sm:pl-14">
+            {links.map((link) => {
+              const online = mcPlayers.find((p) => p.ign === link.ign)?.online ?? false;
+              const canChangeGm = isSelf || isGlobalAdmin || targetLevel < myLevel;
+              return (
+                <PlayerLinkRow
+                  key={link.ign}
+                  ign={link.ign}
+                  gamemode={link.gamemode}
+                  online={online}
+                  isSelf={isSelf}
+                  canAdmin={canAdmin}
+                  canChangeGm={canChangeGm}
+                  onChangeGm={(gm) => gmMut.mutate({ ign: link.ign, gamemode: gm })}
+                  onUnlink={() => unlinkMut.mutate(link.ign)}
+                  gmPending={gmMut.isPending}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
+  );
+}
+
+// ── Player link row ──────────────────────────────────────────────────────────
+//
+// Each linked player gets its own row.  On mobile the row is a stacked panel:
+// IGN on top, action chips wrap below — no more squeezing 5 controls into one
+// 10-px-tall pill.  On sm:+ it lays out horizontally as a single line.
+
+function PlayerLinkRow({
+  ign, gamemode, online,
+  isSelf, canAdmin, canChangeGm,
+  onChangeGm, onUnlink, gmPending,
+}: {
+  ign:         string;
+  gamemode:    Gamemode;
+  online:      boolean;
+  isSelf:      boolean;
+  canAdmin:    boolean;
+  canChangeGm: boolean;
+  onChangeGm:  (gm: string) => void;
+  onUnlink:    () => void;
+  gmPending:   boolean;
+}) {
+  return (
+    <div className="rounded-lg bg-[#F0EDE9] dark:bg-[#2A2D38] px-3 py-2.5 sm:px-3 sm:py-2 flex flex-col sm:flex-row sm:items-center gap-2">
+      {/* IGN + online dot + gamemode glyph */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${online ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`}
+          aria-label={online ? "Online" : "Offline"}
+        />
+        <span className="font-mono text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
+          {ign}
+        </span>
+        <span className="text-sm" aria-label={`Gamemode ${gamemode}`}>
+          {GM_ICONS[gamemode]}
+        </span>
+      </div>
+
+      {/* Action chips — wrap on mobile, end-aligned row on desktop */}
+      <div className="flex items-center gap-1.5 flex-wrap sm:ml-auto sm:flex-nowrap">
+        <CoordToggleButton ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
+        <PinHudToggle      ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
+        {canChangeGm && (
+          <select
+            value={gamemode}
+            onChange={(e) => onChangeGm(e.target.value)}
+            disabled={gmPending}
+            aria-label={`${ign} gamemode`}
+            className="h-8 rounded-md bg-white dark:bg-[#1C1E27] border border-[#D9D5D0] dark:border-[#363944] text-xs text-[#1C1E27] dark:text-[#EAECF0] px-2 focus:outline-none focus:ring-1 focus:ring-[#5B9BF0] disabled:opacity-50"
+          >
+            {GAMEMODES.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        )}
+        {isSelf && (
+          <button
+            onClick={onUnlink}
+            aria-label={`Unlink ${ign}`}
+            title={`Unlink ${ign}`}
+            className="h-8 w-8 flex items-center justify-center rounded-md text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

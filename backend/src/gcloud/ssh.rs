@@ -98,6 +98,36 @@ pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
     Ok(out.contains("APPLIED"))
 }
 
+/// Write multiple Minecraft console commands to the FIFO in a single SSH call.
+/// Each command is echoed to the pipe sequentially.  Returns true if all were applied.
+pub async fn fifo_batch(cfg: &Config, commands: &[String]) -> Result<bool> {
+    if commands.is_empty() {
+        return Ok(true);
+    }
+    // Build a compound script that echos each command into the FIFO.
+    let mut echos = String::new();
+    for cmd in commands {
+        let safe = cmd
+            .replace('\'', r"'\''")
+            .replace('\n', " ")
+            .replace('\r', "");
+        echos.push_str(&format!(
+            "echo '{safe}' | timeout 5 tee -a \"$FIFO\" > /dev/null && "
+        ));
+    }
+    echos.push_str("echo APPLIED");
+
+    let script = format!(
+        "FIFO=/opt/minecraft/console.fifo; \
+         if [ -p \"$FIFO\" ]; then \
+           {echos}; \
+         elif systemctl is-active minecraft > /dev/null 2>&1; then echo NOFIFO; \
+         else echo OFFLINE; fi"
+    );
+    let (out, _) = run_with_timeout(cfg, &script, Duration::from_secs(15)).await?;
+    Ok(out.contains("APPLIED"))
+}
+
 /// Fetch live metrics in a single SSH call (same script as Python app).
 pub async fn fetch_metrics(cfg: &Config) -> Result<MetricsSnapshot> {
     let script = concat!(

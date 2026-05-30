@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
-  Backpack, Music2, MoreHorizontal,
+  Backpack, Music2, Timer, Clock, MoreHorizontal,
 } from "lucide-react";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
@@ -15,7 +15,9 @@ const NAV = [
   { to: "/players",   icon: Backpack,        label: "Inventory", perm: "nav.players" },
   { to: "/chat",      icon: MessageSquare,  label: "Chat",      perm: "nav.chat" },
   { to: "/music",     icon: Music2,          label: "Music",     perm: "nav.music" },
-  { to: "/map",       icon: Map,            label: "Map",       perm: "nav.map" },
+  { to: "/events",       icon: Timer,          label: "Events",      perm: "nav.events" },
+  { to: "/automations",  icon: Clock,          label: "Automations", perm: "nav.automations" },
+  { to: "/map",          icon: Map,            label: "Map",         perm: "nav.map" },
   { to: "/backups",   icon: HardDrive,      label: "Backups",   perm: "nav.backups" },
   { to: "/configure", icon: Settings,       label: "Configure", perm: "nav.configure" },
   { to: "/admin",     icon: ShieldCheck,    label: "Admin",     perm: "nav.admin" },

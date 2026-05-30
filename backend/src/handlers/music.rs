@@ -26,6 +26,9 @@ use crate::{
 
 /// Unified catalog entry — merges the static vanilla catalog with user-added
 /// custom tracks from the database.  `is_custom` lets the UI badge custom ones.
+/// `image_url` is set for custom tracks that have artwork uploaded.
+/// `audio_url` is set for custom tracks pointing to the (UUID-named) OGG
+/// behind the public `/uploads/music/` mount.
 #[derive(Clone, serde::Serialize)]
 pub struct CatalogEntry {
     pub id:            String,
@@ -33,6 +36,8 @@ pub struct CatalogEntry {
     pub artist:        String,
     pub duration_secs: u32,
     pub is_custom:     bool,
+    pub image_url:     Option<String>,
+    pub audio_url:     Option<String>,
 }
 
 /// GET /api/music/tracks — vanilla catalog plus any registered custom tracks.
@@ -46,6 +51,8 @@ pub async fn list_tracks(
         artist:        e.artist.to_string(),
         duration_secs: e.duration_secs,
         is_custom:     false,
+        image_url:     None,
+        audio_url:     None,
     }).collect();
 
     let custom: Vec<CatalogEntry> = music_queue::list_custom_tracks(&state.pool)
@@ -53,11 +60,15 @@ pub async fn list_tracks(
         .unwrap_or_default()
         .into_iter()
         .map(|t| CatalogEntry {
-            id:            t.sound_id,
+            id:            t.sound_id.clone(),
             display_name:  t.display_name,
             artist:        t.artist,
             duration_secs: t.duration_secs as u32,
             is_custom:     true,
+            image_url:     t.image_filename
+                .map(|f| format!("/uploads/music/images/{f}")),
+            audio_url:     t.storage_filename
+                .map(|f| format!("/uploads/music/{f}")),
         })
         .collect();
 
@@ -242,7 +253,286 @@ pub async fn add_custom_track(
         &actor.email,
     ).await?;
 
+    // Rebuild resource pack so the new track is available in-game.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("add_custom_track: pack rebuild failed: {e}");
+    }
+
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Update the display metadata of an existing custom track.
+#[derive(Deserialize)]
+pub struct UpdateTrackBody {
+    pub display_name:  String,
+    #[serde(default)]
+    pub artist:        String,
+    #[serde(default = "default_duration")]
+    pub duration_secs: i64,
+}
+
+pub async fn update_custom_track(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+    Json(body): Json<UpdateTrackBody>,
+) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    if body.display_name.trim().is_empty() {
+        return Err(AppError::BadRequest("display_name is required".into()));
+    }
+    if body.duration_secs < 1 || body.duration_secs > 7200 {
+        return Err(AppError::BadRequest("duration_secs must be 1–7200".into()));
+    }
+
+    let found = music_queue::update_custom_track(
+        &state.pool,
+        &sound_id,
+        body.display_name.trim(),
+        body.artist.trim(),
+        body.duration_secs,
+    ).await?;
+    if !found {
+        return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
+    }
+
+    // Rebuild resource pack in case the sound_id mapping changed.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("update_custom_track: pack rebuild failed: {e}");
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /api/music/upload ────────────────────────────────────────────────────
+
+/// Upload one or more `.ogg` files. Each file is stored under the resource-pack
+/// sounds directory, registered as a custom track, and returned in the response.
+///
+/// Long files are split losslessly into ~5-minute chunks via ffmpeg (`-c copy`).
+/// Each chunk becomes its own custom track named "Original (1/N)", "(2/N)", …
+/// — so the user can multi-select all of them in the disc picker to play the
+/// full song back-to-back.
+///
+/// Path layout:
+///   /opt/redstonecipher/www/uploads/music/{filename}.ogg
+/// Sound ID:
+///   redstonecipher:music.{filename_without_ext}
+pub async fn upload_oggs(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Vec<music_queue::CustomTrack>>> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    const UPLOAD_DIR: &str = "/opt/redstonecipher/www/uploads/music";
+    tokio::fs::create_dir_all(UPLOAD_DIR).await
+        .map_err(|e| AppError::ExternalCommand(format!("create upload dir: {e}")))?;
+
+    let mut created: Vec<music_queue::CustomTrack> = vec![];
+
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        if field.name() != Some("file") { continue; }
+
+        let original_name = field.file_name()
+            .map(|s| s.to_string())
+            .ok_or_else(|| AppError::BadRequest("Missing filename in upload".into()))?;
+
+        if !original_name.to_lowercase().ends_with(".ogg") {
+            return Err(AppError::BadRequest(
+                format!("'{original_name}' is not an .ogg file")
+            ));
+        }
+
+        let bytes = field.bytes().await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+        // Sanitise filename — used for the sound_id (human-readable),
+        // NOT for the on-disk path.  On-disk uses a UUID so the public
+        // URL isn't trivially scrapable.
+        let base = sanitise_filename(&original_name);
+        let stem = base.trim_end_matches(".ogg");
+        if stem.is_empty() {
+            return Err(AppError::BadRequest("Empty filename after sanitisation".into()));
+        }
+        let upload_uuid = uuid::Uuid::new_v4().simple().to_string();
+        let storage_filename = format!("{upload_uuid}.ogg");
+
+        // Write the upload to disk first so ffmpeg can read it.
+        let raw_path = format!("{UPLOAD_DIR}/{storage_filename}");
+        tokio::fs::write(&raw_path, &bytes).await
+            .map_err(|e| AppError::ExternalCommand(format!("write {raw_path}: {e}")))?;
+        // Memory pressure: drop the buffered upload bytes asap.
+        drop(bytes);
+
+        // Detect duration via ffprobe.
+        let duration = match probe_duration_secs(&raw_path).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(file = %raw_path, error = %e,
+                    "ffprobe failed; storing as single track with default duration");
+                180
+            }
+        };
+
+        // Split when needed.  Sweet spot: ~5-minute slices (300s).
+        const CHUNK_SECS: i64 = 300;
+        let display_base = pretty_name(stem);
+
+        if duration <= CHUNK_SECS + 30 {
+            // Short file — register the upload as a single track.
+            let sound_id = format!("redstonecipher:music.{stem}");
+            let _ = music_queue::remove_custom_track(&state.pool, &sound_id).await;
+            let track = music_queue::add_custom_track(
+                &state.pool,
+                &sound_id,
+                &display_base,
+                "",
+                duration,
+                &actor.email,
+            ).await?;
+            // Record the UUID-named on-disk file.
+            let _ = music_queue::set_custom_track_storage(
+                &state.pool, &sound_id, &storage_filename,
+            ).await;
+            created.push(music_queue::CustomTrack {
+                storage_filename: Some(storage_filename.clone()),
+                ..track
+            });
+            continue;
+        }
+
+        // ── Split path ────────────────────────────────────────────────
+        let total_chunks = ((duration as f64) / (CHUNK_SECS as f64)).ceil() as i64;
+        // (sound_id, file_path, storage_filename, idx, dur)
+        let mut chunk_paths: Vec<(String, String, String, i64, i64)> = vec![];
+        for idx in 0..total_chunks {
+            let start    = idx * CHUNK_SECS;
+            let this_dur = (duration - start).min(CHUNK_SECS);
+
+            let chunk_stem    = format!("{stem}_part{}", idx + 1);
+            let chunk_uuid    = uuid::Uuid::new_v4().simple().to_string();
+            let chunk_storage = format!("{chunk_uuid}.ogg");
+            let chunk_path    = format!("{UPLOAD_DIR}/{chunk_storage}");
+
+            if let Err(e) = run_ffmpeg_split(&raw_path, &chunk_path, start, this_dur).await {
+                // Clean up any partial outputs.
+                for (_, p, _, _, _) in &chunk_paths {
+                    let _ = tokio::fs::remove_file(p).await;
+                }
+                let _ = tokio::fs::remove_file(&chunk_path).await;
+                return Err(AppError::ExternalCommand(format!("ffmpeg split: {e}")));
+            }
+
+            chunk_paths.push((
+                format!("redstonecipher:music.{chunk_stem}"),
+                chunk_path,
+                chunk_storage,
+                idx + 1,
+                this_dur,
+            ));
+        }
+
+        // Remove the original — splits are the canonical artifacts now.
+        let _ = tokio::fs::remove_file(&raw_path).await;
+
+        // Register each split.  Naming "Original Name (1/N)" so the user
+        // can pick all of them in the disc modal to play them back-to-back.
+        for (sound_id, _path, storage, n, dur) in &chunk_paths {
+            let display_name = format!("{display_base} ({}/{})", n, total_chunks);
+            let _ = music_queue::remove_custom_track(&state.pool, sound_id).await;
+            let track = music_queue::add_custom_track(
+                &state.pool,
+                sound_id,
+                &display_name,
+                "",
+                *dur,
+                &actor.email,
+            ).await?;
+            let _ = music_queue::set_custom_track_storage(
+                &state.pool, sound_id, storage,
+            ).await;
+            created.push(music_queue::CustomTrack {
+                storage_filename: Some(storage.clone()),
+                ..track
+            });
+        }
+    }
+
+    if created.is_empty() {
+        return Err(AppError::BadRequest("No .ogg files in upload".into()));
+    }
+
+    // Auto-rebuild the server resource pack to include the new tracks.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("upload_oggs: pack rebuild failed: {e}");
+    }
+
+    Ok(Json(created))
+}
+
+fn sanitise_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// Convert a sanitised stem into a presentable display name
+/// (underscores → spaces, title case).
+fn pretty_name(stem: &str) -> String {
+    stem.replace('_', " ")
+}
+
+/// Return the duration in seconds of an audio file via `ffprobe`.
+async fn probe_duration_secs(path: &str) -> std::result::Result<i64, String> {
+    let out = tokio::process::Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let txt = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let secs: f64 = txt.parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+    Ok(secs.round() as i64)
+}
+
+/// Losslessly extract `[start, start+duration]` from `input` into `output`
+/// using `ffmpeg -c copy`.  Re-encoding is avoided so the operation is fast
+/// and preserves audio quality.
+async fn run_ffmpeg_split(
+    input:    &str,
+    output:   &str,
+    start:    i64,
+    duration: i64,
+) -> std::result::Result<(), String> {
+    let out = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-y",                 // overwrite output
+            "-loglevel", "error",
+            "-ss", &start.to_string(),
+            "-i",  input,
+            "-t",  &duration.to_string(),
+            "-c",  "copy",
+            output,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(())
 }
 
 /// Remove a registered custom track entry.
@@ -253,10 +543,113 @@ pub async fn remove_custom_track(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
+    // Best-effort: remove the image file too if one is registered.
+    if let Ok(Some(t)) = music_queue::get_custom_track(&state.pool, &sound_id).await {
+        if let Some(fname) = t.image_filename {
+            let path = format!("{TRACK_IMAGE_DIR}/{fname}");
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
+
     let found = music_queue::remove_custom_track(&state.pool, &sound_id).await?;
     if !found {
         return Err(AppError::NotFound(format!("Custom track '{sound_id}' not found")));
     }
+
+    // Auto-rebuild the server resource pack without the removed track.
+    if let Err(e) = rebuild_resource_pack(&state.pool, &state.config).await {
+        tracing::warn!("remove_custom_track: pack rebuild failed: {e}");
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /api/music/tracks/:sound_id/image ────────────────────────────────────
+
+const TRACK_IMAGE_DIR: &str = "/opt/redstonecipher/www/uploads/music/images";
+
+/// Upload artwork for a custom track (multipart form-data field `image`,
+/// accepts PNG/JPEG/WebP up to 2 MB).  Replaces any existing image.
+pub async fn upload_track_image(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    // Confirm the track exists and is custom
+    let track = music_queue::get_custom_track(&state.pool, &sound_id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Custom track '{sound_id}' not found")))?;
+
+    tokio::fs::create_dir_all(TRACK_IMAGE_DIR).await
+        .map_err(|e| AppError::ExternalCommand(format!("create image dir: {e}")))?;
+
+    let mut bytes: Option<Vec<u8>> = None;
+    let mut content_type: Option<String> = None;
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        if field.name() == Some("image") {
+            content_type = field.content_type().map(|s| s.to_string());
+            let data = field.bytes().await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            if data.len() > 2 * 1024 * 1024 {
+                return Err(AppError::BadRequest("Image must be ≤ 2 MB".into()));
+            }
+            bytes = Some(data.to_vec());
+        }
+    }
+
+    let data = bytes.ok_or_else(|| AppError::BadRequest("Missing multipart field 'image'".into()))?;
+
+    let ext = match content_type.as_deref() {
+        Some("image/png")  => "png",
+        Some("image/jpeg") | Some("image/jpg") => "jpg",
+        Some("image/webp") => "webp",
+        Some("image/gif")  => "gif",
+        _ => return Err(AppError::BadRequest("Image must be PNG, JPEG, WebP, or GIF".into())),
+    };
+
+    // Use a UUID for the on-disk filename so the public URL isn't trivially
+    // scrapable from the (possibly-known) sound_id.
+    let image_uuid = uuid::Uuid::new_v4().simple().to_string();
+    let filename = format!("{image_uuid}.{ext}");
+    let path = format!("{TRACK_IMAGE_DIR}/{filename}");
+
+    // Remove the previously-stored image (different UUID).
+    if let Some(prev) = track.image_filename.as_ref() {
+        if prev != &filename {
+            let _ = tokio::fs::remove_file(format!("{TRACK_IMAGE_DIR}/{prev}")).await;
+        }
+    }
+
+    tokio::fs::write(&path, &data).await
+        .map_err(|e| AppError::ExternalCommand(format!("write image: {e}")))?;
+
+    music_queue::set_custom_track_image(&state.pool, &sound_id, Some(&filename)).await?;
+
+    Ok(Json(serde_json::json!({
+        "url": format!("/uploads/music/images/{filename}"),
+    })))
+}
+
+/// Remove a custom track's image (keeps the track itself).
+pub async fn delete_track_image(
+    State(state): State<AppState>,
+    actor: AuthUser,
+    axum::extract::Path(sound_id): axum::extract::Path<String>,
+) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    let track = music_queue::get_custom_track(&state.pool, &sound_id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Custom track '{sound_id}' not found")))?;
+
+    if let Some(fname) = track.image_filename {
+        let _ = tokio::fs::remove_file(format!("{TRACK_IMAGE_DIR}/{fname}")).await;
+    }
+    music_queue::set_custom_track_image(&state.pool, &sound_id, None).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -264,6 +657,188 @@ pub async fn remove_custom_track(
 
 const PACK_PATH: &str = "/opt/redstonecipher/www/resource-pack.zip";
 const PACK_URL:  &str = "https://redstonecipher.com/resource-pack.zip";
+
+const TEMPLATE_PATH: &str = "/opt/redstonecipher/www/resource-pack-template.zip";
+const UPLOAD_DIR_MUSIC: &str = "/opt/redstonecipher/www/uploads/music";
+const LEGACY_MUSIC_DIR: &str = "/opt/redstonecipher/data/custom-music";
+
+/// Rebuild the server resource pack from the template + all custom tracks.
+///
+/// 1. Opens the template zip (pack.mcmeta + skeleton).
+/// 2. Finds OGG files for every custom track in the DB.
+/// 3. Builds a fresh `sounds.json` with entries for every found track.
+/// 4. Writes the new pack to PACK_PATH, computes SHA-1.
+/// 5. Updates `server.properties` on the MC server (no restart needed).
+///
+/// Best-effort — returns Ok(()) even when individual tracks are missing.
+pub async fn rebuild_resource_pack(
+    pool: &sqlx::SqlitePool,
+    cfg:  &crate::config::Config,
+) -> anyhow::Result<()> {
+    // 1. Read the template zip into memory.
+    let tpl_bytes = tokio::fs::read(TEMPLATE_PATH).await
+        .map_err(|e| anyhow::anyhow!("read template: {e}"))?;
+    let tpl_reader = std::io::Cursor::new(&tpl_bytes);
+    let mut tpl_archive = zip::ZipArchive::new(tpl_reader)
+        .map_err(|e| anyhow::anyhow!("parse template zip: {e}"))?;
+
+    // 2. Start a new zip in memory.
+    let buf = std::io::Cursor::new(Vec::<u8>::new());
+    let mut writer = zip::ZipWriter::new(buf);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // Copy template entries except sounds.json (we'll regenerate it).
+    for i in 0..tpl_archive.len() {
+        let mut entry = tpl_archive.by_index(i)?;
+        let name = entry.name().to_owned();
+        if name.ends_with("sounds.json") || name.ends_with("README.txt") {
+            continue;
+        }
+        if entry.is_dir() {
+            writer.add_directory(&name, opts)?;
+        } else {
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            writer.start_file(&name, opts)?;
+            std::io::Write::write_all(&mut writer, &data)?;
+        }
+    }
+
+    // 3. Gather all custom tracks and find their OGG files.
+    let tracks = music_queue::list_custom_tracks(pool).await.unwrap_or_default();
+    let mut sounds_map = serde_json::Map::new();
+    let mut included = 0u32;
+
+    for t in &tracks {
+        // Derive stem from sound_id: "redstonecipher:music.wolf_s_rain" → "wolf_s_rain"
+        let stem = t.sound_id
+            .strip_prefix("redstonecipher:music.")
+            .unwrap_or(&t.sound_id)
+            .to_ascii_lowercase();
+
+        // Find OGG file — check UUID storage first, then stem match in both dirs.
+        let ogg_bytes = find_track_ogg(&t.storage_filename, &stem).await;
+        let ogg_bytes = match ogg_bytes {
+            Some(b) => b,
+            None => {
+                tracing::warn!("rebuild_pack: no OGG found for {}, skipping", t.sound_id);
+                continue;
+            }
+        };
+
+        // Add OGG to zip: assets/redstonecipher/sounds/music/{stem}.ogg
+        let zip_path = format!("assets/redstonecipher/sounds/music/{stem}.ogg");
+        writer.start_file(&zip_path, opts)?;
+        std::io::Write::write_all(&mut writer, &ogg_bytes)?;
+
+        // Add entry to sounds.json
+        sounds_map.insert(
+            format!("music.{stem}"),
+            serde_json::json!({
+                "sounds": [{
+                    "name": format!("redstonecipher:music/{stem}"),
+                    "stream": true
+                }]
+            }),
+        );
+        included += 1;
+    }
+
+    // 4. Write sounds.json into the zip.
+    let sounds_json = serde_json::to_string_pretty(&sounds_map)
+        .unwrap_or_else(|_| "{}".to_string());
+    writer.start_file("assets/redstonecipher/sounds.json", opts)?;
+    std::io::Write::write_all(&mut writer, sounds_json.as_bytes())?;
+
+    let finished = writer.finish()?;
+    let pack_bytes = finished.into_inner();
+
+    // 5. Write to disk.
+    tokio::fs::write(PACK_PATH, &pack_bytes).await
+        .map_err(|e| anyhow::anyhow!("write pack: {e}"))?;
+
+    // 6. Compute SHA-1.
+    let sha1_out = tokio::process::Command::new("sha1sum")
+        .arg(PACK_PATH)
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("sha1sum: {e}"))?;
+    let sha1 = String::from_utf8_lossy(&sha1_out.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    // 7. Update server.properties on MC server.
+    let mut props = std::collections::HashMap::new();
+    props.insert("resource-pack".to_string(), PACK_URL.to_string());
+    props.insert("resource-pack-sha1".to_string(), sha1.clone());
+    if let Err(e) = crate::minecraft::properties::apply_updates_no_restart(cfg, &props).await {
+        tracing::warn!("rebuild_pack: could not update server.properties: {e}");
+    }
+
+    // 8. Restart the MC server so it sends the new pack URL/SHA-1 to
+    //    clients on their next join.  server.properties is only read at
+    //    startup, so without this players keep the stale pack.
+    match crate::gcloud::ssh::run(cfg, "sudo systemctl restart minecraft").await {
+        Ok(_)  => {
+            tracing::info!("rebuild_pack: restarted MC server for new resource pack");
+            // The kick interrupted any in-progress zone music, so any
+            // `finished_at` cooldown anchors and stale `is_playing` flags
+            // for the just-disconnected players would otherwise block the
+            // new pack's zones from triggering on reconnect.  Reset both
+            // so players get a clean slate.
+            match crate::db::music_zones::reset_all_for_server_restart(pool).await {
+                Ok(n) if n > 0 => tracing::info!(
+                    "rebuild_pack: cleared {n} stale zone state row(s) (cooldown + playing)",
+                ),
+                Ok(_)  => {},
+                Err(e) => tracing::warn!("rebuild_pack: failed to reset zone state: {e}"),
+            }
+        }
+        Err(e) => tracing::warn!("rebuild_pack: MC restart failed (pack still updated): {e}"),
+    }
+
+    tracing::info!(
+        "rebuild_pack: built resource pack with {included}/{} tracks, sha1={sha1}",
+        tracks.len(),
+    );
+    Ok(())
+}
+
+/// Search for an OGG file for a custom track, checking multiple locations.
+async fn find_track_ogg(storage_filename: &Option<String>, stem: &str) -> Option<Vec<u8>> {
+    // 1. UUID-named file in uploads dir.
+    if let Some(ref sf) = storage_filename {
+        let path = format!("{UPLOAD_DIR_MUSIC}/{sf}");
+        if let Ok(b) = tokio::fs::read(&path).await {
+            return Some(b);
+        }
+    }
+
+    // 2. Stem-named file in uploads dir (legacy or pre-UUID).
+    for dir in [UPLOAD_DIR_MUSIC, LEGACY_MUSIC_DIR] {
+        // Try exact stem match first.
+        let path = format!("{dir}/{stem}.ogg");
+        if let Ok(b) = tokio::fs::read(&path).await {
+            return Some(b);
+        }
+        // Try case-insensitive scan.
+        if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.to_ascii_lowercase() == format!("{stem}.ogg") {
+                    if let Ok(b) = tokio::fs::read(entry.path()).await {
+                        return Some(b);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 
 // ── Sound detection ────────────────────────────────────────────────────────────
 

@@ -164,6 +164,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/players/snapshots/:ign", get(handlers::player_data::get))
         // Give items to a player
         .route("/players/:ign/give", post(handlers::give_item::give))
+        // Player stats (MC statistics JSON)
+        .route("/players/:ign/stats", get(handlers::player_stats::get))
+        // In-game sign-in link (QR code SSO)
+        .route("/players/:ign/link-token", post(handlers::link_token::create))
         // Map pins
         .route(
             "/map/pins",
@@ -185,8 +189,34 @@ pub fn build_router(state: AppState) -> Router {
         .route("/chat/send",    post(handlers::chat::send))
         // Music queue
         .route("/music/tracks",      get(handlers::music::list_tracks))
-        .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track))
+        .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track)
+                                     .put(handlers::music::update_custom_track))
         .route("/music/tracks",      post(handlers::music::add_custom_track))
+        .route("/music/tracks/:id/image",
+                                     post(handlers::music::upload_track_image)
+                                     .delete(handlers::music::delete_track_image))
+                                     // Per-track artwork can be up to 2 MB (validated in
+                                     // the handler) — raise body limit accordingly.
+                                     .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
+        // OGG upload — bumped body limit to 512 MiB so multi-track sets and
+        // long uploads aren't rejected by Axum's 2 MiB default.
+        .route(
+            "/music/upload",
+            post(handlers::music::upload_oggs)
+                .layer(axum::extract::DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        // Music zones — region-triggered per-player playback
+        .route("/music/zones",      get(handlers::music_zones::list)
+                                    .post(handlers::music_zones::create))
+        .route("/music/zones/:id",  axum::routing::patch(handlers::music_zones::update)
+                                    .delete(handlers::music_zones::delete))
+        .route("/music/zones/:id/clear-cooldown", post(handlers::music_zones::clear_cooldown))
+        // Scrolling credits — reusable cinematic text sequences for zones
+        .route("/credits",             get(handlers::credits::list)
+                                       .post(handlers::credits::create))
+        .route("/credits/:id",         patch(handlers::credits::update)
+                                       .delete(handlers::credits::delete))
+        .route("/credits/:id/preview", post(handlers::credits::preview))
         .route("/music/state",       get(handlers::music::get_state))
         .route("/music/stream",      get(handlers::music::stream))
         .route("/music/queue",       post(handlers::music::enqueue))
@@ -202,6 +232,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/players/:ign/coord-display",
             get(handlers::coord_display::get).post(handlers::coord_display::set),
+        )
+        .route(
+            "/players/:ign/pin-hud",
+            get(handlers::pin_hud::get).put(handlers::pin_hud::set),
         )
         // Worlds
         .route(
@@ -233,7 +267,66 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/admin/discord-settings",
             get(handlers::discord_settings::get).put(handlers::discord_settings::put),
-        );
+        )
+        // Events — Countdowns
+        .route(
+            "/events/countdowns",
+            get(handlers::events::list).post(handlers::events::create),
+        )
+        .route("/events/countdowns/state",      get(handlers::events::get_state))
+        .route("/events/countdowns/stream",      get(handlers::events::stream))
+        .route("/events/countdowns/:id/start",   post(handlers::events::start))
+        .route("/events/countdowns/:id/pause",   post(handlers::events::pause))
+        .route("/events/countdowns/:id/resume",  post(handlers::events::resume))
+        .route("/events/countdowns/:id/cancel",  post(handlers::events::cancel))
+        .route("/events/countdowns/:id",         delete(handlers::events::delete))
+        // Events — Rising Oceans
+        .route("/events/rising-oceans/state",      get(handlers::rising_oceans::get_state))
+        .route("/events/rising-oceans/stream",     get(handlers::rising_oceans::stream))
+        .route("/events/rising-oceans",            post(handlers::rising_oceans::create))
+        .route("/events/rising-oceans/:id/start",  post(handlers::rising_oceans::start))
+        .route("/events/rising-oceans/:id/pause",  post(handlers::rising_oceans::pause))
+        .route("/events/rising-oceans/:id/resume", post(handlers::rising_oceans::resume))
+        .route("/events/rising-oceans/:id/cancel", post(handlers::rising_oceans::cancel))
+        .route("/events/rising-oceans/:id/revert", post(handlers::rising_oceans::revert))
+        .route("/events/rising-oceans/:id/keep",   post(handlers::rising_oceans::keep))
+        .route("/events/rising-oceans/:id",        delete(handlers::rising_oceans::delete))
+        // Events — Bounty Boards
+        .route("/events/bounty-board/state",       get(handlers::bounty_board::get_state))
+        .route("/events/bounty-board/stream",      get(handlers::bounty_board::stream))
+        .route("/events/bounty-board",             post(handlers::bounty_board::create))
+        .route("/events/bounty-board/:id/start",   post(handlers::bounty_board::start))
+        .route("/events/bounty-board/:id/pause",   post(handlers::bounty_board::pause))
+        .route("/events/bounty-board/:id/resume",  post(handlers::bounty_board::resume))
+        .route("/events/bounty-board/:id/finish",  post(handlers::bounty_board::finish))
+        .route("/events/bounty-board/:id/cancel",  post(handlers::bounty_board::cancel))
+        .route("/events/bounty-board/:id",         delete(handlers::bounty_board::delete))
+        // Events — Pre-game Lobbies
+        .route(
+            "/events/lobbies",
+            get(handlers::lobbies::list).post(handlers::lobbies::create),
+        )
+        .route("/events/lobbies/:id",         delete(handlers::lobbies::delete))
+        .route("/events/lobbies/:id/join",    post(handlers::lobbies::join))
+        .route("/events/lobbies/:id/leave",   post(handlers::lobbies::leave))
+        .route("/events/lobbies/:id/launch",  post(handlers::lobbies::launch))
+        .route("/events/lobbies/:id/close",   post(handlers::lobbies::close))
+        // Parties (cross-app: targeting countdowns, music zones, lobbies, …)
+        .route("/parties",
+               get(handlers::parties::list).post(handlers::parties::create))
+        .route("/parties/:id",
+               patch(handlers::parties::update).delete(handlers::parties::delete))
+        .route("/parties/:id/members",
+               post(handlers::parties::add_member))
+        .route("/parties/:id/members/:ign",
+               delete(handlers::parties::remove_member))
+        // Scheduled jobs (cron-style automations)
+        .route("/scheduled-jobs",
+               get(handlers::scheduled_jobs::list).post(handlers::scheduled_jobs::create))
+        .route("/scheduled-jobs/:id",
+               patch(handlers::scheduled_jobs::update).delete(handlers::scheduled_jobs::delete))
+        .route("/scheduled-jobs/:id/run",
+               post(handlers::scheduled_jobs::run_now));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),
@@ -244,6 +337,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login", get(handlers::auth::login))
         .route("/auth/callback", get(handlers::auth::callback))
         .route("/auth/logout", get(handlers::auth::logout))
+        .route("/auth/link/:token", get(handlers::link_token::redeem))
         .route("/internal/budget-alert", post(handlers::budget::webhook))
         .route(
             "/internal/player-joined",

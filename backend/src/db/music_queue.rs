@@ -102,12 +102,20 @@ pub async fn clear(pool: &SqlitePool) -> Result<()> {
 /// A user-registered custom sound event from the server resource pack.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 pub struct CustomTrack {
-    pub sound_id:      String,
-    pub display_name:  String,
-    pub artist:        String,
-    pub duration_secs: i64,
-    pub added_by:      String,
-    pub added_at:      String,
+    pub sound_id:       String,
+    pub display_name:   String,
+    pub artist:         String,
+    pub duration_secs:  i64,
+    pub added_by:       String,
+    pub added_at:       String,
+    /// Name of an image stored under
+    /// /opt/redstonecipher/www/uploads/music/images/.  NULL means use
+    /// the client-side rendered disc fallback.
+    pub image_filename: Option<String>,
+    /// UUID-based name of the .ogg file on disk under
+    /// /opt/redstonecipher/www/uploads/music/.  NULL for legacy tracks
+    /// that haven't been backfilled yet (those use a sound-id-derived path).
+    pub storage_filename: Option<String>,
 }
 
 pub async fn list_custom_tracks(pool: &SqlitePool) -> Result<Vec<CustomTrack>> {
@@ -148,4 +156,66 @@ pub async fn remove_custom_track(pool: &SqlitePool, sound_id: &str) -> Result<bo
         .execute(pool)
         .await?;
     Ok(r.rows_affected() > 0)
+}
+
+/// Update a custom track's display metadata.
+pub async fn update_custom_track(
+    pool:          &SqlitePool,
+    sound_id:      &str,
+    display_name:  &str,
+    artist:        &str,
+    duration_secs: i64,
+) -> Result<bool> {
+    let r = sqlx::query(
+        "UPDATE music_custom_tracks
+            SET display_name = ?, artist = ?, duration_secs = ?
+          WHERE sound_id = ?",
+    )
+    .bind(display_name)
+    .bind(artist)
+    .bind(duration_secs)
+    .bind(sound_id)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// Persist a custom track's image filename.  Pass `None` to clear it.
+pub async fn set_custom_track_image(
+    pool:     &SqlitePool,
+    sound_id: &str,
+    filename: Option<&str>,
+) -> Result<bool> {
+    let r = sqlx::query("UPDATE music_custom_tracks SET image_filename = ? WHERE sound_id = ?")
+        .bind(filename)
+        .bind(sound_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// Persist a custom track's on-disk storage filename (UUID-based).
+pub async fn set_custom_track_storage(
+    pool:     &SqlitePool,
+    sound_id: &str,
+    filename: &str,
+) -> Result<bool> {
+    let r = sqlx::query("UPDATE music_custom_tracks SET storage_filename = ? WHERE sound_id = ?")
+        .bind(filename)
+        .bind(sound_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// Fetch a single custom track row.
+pub async fn get_custom_track(pool: &SqlitePool, sound_id: &str) -> Result<Option<CustomTrack>> {
+    Ok(
+        sqlx::query_as::<_, CustomTrack>(
+            "SELECT * FROM music_custom_tracks WHERE sound_id = ?",
+        )
+        .bind(sound_id)
+        .fetch_optional(pool)
+        .await?,
+    )
 }
