@@ -35,6 +35,19 @@ pub async fn upsert(pool: &SqlitePool, email: &str, ign: &str) -> Result<()> {
     Ok(())
 }
 
+/// Look up the saved default gamemode for a given IGN.  Used by the chat
+/// watcher to apply each player's preference when they join the server.
+/// Returns `None` if the IGN isn't linked to any account.
+pub async fn get_gamemode_by_ign(pool: &SqlitePool, ign: &str) -> Result<Option<String>> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT gamemode FROM player_links WHERE ign = ? LIMIT 1",
+    )
+    .bind(ign)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(gm,)| gm))
+}
+
 pub async fn set_gamemode(pool: &SqlitePool, email: &str, ign: &str, gamemode: &str) -> Result<()> {
     let valid = ["survival", "creative", "adventure", "spectator"];
     if !valid.contains(&gamemode) {
