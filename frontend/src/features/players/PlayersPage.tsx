@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Heart, MapPin, Package2, AlertTriangle,
-  Backpack, ChevronUp, BarChart3, KeyRound,
+  Backpack, ChevronUp, BarChart3,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
@@ -212,9 +212,6 @@ function DetailPanel({
   isOnline,
   canGive,
   onGive,
-  canSendLink,
-  onSendLink,
-  isSendingLink,
   canRefresh,
   onRefresh,
   isRefreshing,
@@ -223,9 +220,6 @@ function DetailPanel({
   isOnline: boolean;
   canGive: boolean;
   onGive: () => void;
-  canSendLink: boolean;
-  onSendLink: () => void;
-  isSendingLink: boolean;
   canRefresh: boolean;
   onRefresh: () => void;
   isRefreshing: boolean;
@@ -347,7 +341,7 @@ function DetailPanel({
       </div>
 
       {/* ── Admin actions ── */}
-      {(canGive || canSendLink) && (
+      {canGive && (
         <div className="flex-shrink-0 px-4 py-3 border-t border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#1C1E27] space-y-2">
           {isStale(snap.captured_at) && (
             <p className="text-[10px] text-meta text-center">
@@ -355,28 +349,13 @@ function DetailPanel({
               Online/offline status is always live.
             </p>
           )}
-          <div className="flex gap-2">
-            {canGive && (
-              <button
-                onClick={onGive}
-                className="btn-primary flex-1 flex items-center justify-center gap-2 py-2.5"
-              >
-                <Package2 className="w-4 h-4" aria-hidden />
-                Give Item
-              </button>
-            )}
-            {canSendLink && (
-              <button
-                onClick={onSendLink}
-                disabled={isSendingLink}
-                title="Send an in-game book with a clickable sign-in link"
-                className="btn-secondary flex-1 flex items-center justify-center gap-2 py-2.5 text-xs"
-              >
-                <KeyRound className="w-4 h-4" aria-hidden />
-                {isSendingLink ? "Sending..." : "Sign-in Link"}
-              </button>
-            )}
-          </div>
+          <button
+            onClick={onGive}
+            className="btn-primary w-full flex items-center justify-center gap-2 py-2.5"
+          >
+            <Package2 className="w-4 h-4" aria-hidden />
+            Give Item
+          </button>
         </div>
       )}
     </div>
@@ -390,7 +369,6 @@ export function PlayersPage() {
   const qc          = useQueryClient();
   const canViewAny  = hasPerm("players.view_any");
   const canGive     = hasPerm("players.give_items");
-  const canSendLink = hasPerm("users.invite");
 
   const [selectedIgn, setSelectedIgn] = useState<string | null>(null);
   const [showGive,    setShowGive]    = useState(false);
@@ -408,18 +386,6 @@ export function PlayersPage() {
   const refreshMut = useMutation({
     mutationFn: () => api.post("/players/snapshots/refresh"),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["player-snapshots"] }),
-  });
-
-  const linkMut = useMutation({
-    mutationFn: (ign: string) => api.post(`/players/${ign}/link-token`),
-    onSuccess: (data: { book_sent: boolean; url: string }) => {
-      if (data.book_sent) {
-        alert("Sign-in book sent to the player in-game!");
-      } else {
-        // Book couldn't be sent (player offline) — show the URL
-        alert(`Player is offline. Share this link manually:\n${data.url}`);
-      }
-    },
   });
 
   // Auto-refresh snapshots once on mount (admin only) so the page always
@@ -587,9 +553,6 @@ export function PlayersPage() {
             isOnline={isOnline}
             canGive={canGive}
             onGive={() => setShowGive(true)}
-            canSendLink={canSendLink}
-            onSendLink={() => linkMut.mutate(selectedSnap.ign)}
-            isSendingLink={linkMut.isPending}
             canRefresh={canViewAny}
             onRefresh={() => refreshMut.mutate()}
             isRefreshing={refreshMut.isPending}

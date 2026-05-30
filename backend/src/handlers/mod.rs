@@ -16,7 +16,6 @@ pub mod rising_oceans;
 pub mod scheduled_jobs;
 pub mod give_item;
 pub mod kill_switch;
-pub mod link_token;
 pub mod map_pins;
 pub mod mc_players;
 pub mod metrics;

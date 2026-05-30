@@ -1,20 +1,32 @@
 use crate::{config::Config, error::Result, gcloud::ssh};
 use std::collections::HashMap;
 
-const REMOTE_PROPS: &str = "/opt/minecraft/server.properties";
 const REMOTE_TMP: &str = "/tmp/server_props_update.properties";
+
+/// Resolve the live server.properties path from config.  The Paper server
+/// keeps it at `<mc_server_dir>/server.properties`, NOT `/opt/minecraft/server.properties` —
+/// this used to be hard-coded to the parent dir and silently failed every
+/// update with a "No such file or directory" warning, leaving the
+/// resource-pack SHA-1 stuck at whatever it was when the file was first
+/// created.
+fn remote_props(cfg: &Config) -> String {
+    format!("{}/server.properties", cfg.mc_server_dir)
+}
 
 /// Fetch server.properties as a key-value map.
 pub async fn get_all(cfg: &Config) -> Result<HashMap<String, String>> {
-    let (out, _) = ssh::run(cfg, &format!("cat {REMOTE_PROPS} 2>/dev/null")).await?;
+    let path = remote_props(cfg);
+    let (out, _) = ssh::run(cfg, &format!("cat {path} 2>/dev/null")).await?;
     Ok(parse_properties(&out))
 }
 
 /// Apply a map of updates to server.properties and restart the service.
 /// Only keys present in `updates` are modified; all others are preserved.
 pub async fn apply_updates(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
+    let path = remote_props(cfg);
+
     // Read existing content
-    let (existing, _) = ssh::run(cfg, &format!("cat {REMOTE_PROPS}")).await?;
+    let (existing, _) = ssh::run(cfg, &format!("cat {path}")).await?;
 
     let new_content = merge_properties(&existing, updates);
 
@@ -26,7 +38,7 @@ pub async fn apply_updates(cfg: &Config, updates: &HashMap<String, String>) -> R
          sudo systemctl restart minecraft && echo DONE",
         content = shell_escape(&new_content),
         tmp = REMOTE_TMP,
-        dest = REMOTE_PROPS,
+        dest = path,
     );
 
     let (out, _) =
@@ -91,7 +103,8 @@ fn shell_escape(s: &str) -> String {
 /// Used for settings that take effect on next player connection (e.g. resource
 /// pack URL) where a full service restart would unnecessarily kick all players.
 pub async fn apply_updates_no_restart(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
-    let (existing, _) = ssh::run(cfg, &format!("cat {REMOTE_PROPS}")).await?;
+    let path = remote_props(cfg);
+    let (existing, _) = ssh::run(cfg, &format!("cat {path}")).await?;
     let new_content = merge_properties(&existing, updates);
     let write_cmd = format!(
         "printf '%s' {content} > {tmp} && \
@@ -99,7 +112,7 @@ pub async fn apply_updates_no_restart(cfg: &Config, updates: &HashMap<String, St
          sudo chown minecraft:minecraft {dest} && echo DONE",
         content = shell_escape(&new_content),
         tmp    = REMOTE_TMP,
-        dest   = REMOTE_PROPS,
+        dest   = path,
     );
     let (out, _) = ssh::run_with_timeout(cfg, &write_cmd, std::time::Duration::from_secs(30)).await?;
     if !out.contains("DONE") {

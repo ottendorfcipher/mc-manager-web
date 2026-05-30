@@ -18,7 +18,6 @@ pub mod player_snapshots;
 pub mod players;
 pub mod prefs;
 pub mod roles;
-pub mod link_tokens;
 pub mod scheduled_jobs;
 pub mod users;
 pub mod world_gamerules;
