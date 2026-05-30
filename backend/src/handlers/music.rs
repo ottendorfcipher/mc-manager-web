@@ -782,7 +782,21 @@ pub async fn rebuild_resource_pack(
     //    clients on their next join.  server.properties is only read at
     //    startup, so without this players keep the stale pack.
     match crate::gcloud::ssh::run(cfg, "sudo systemctl restart minecraft").await {
-        Ok(_)  => tracing::info!("rebuild_pack: restarted MC server for new resource pack"),
+        Ok(_)  => {
+            tracing::info!("rebuild_pack: restarted MC server for new resource pack");
+            // The kick interrupted any in-progress zone music, so any
+            // `finished_at` cooldown anchors and stale `is_playing` flags
+            // for the just-disconnected players would otherwise block the
+            // new pack's zones from triggering on reconnect.  Reset both
+            // so players get a clean slate.
+            match crate::db::music_zones::reset_all_for_server_restart(pool).await {
+                Ok(n) if n > 0 => tracing::info!(
+                    "rebuild_pack: cleared {n} stale zone state row(s) (cooldown + playing)",
+                ),
+                Ok(_)  => {},
+                Err(e) => tracing::warn!("rebuild_pack: failed to reset zone state: {e}"),
+            }
+        }
         Err(e) => tracing::warn!("rebuild_pack: MC restart failed (pack still updated): {e}"),
     }
 

@@ -231,6 +231,23 @@ pub async fn clear_cooldowns(pool: &SqlitePool, zone_id: i64) -> Result<u64> {
     Ok(r.rows_affected())
 }
 
+/// Clear cooldown AND playing-state for every player across every zone.
+/// Called after a Minecraft server restart triggered by the resource pack
+/// rebuild — the kick interrupted any in-progress music, so penalising
+/// players with stale cooldowns on reconnect would block the new tracks
+/// from triggering.  Also resets `is_playing` since no audio survived
+/// the restart.
+pub async fn reset_all_for_server_restart(pool: &SqlitePool) -> Result<u64> {
+    let r = sqlx::query(
+        "UPDATE music_zone_player_state
+            SET is_playing  = 0,
+                finished_at = NULL",
+    )
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
 pub async fn set_in_zone(
     pool: &SqlitePool,
     zone_id: i64,
