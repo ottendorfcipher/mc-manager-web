@@ -15,7 +15,8 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::config::Config;
-use crate::db::chat::{self, ChatMessage};
+use crate::db::{chat::{self, ChatMessage}, players};
+use crate::minecraft::console;
 
 /// SSH key and known-hosts paths (match the values in gcloud/ssh.rs).
 const MC_SSH_KEY:        &str = "/opt/redstonecipher/mc_ssh_key";
@@ -53,6 +54,8 @@ async fn run_with_reconnect(
 
     loop {
         match tail_once(&config, &pool, &tx, &chat_re, &join_re, &leave_re, &discord).await {
+            // (config is threaded into tail_once and process_line so the
+            //  join handler can re-apply each player's saved gamemode.)
             Ok(()) => {
                 // tail exited cleanly (e.g. SSH closed) — reconnect
                 warn!("chat_watcher: tail exited, reconnecting in {:?}", backoff);
@@ -104,7 +107,7 @@ async fn tail_once(
     info!("chat_watcher: connected, tailing {log_path}");
 
     while let Some(line) = lines.next_line().await? {
-        process_line(pool, tx, &line, chat_re, join_re, leave_re, discord).await
+        process_line(config, pool, tx, &line, chat_re, join_re, leave_re, discord).await
     }
 
     // SSH process ended — wait to collect status but don't error on non-zero.
@@ -113,6 +116,7 @@ async fn tail_once(
 }
 
 async fn process_line(
+    config:   &Config,
     pool:     &sqlx::SqlitePool,
     tx:       &broadcast::Sender<Arc<ChatMessage>>,
     line:     &str,
@@ -128,6 +132,38 @@ async fn process_line(
         Some(("mc", ign.clone(), ign, content, true))
     } else if let Some(cap) = join_re.captures(line) {
         let ign = cap[1].to_string();
+
+        // Re-apply the player's saved default gamemode.  MC doesn't
+        // remember the per-player gamemode across disconnects on a
+        // server with a single default-gamemode setting, so without
+        // this every reconnect drops the player back to the server
+        // default — overriding whatever they picked in the web UI.
+        //
+        // Fire-and-forget so a slow SSH round-trip can't block the
+        // tail loop.  Skip if the IGN isn't linked to any account
+        // (e.g. a fresh-admitted player) — they get the server default.
+        let cfg2  = config.clone();
+        let pool2 = pool.clone();
+        let ign2  = ign.clone();
+        tokio::spawn(async move {
+            match players::get_gamemode_by_ign(&pool2, &ign2).await {
+                Ok(Some(gm)) => {
+                    // Tiny delay so the player exists as an entity before
+                    // the /gamemode command targets them.  100 ms is
+                    // generous — Paper has them in the world by the time
+                    // the join log line lands.
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    match console::set_gamemode(&cfg2, &ign2, &gm).await {
+                        Ok(true)  => info!("chat_watcher: applied saved gamemode '{gm}' to {ign2}"),
+                        Ok(false) => warn!("chat_watcher: gamemode command sent but FIFO reported failure for {ign2}"),
+                        Err(e)    => warn!("chat_watcher: failed to apply gamemode for {ign2}: {e}"),
+                    }
+                }
+                Ok(None)  => {} // unlinked player — leave them on the server default
+                Err(e)    => warn!("chat_watcher: gamemode lookup failed for {ign2}: {e}"),
+            }
+        });
+
         Some(("server", ign.clone(), ign.clone(), format!("{ign} joined the game"), false))
     } else if let Some(cap) = leave_re.captures(line) {
         let ign = cap[1].to_string();
