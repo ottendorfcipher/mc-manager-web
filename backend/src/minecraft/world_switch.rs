@@ -67,15 +67,17 @@ pub async fn create_world_backup(cfg: &Config, world_slug: &str) -> Result<Strin
 }
 
 /// Scan a world's backup directory on mc-server-1 and return
-/// `(filename, remote_path, size_bytes, mtime_iso)` for every `.tar.gz`
-/// not yet in the database.
+/// `(filename, remote_path, size_bytes, mtime_iso)` for every archive
+/// (gzip or xz) not yet in the database.
 pub async fn list_world_backup_files(
     cfg: &Config,
     world_slug: &str,
 ) -> Result<Vec<(String, String, i64, String)>> {
     let backup_dir = format!("/opt/minecraft/backups/{world_slug}/daily");
+    // Pick up both `.tar.gz` (fresh) and `.tar.xz` (archived).
     let cmd = format!(
-        "find '{backup_dir}' -maxdepth 1 -name '*.tar.gz' -type f \
+        "find '{backup_dir}' -maxdepth 1 -type f \
+            \\( -name '*.tar.gz' -o -name '*.tar.xz' \\) \
          -printf '%f\\t%s\\t%TY-%Tm-%TdT%TH:%TM:00Z\\n' 2>/dev/null || true"
     );
     let (out, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(20)).await?;
@@ -106,7 +108,7 @@ pub async fn restore_world_backup(cfg: &Config, archive_path: &str) -> Result<()
     // restart MC, and emit "DONE" on success.
     let cmd = format!(
         "systemctl stop minecraft && \
-         tar -xzf {safe_path} -C /opt/minecraft/server && \
+         tar -xf {safe_path} -C /opt/minecraft/server && \
          chown -R minecraft:minecraft /opt/minecraft/server && \
          systemctl start minecraft && \
          echo DONE"
