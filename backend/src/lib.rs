@@ -189,6 +189,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/music/tracks",      get(handlers::music::list_tracks))
         .route("/music/tracks/:id",  delete(handlers::music::remove_custom_track)
                                      .put(handlers::music::update_custom_track))
+        .route("/music/tracks/:id/preview",
+                                     get(handlers::music::preview_track))
         .route("/music/tracks",      post(handlers::music::add_custom_track))
         .route("/music/tracks/:id/image",
                                      post(handlers::music::upload_track_image)
