@@ -118,6 +118,46 @@ pub async fn remove(pool: &SqlitePool, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Patch the on-disk identifiers of an existing backup row.  Used by
+/// the archival pass that recompresses old `.tar.gz` files to `.tar.xz`
+/// in-place — the row's `id` / `created_at` / etc. stay the same, but
+/// the filename / file_path / size_bytes all change.
+pub async fn update_archive(
+    pool: &SqlitePool,
+    id: i64,
+    new_filename: &str,
+    new_file_path: &str,
+    new_size_bytes: i64,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE backup_runs \
+            SET filename = ?, file_path = ?, size_bytes = ? \
+          WHERE id = ?",
+    )
+    .bind(new_filename)
+    .bind(new_file_path)
+    .bind(new_size_bytes)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Find backups older than `days` days that are still in gzip form.
+/// Used by the archival pass.  Skips already-archived (`.tar.xz`)
+/// files so this is idempotent.
+pub async fn list_archivable(pool: &SqlitePool, days: i64) -> Result<Vec<BackupRun>> {
+    Ok(sqlx::query_as::<_, BackupRun>(&format!(
+        "{SELECT} \
+         WHERE filename LIKE '%.tar.gz' \
+           AND datetime(created_at) < datetime('now', '-' || ? || ' days') \
+         ORDER BY created_at ASC"
+    ))
+    .bind(days)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Check whether a backup filename is already in the database.
 pub async fn exists_by_filename(pool: &SqlitePool, filename: &str) -> Result<bool> {
     let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM backup_runs WHERE filename = ?")
@@ -125,4 +165,31 @@ pub async fn exists_by_filename(pool: &SqlitePool, filename: &str) -> Result<boo
         .fetch_optional(pool)
         .await?;
     Ok(row.is_some())
+}
+
+/// Find auto-created backups (created_by = 'mc-server-1') that are
+/// beyond the `keep_per_scope` most recent within each scope.  Scope =
+/// world_slug for world-tagged backups, "__GLOBAL__" for legacy
+/// scope-less ones.  Anything created by a real user (e.g. the
+/// "Create backup now" button on the web UI) is exempt and never
+/// returned — those are preserved indefinitely.
+pub async fn list_pruneable(
+    pool: &SqlitePool,
+    keep_per_scope: i64,
+) -> Result<Vec<BackupRun>> {
+    Ok(sqlx::query_as::<_, BackupRun>(&format!(
+        "{SELECT} \
+         WHERE created_by = 'mc-server-1' AND id IN ( \
+             SELECT id FROM ( \
+                 SELECT id, ROW_NUMBER() OVER ( \
+                     PARTITION BY COALESCE(world_slug, '__GLOBAL__') \
+                     ORDER BY created_at DESC, id DESC \
+                 ) AS rn \
+                 FROM backup_runs WHERE created_by = 'mc-server-1' \
+             ) WHERE rn > ? \
+         )"
+    ))
+    .bind(keep_per_scope)
+    .fetch_all(pool)
+    .await?)
 }
