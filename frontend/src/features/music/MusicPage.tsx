@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Music2, SkipForward, Square, X, Search, Play, Upload,
+  Music2, SkipForward, Square, X, Search, Play, Pause, Upload,
   Trash2, ChevronDown, Pencil, Disc3, ImageIcon,
 } from "lucide-react";
 import { api } from "@/api/client";
@@ -36,6 +36,14 @@ export function MusicPage() {
     staleTime: Infinity,
     enabled:  canPlay,
   });
+
+  // ── In-browser OGG preview (custom tracks only) ──────────────────────────────
+  //
+  // A single shared <audio> driven by usePreview — switching tracks
+  // implicitly stops whatever was playing, so users never end up with
+  // two clips overlapping.
+
+  const preview = usePreview();
 
   // ── Music state (now-playing + queue) ────────────────────────────────────────
 
@@ -367,6 +375,9 @@ export function MusicPage() {
                         enqueueing={enqueueMut.isPending && enqueueMut.variables === t.id}
                         onRemove={() => removeTrackMut.mutate(t.id)}
                         removing={removeTrackMut.isPending && removeTrackMut.variables === t.id}
+                        isPreviewing={preview.currentId === t.id}
+                        previewPlaying={preview.playing}
+                        onTogglePreview={() => preview.toggle(t.id)}
                       />
                     ))}
                   </div>
@@ -553,13 +564,19 @@ function CustomTrackCard({
   enqueueing,
   onRemove,
   removing,
+  isPreviewing,
+  previewPlaying,
+  onTogglePreview,
 }: {
-  track:      SoundEntry;
-  isPlaying:  boolean;
-  onEnqueue:  () => void;
-  enqueueing: boolean;
-  onRemove:   () => void;
-  removing:   boolean;
+  track:          SoundEntry;
+  isPlaying:      boolean;
+  onEnqueue:      () => void;
+  enqueueing:     boolean;
+  onRemove:       () => void;
+  removing:       boolean;
+  isPreviewing:   boolean;
+  previewPlaying: boolean;
+  onTogglePreview: () => void;
 }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -656,6 +673,26 @@ function CustomTrackCard({
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <button
+          onClick={onTogglePreview}
+          className={`icon-btn w-7 h-7 min-w-0 min-h-0 ${
+            isPreviewing ? "text-[#5B9BF0]" : ""
+          }`}
+          aria-label={
+            isPreviewing && previewPlaying
+              ? `Pause preview of ${track.display_name}`
+              : `Preview ${track.display_name} in your browser`
+          }
+          title={
+            isPreviewing && previewPlaying
+              ? "Pause preview"
+              : "Preview in your browser (does not play in-game)"
+          }
+        >
+          {isPreviewing && previewPlaying
+            ? <Pause className="w-3.5 h-3.5" aria-hidden />
+            : <Play  className="w-3.5 h-3.5" aria-hidden />}
+        </button>
+        <button
           onClick={onEnqueue}
           disabled={enqueueing}
           className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 disabled:opacity-40"
@@ -686,6 +723,60 @@ function CustomTrackCard({
       </div>
     </div>
   );
+}
+
+// ── In-browser preview hook ──────────────────────────────────────────────────
+//
+// Wraps a single HTMLAudioElement so only one preview ever plays at a time —
+// switching to a different track auto-stops the old one.  The element is
+// created lazily on first interaction so we don't pay the cost (or trip
+// autoplay policies) for users who never click Preview.
+
+function usePreview() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [state, setState] = useState<{ soundId: string; playing: boolean } | null>(null);
+
+  const getAudio = useCallback(() => {
+    if (!audioRef.current) {
+      const a = new Audio();
+      a.preload = "none";
+      a.addEventListener("play",  () => setState((s) => s ? { ...s, playing: true  } : s));
+      a.addEventListener("pause", () => setState((s) => s ? { ...s, playing: false } : s));
+      a.addEventListener("ended", () => setState(null));
+      a.addEventListener("error", () => setState(null));
+      audioRef.current = a;
+    }
+    return audioRef.current;
+  }, []);
+
+  const toggle = useCallback((soundId: string) => {
+    const audio = getAudio();
+    if (state?.soundId === soundId) {
+      // Same track: toggle play/pause.
+      if (audio.paused) audio.play().catch(() => {});
+      else              audio.pause();
+    } else {
+      // New track: swap the source and start fresh.
+      audio.src = `/api/music/tracks/${encodeURIComponent(soundId)}/preview`;
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+      setState({ soundId, playing: true });
+    }
+  }, [state?.soundId, getAudio]);
+
+  // Stop + release on unmount so leaving the page doesn't leak the audio.
+  useEffect(() => {
+    return () => {
+      const a = audioRef.current;
+      if (a) { a.pause(); a.removeAttribute("src"); a.load(); }
+    };
+  }, []);
+
+  return {
+    currentId: state?.soundId ?? null,
+    playing:   state?.playing ?? false,
+    toggle,
+  };
 }
 
 // ── Shared utilities ──────────────────────────────────────────────────────────

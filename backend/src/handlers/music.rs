@@ -2,11 +2,12 @@ use std::io::Read as _;
 use std::time::Duration;
 
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
-        IntoResponse,
+        IntoResponse, Response,
     },
     Json,
 };
@@ -1208,4 +1209,100 @@ pub async fn stream(
             .interval(Duration::from_secs(15))
             .text(":keepalive"),
     ))
+}
+
+// ── GET /api/music/tracks/:sound_id/preview ──────────────────────────────────
+//
+// Stream the OGG body of a custom track to the browser so users can audition
+// it on the Music page.  The file itself lives outside the public web root
+// (/opt/redstonecipher/data/uploads/music/<uuid>.ogg) — this handler is the
+// ONLY way to fetch it, gated behind the `music.play` permission and the
+// session JWT cookie.
+//
+// Supports HTTP Range so HTML5 `<audio>` can seek without buffering the
+// whole file.  Vanilla disc tracks aren't files we own, so they 404.
+
+pub async fn preview_track(
+    State(state):   State<AppState>,
+    actor:          AuthUser,
+    Path(sound_id): Path<String>,
+    headers:        HeaderMap,
+) -> Result<Response> {
+    crate::auth::middleware::require_perm(&actor, "music.play")?;
+
+    // Vanilla tracks have no on-disk file — we'd need a different source.
+    if !sound_id.starts_with("redstonecipher:music.") {
+        return Err(AppError::NotFound(
+            "Preview is only available for custom tracks".into(),
+        ));
+    }
+
+    // Look up the track row so we can resolve its storage_filename.
+    let track = music_queue::list_custom_tracks(&state.pool).await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("list_custom_tracks: {e}")))?
+        .into_iter()
+        .find(|t| t.sound_id == sound_id)
+        .ok_or_else(|| AppError::NotFound(format!("Track not found: {sound_id}")))?;
+
+    let stem = sound_id
+        .strip_prefix("redstonecipher:music.")
+        .unwrap_or(&sound_id)
+        .to_ascii_lowercase();
+
+    let bytes = find_track_ogg(&track.storage_filename, &stem).await
+        .ok_or_else(|| AppError::NotFound(format!("OGG file missing for {sound_id}")))?;
+
+    let total = bytes.len() as u64;
+
+    // Honour Range if the client sent one.  HTML5 <audio> needs this for
+    // seeking — without it, the browser has to re-download from byte 0
+    // every time you scrub.
+    let range = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
+    if let Some((start, end)) = range.and_then(|r| parse_byte_range(r, total)) {
+        let slice = bytes[start as usize..=end as usize].to_vec();
+        let len   = end - start + 1;
+        return Ok(Response::builder()
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header(header::CONTENT_TYPE,   "audio/ogg")
+            .header(header::CONTENT_LENGTH, len.to_string())
+            .header(header::ACCEPT_RANGES,  "bytes")
+            .header(header::CONTENT_RANGE,  format!("bytes {start}-{end}/{total}"))
+            .header(header::CACHE_CONTROL,  "private, max-age=3600")
+            .body(Body::from(slice))
+            .unwrap());
+    }
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE,   "audio/ogg")
+        .header(header::CONTENT_LENGTH, total.to_string())
+        .header(header::ACCEPT_RANGES,  "bytes")
+        .header(header::CACHE_CONTROL,  "private, max-age=3600")
+        .body(Body::from(bytes))
+        .unwrap())
+}
+
+/// Parse a single `bytes=START-END` range header.  Returns inclusive
+/// (start, end) clamped to `total`, or None for syntactically invalid or
+/// multi-range requests we don't bother supporting.
+fn parse_byte_range(raw: &str, total: u64) -> Option<(u64, u64)> {
+    let spec = raw.strip_prefix("bytes=")?;
+    if spec.contains(',') { return None; } // multi-range — not supported
+    let (a, b) = spec.split_once('-')?;
+    let last = total.checked_sub(1)?;
+    let (start, end) = match (a.trim(), b.trim()) {
+        // bytes=N-       → from N to EOF
+        (s, "") if !s.is_empty() => (s.parse().ok()?, last),
+        // bytes=-N       → last N bytes
+        ("", e) if !e.is_empty() => {
+            let n: u64 = e.parse().ok()?;
+            (total.saturating_sub(n), last)
+        }
+        // bytes=S-E
+        (s, e) if !s.is_empty() && !e.is_empty() =>
+            (s.parse().ok()?, e.parse::<u64>().ok()?.min(last)),
+        _ => return None,
+    };
+    if start > end || start > last { return None; }
+    Some((start, end))
 }
