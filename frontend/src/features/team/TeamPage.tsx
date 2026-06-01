@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass } from "lucide-react";
+import { X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass, Tag } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -468,46 +468,157 @@ function PlayerLinkRow({
   gmPending:   boolean;
 }) {
   return (
-    <div className="rounded-lg bg-[#F0EDE9] dark:bg-[#2A2D38] px-3 py-2.5 sm:px-3 sm:py-2 flex flex-col sm:flex-row sm:items-center gap-2">
-      {/* IGN + online dot + gamemode glyph */}
-      <div className="flex items-center gap-2 min-w-0">
-        <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${online ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`}
-          aria-label={online ? "Online" : "Offline"}
-        />
-        <span className="font-mono text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
-          {ign}
-        </span>
-        <span className="text-sm" aria-label={`Gamemode ${gamemode}`}>
-          {GM_ICONS[gamemode]}
-        </span>
+    <div className="rounded-lg bg-[#F0EDE9] dark:bg-[#2A2D38] px-3 py-2.5 space-y-2">
+      {/* Top row: IGN + chips */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        {/* IGN + online dot + gamemode glyph */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={`w-2 h-2 rounded-full flex-shrink-0 ${online ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`}
+            aria-label={online ? "Online" : "Offline"}
+          />
+          <span className="font-mono text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] truncate">
+            {ign}
+          </span>
+          <span className="text-sm" aria-label={`Gamemode ${gamemode}`}>
+            {GM_ICONS[gamemode]}
+          </span>
+        </div>
+
+        {/* Action chips */}
+        <div className="flex items-center gap-1.5 flex-wrap sm:ml-auto sm:flex-nowrap">
+          <CoordToggleButton ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
+          <PinHudToggle      ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
+          {canChangeGm && (
+            <select
+              value={gamemode}
+              onChange={(e) => onChangeGm(e.target.value)}
+              disabled={gmPending}
+              aria-label={`${ign} gamemode`}
+              className="h-8 rounded-md bg-white dark:bg-[#1C1E27] border border-[#D9D5D0] dark:border-[#363944] text-xs text-[#1C1E27] dark:text-[#EAECF0] px-2 focus:outline-none focus:ring-1 focus:ring-[#5B9BF0] disabled:opacity-50"
+            >
+              {GAMEMODES.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          )}
+          {isSelf && (
+            <button
+              onClick={onUnlink}
+              aria-label={`Unlink ${ign}`}
+              title={`Unlink ${ign}`}
+              className="h-8 w-8 flex items-center justify-center rounded-md text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Action chips — wrap on mobile, end-aligned row on desktop */}
-      <div className="flex items-center gap-1.5 flex-wrap sm:ml-auto sm:flex-nowrap">
-        <CoordToggleButton ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
-        <PinHudToggle      ign={ign} isSelf={isSelf} canAdmin={canAdmin} />
-        {canChangeGm && (
-          <select
-            value={gamemode}
-            onChange={(e) => onChangeGm(e.target.value)}
-            disabled={gmPending}
-            aria-label={`${ign} gamemode`}
-            className="h-8 rounded-md bg-white dark:bg-[#1C1E27] border border-[#D9D5D0] dark:border-[#363944] text-xs text-[#1C1E27] dark:text-[#EAECF0] px-2 focus:outline-none focus:ring-1 focus:ring-[#5B9BF0] disabled:opacity-50"
-          >
-            {GAMEMODES.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        )}
-        {isSelf && (
+      {/* Alias row — visible to self and admins */}
+      {(isSelf || canAdmin) && (
+        <AliasEditor ign={ign} />
+      )}
+    </div>
+  );
+}
+
+// ── Alias editor ─────────────────────────────────────────────────────────────
+//
+// Small inline form that lets a player set their in-game display name.
+// Shows the current alias (if any), an editable input, and save/clear buttons.
+// Also shows the in-game command hint for convenience.
+
+interface AliasResponse { ign: string; alias: string | null; }
+
+function AliasEditor({ ign }: { ign: string }) {
+  const qc = useQueryClient();
+
+  const { data } = useQuery<AliasResponse>({
+    queryKey:  ["alias", ign],
+    queryFn:   () => api.get(`/players/${encodeURIComponent(ign)}/alias`),
+    staleTime: 30_000,
+    retry:     false,
+  });
+
+  const currentAlias = data?.alias ?? null;
+  const [draft, setDraft] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync draft when alias data loads (only on first load, not on re-focus)
+  useEffect(() => {
+    if (draft === null && data !== undefined) {
+      setDraft(currentAlias ?? "");
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setMut = useMutation({
+    mutationFn: (alias: string) =>
+      api.put(`/players/${encodeURIComponent(ign)}/alias`, { alias }),
+    onSuccess: (res: AliasResponse) => {
+      qc.setQueryData(["alias", ign], res);
+      toast.success(`Alias set to "${res.alias}" — changes in-game on next join`);
+    },
+    onError: () => toast.error("Failed to set alias"),
+  });
+
+  const clearMut = useMutation({
+    mutationFn: () => api.delete(`/players/${encodeURIComponent(ign)}/alias`),
+    onSuccess: () => {
+      qc.setQueryData(["alias", ign], { ign, alias: null });
+      setDraft("");
+      toast.success("Alias removed — Minecraft name will be shown");
+    },
+    onError: () => toast.error("Failed to clear alias"),
+  });
+
+  const value  = draft ?? currentAlias ?? "";
+  const dirty  = value.trim() !== (currentAlias ?? "").trim();
+  const saving = setMut.isPending || clearMut.isPending;
+
+  const handleSave = () => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      clearMut.mutate();
+    } else {
+      setMut.mutate(trimmed);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Tag className="w-3.5 h-3.5 text-meta flex-shrink-0" aria-hidden />
+      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <input
+          ref={inputRef}
+          type="text"
+          maxLength={32}
+          placeholder={`Alias (or /alias <name> in-game)`}
+          value={value}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+          disabled={saving}
+          aria-label={`Alias for ${ign}`}
+          className="flex-1 min-w-0 h-7 rounded-md bg-white dark:bg-[#1C1E27] border border-[#D9D5D0] dark:border-[#363944] text-xs text-[#1C1E27] dark:text-[#EAECF0] px-2 placeholder-[#9B9EA6] focus:outline-none focus:ring-1 focus:ring-[#5B9BF0] disabled:opacity-50"
+        />
+        {dirty && (
           <button
-            onClick={onUnlink}
-            aria-label={`Unlink ${ign}`}
-            title={`Unlink ${ign}`}
-            className="h-8 w-8 flex items-center justify-center rounded-md text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] transition-colors"
+            onClick={handleSave}
+            disabled={saving}
+            title="Save alias"
+            className="h-7 px-2.5 rounded-md bg-[#5B9BF0] text-white text-xs font-medium hover:bg-[#4080D8] disabled:opacity-50 transition-colors flex-shrink-0"
           >
-            <X className="w-4 h-4" />
+            {saving ? "…" : "Save"}
+          </button>
+        )}
+        {currentAlias && !dirty && (
+          <button
+            onClick={() => clearMut.mutate()}
+            disabled={saving}
+            title="Remove alias"
+            className="h-7 px-2 rounded-md text-[#9B9EA6] hover:text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F] text-xs transition-colors flex-shrink-0"
+          >
+            Clear
           </button>
         )}
       </div>

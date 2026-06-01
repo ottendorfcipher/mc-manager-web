@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod backups;
+pub mod player_alias;
 pub mod bounty_board;
 pub mod credits;
 pub mod discord_settings;

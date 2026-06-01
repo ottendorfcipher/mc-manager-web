@@ -1,3 +1,4 @@
+pub mod aliases;
 pub mod backup;
 pub mod bounty_runner;
 pub mod chat_watcher;

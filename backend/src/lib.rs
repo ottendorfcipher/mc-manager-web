@@ -240,6 +240,17 @@ pub fn build_router(state: AppState) -> Router {
             "/players/:ign/pin-hud",
             get(handlers::pin_hud::get).put(handlers::pin_hud::set),
         )
+        // Player aliases (in-game display names)
+        .route(
+            "/players/aliases",
+            get(handlers::player_alias::list_all),
+        )
+        .route(
+            "/players/:ign/alias",
+            get(handlers::player_alias::get)
+                .put(handlers::player_alias::set_alias)
+                .delete(handlers::player_alias::delete_alias),
+        )
         // Worlds
         .route(
             "/worlds",
