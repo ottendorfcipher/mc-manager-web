@@ -238,6 +238,15 @@ async fn process_line(
         None
     };
 
+    // Plugin health monitoring — process every log line regardless of chat match.
+    {
+        let pool2 = pool.clone();
+        let line2 = line.to_string();
+        tokio::spawn(async move {
+            crate::minecraft::plugin_health::process_log_line(&pool2, &line2).await;
+        });
+    }
+
     if let Some((source, author, display_as, content, is_player_chat)) = result {
         match chat::insert(pool, source, &author, &display_as, &content).await {
             Ok(msg) => {

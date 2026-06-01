@@ -1,0 +1,9 @@
+pub mod browse;
+pub mod detail;
+pub mod install;
+pub mod installed;
+pub mod jobs;
+pub mod restart;
+pub mod undo;
+pub mod update;
+pub mod upload;
