@@ -171,7 +171,7 @@ async fn resolve_install(
     plugin_jobs::set_state(pool, job.id, "resolving", Some("Resolved; starting backup")).await?;
 
     // Move directly to backing_up.
-    do_backup(pool, _cfg, &plugin_jobs::get(pool, job.id).await?.unwrap_or(job.clone())).await
+    do_backup(pool, cfg, &plugin_jobs::get(pool, job.id).await?.unwrap_or(job.clone())).await
 }
 
 // ── State transition: queued → backing_up (remove job) ─────────────────────
