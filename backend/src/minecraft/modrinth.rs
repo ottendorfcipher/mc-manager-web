@@ -23,6 +23,26 @@ pub fn build_client() -> Client {
         .expect("failed to build reqwest client")
 }
 
+/// Build a client with an optional Modrinth PAT for authentication.
+/// Authenticated clients get 600 req/min instead of the shared 300 req/min.
+/// Modrinth uses `Authorization: <token>` (no "Bearer" prefix).
+pub fn build_client_with_pat(pat: Option<&str>) -> Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static(USER_AGENT),
+    );
+    if let Some(token) = pat {
+        if let Ok(val) = reqwest::header::HeaderValue::from_str(token) {
+            headers.insert(reqwest::header::AUTHORIZATION, val);
+        }
+    }
+    Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap_or_else(|_| build_client())
+}
+
 // ── Response structs ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

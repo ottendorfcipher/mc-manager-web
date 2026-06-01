@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavPrefsStore } from "@/store/auth";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug, Package, Eye, EyeOff } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -237,6 +237,151 @@ function IntegrationsTab() {
         </p>
       </div>
       <DiscordSettingsPanel />
+      <ModrinthSettingsPanel />
+    </div>
+  );
+}
+
+// ── Modrinth API panel ───────────────────────────────────────────────────────
+
+interface ModrinthStatus {
+  token_set:    boolean;
+  token_hint:   string | null;
+  api_reachable: boolean;
+  plugin_count: number | null;
+}
+
+function ModrinthSettingsPanel() {
+  const qc = useQueryClient();
+  const [token, setToken]       = useState("");
+  const [showToken, setShowToken] = useState(false);
+
+  const { data: status, isLoading } = useQuery<ModrinthStatus>({
+    queryKey: ["modrinth-settings"],
+    queryFn:  () => api.get("/admin/modrinth-settings"),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: () => api.put("/admin/modrinth-settings", { token: token.trim() }),
+    onSuccess: () => {
+      setToken("");
+      qc.invalidateQueries({ queryKey: ["modrinth-settings"] });
+      toast.success("Modrinth token saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeMut = useMutation({
+    mutationFn: () => api.delete("/admin/modrinth-settings"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["modrinth-settings"] });
+      toast.success("Modrinth token removed — using unauthenticated API");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="card space-y-5">
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 flex-shrink-0 rounded-lg bg-[#1BD96A]/10 dark:bg-[#1BD96A]/15
+                        flex items-center justify-center">
+          <Package className="w-5 h-5 text-[#1BD96A]" aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+            Modrinth
+          </p>
+          <p className="text-xs text-meta mt-0.5">
+            Plugin browser and installer. Works without a token — add one for higher rate limits (600 vs 300 req/min).
+            Get a Personal Access Token at{" "}
+            <a href="https://modrinth.com/settings/account" target="_blank" rel="noreferrer"
+               className="text-[#5B9BF0] hover:underline">
+              modrinth.com/settings/account
+            </a>
+          </p>
+        </div>
+        {isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-meta flex-shrink-0" />
+        ) : status?.api_reachable ? (
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[#36B37E] flex-shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden />
+            {status.token_set ? "Connected (auth)" : "Connected"}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[#F87171] flex-shrink-0">
+            <AlertTriangle className="w-3 h-3" aria-hidden />
+            Unreachable
+          </span>
+        )}
+      </div>
+
+      {/* Stats */}
+      {status?.api_reachable && status.plugin_count != null && (
+        <p className="text-xs text-meta">
+          <span className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
+            {status.plugin_count.toLocaleString()}
+          </span>{" "}
+          Paper-compatible plugins available for your server
+        </p>
+      )}
+
+      {/* Current token */}
+      {status?.token_set && status.token_hint && (
+        <div className="flex items-center gap-2 text-xs text-meta bg-[#F7F5F2] dark:bg-[#1E212B] rounded-lg px-3 py-2">
+          <span className="font-mono">{status.token_hint}</span>
+          <span>· stored encrypted</span>
+          <button
+            onClick={() => removeMut.mutate()}
+            disabled={removeMut.isPending}
+            className="ml-auto text-[#F87171] hover:text-red-600 text-xs disabled:opacity-50"
+          >
+            {removeMut.isPending ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      )}
+
+      {/* Token input */}
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-meta uppercase tracking-wider">
+          {status?.token_set ? "Replace Token (optional)" : "Personal Access Token (optional)"}
+        </label>
+        <div className="relative">
+          <input
+            type={showToken ? "text" : "password"}
+            placeholder="mrp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            className="w-full rounded-lg border border-[#D9D5D0] dark:border-[#363944]
+                       bg-white dark:bg-[#2A2D38] px-3 py-2 pr-10 text-sm
+                       text-[#1C1E27] dark:text-[#EAECF0] placeholder-[#9B9EA6]
+                       focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]"
+            onKeyDown={(e) => { if (e.key === "Enter" && token.trim()) saveMut.mutate(); }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowToken((v) => !v)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+            aria-label={showToken ? "Hide token" : "Show token"}
+          >
+            {showToken
+              ? <EyeOff className="w-4 h-4" aria-hidden />
+              : <Eye    className="w-4 h-4" aria-hidden />}
+          </button>
+        </div>
+        {token.trim() && (
+          <button
+            onClick={() => saveMut.mutate()}
+            disabled={saveMut.isPending}
+            className="btn-primary text-sm py-1.5 px-4 flex items-center gap-1.5 disabled:opacity-40"
+          >
+            {saveMut.isPending && (
+              <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />
+            )}
+            {status?.token_set ? "Update Token" : "Save Token"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

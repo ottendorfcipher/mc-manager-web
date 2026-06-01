@@ -48,7 +48,7 @@ pub async fn detail(
         p.project_key.as_deref() == Some(&project_key)
     });
 
-    let client = modrinth::build_client();
+    let client = modrinth::build_client_with_pat(crate::handlers::modrinth_settings::get_pat(&state).await.as_deref());
 
     // Try cache first.
     let cached = plugins_catalog::get_by_key(&state.pool, &project_key).await.unwrap_or(None);

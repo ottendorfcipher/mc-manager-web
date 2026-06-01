@@ -283,6 +283,13 @@ pub fn build_router(state: AppState) -> Router {
             "/admin/discord-settings",
             get(handlers::discord_settings::get).put(handlers::discord_settings::put),
         )
+        // Modrinth integration — optional PAT for higher rate limits
+        .route(
+            "/admin/modrinth-settings",
+            get(handlers::modrinth_settings::get)
+                .put(handlers::modrinth_settings::put)
+                .delete(handlers::modrinth_settings::delete),
+        )
         // Events — Countdowns
         .route(
             "/events/countdowns",
