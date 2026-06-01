@@ -77,7 +77,7 @@ pub async fn browse(
         // Fetch missing picks from Modrinth.
         let cached_keys: std::collections::HashSet<String> = cached.iter()
             .map(|c| c.project_key.clone()).collect();
-        let client = modrinth::build_client();
+        let client = modrinth::build_client_with_pat(crate::handlers::modrinth_settings::get_pat(&state).await.as_deref());
         for pick in &picks {
             if cached_keys.contains(&pick.project_key) { continue; }
             let slug = pick.project_key
@@ -117,7 +117,7 @@ pub async fn browse(
     if let Some(q) = &params.q {
         if !q.is_empty() {
             // Search Modrinth and cache results.
-            let client = modrinth::build_client();
+            let client = modrinth::build_client_with_pat(crate::handlers::modrinth_settings::get_pat(&state).await.as_deref());
             let search_result = modrinth::search(&client, q, limit, offset).await;
 
             let results = match search_result {
@@ -179,7 +179,7 @@ pub async fn browse(
     }
 
     // Default: return starter essentials.
-    let client = modrinth::build_client();
+    let client = modrinth::build_client_with_pat(crate::handlers::modrinth_settings::get_pat(&state).await.as_deref());
     let mut results = Vec::new();
 
     for slug in STARTER_ESSENTIALS {
