@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod plugins;
 pub mod backups;
 pub mod player_alias;
 pub mod bounty_board;

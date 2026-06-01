@@ -22,6 +22,7 @@ pub use config::Config;
 pub use state::AppState;
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{delete, get, patch, post},
     Router,
 };
@@ -340,7 +341,22 @@ pub fn build_router(state: AppState) -> Router {
         .route("/scheduled-jobs/:id",
                patch(handlers::scheduled_jobs::update).delete(handlers::scheduled_jobs::delete))
         .route("/scheduled-jobs/:id/run",
-               post(handlers::scheduled_jobs::run_now));
+               post(handlers::scheduled_jobs::run_now))
+        // Plugin system
+        .route("/plugins/browse",           get(handlers::plugins::browse::browse))
+        .route("/plugins/detail/:key",      get(handlers::plugins::detail::detail))
+        .route("/plugins/install",          post(handlers::plugins::install::install))
+        .route("/plugins/installed",        get(handlers::plugins::installed::list))
+        .route("/plugins/installed/:filename", delete(handlers::plugins::installed::remove))
+        .route("/plugins/jobs",             get(handlers::plugins::jobs::list_jobs))
+        .route("/plugins/jobs/:id",         get(handlers::plugins::jobs::get_job))
+        .route("/plugins/update/:filename", post(handlers::plugins::update::update_plugin))
+        .route("/plugins/update-all",       post(handlers::plugins::update::update_all))
+        .route("/plugins/upload",
+               post(handlers::plugins::upload::upload)
+                   .layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
+        .route("/plugins/undo-last",        post(handlers::plugins::undo::undo_last))
+        .route("/plugins/restart",          post(handlers::plugins::restart::restart_for_plugins));
 
     let api = api.layer(axum::middleware::from_fn_with_state(
         state.clone(),

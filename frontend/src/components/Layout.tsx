@@ -3,8 +3,9 @@ import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
-  Backpack, Music2, Timer, Clock, MoreHorizontal,
+  Backpack, Music2, Timer, Clock, MoreHorizontal, Puzzle,
 } from "lucide-react";
+import { RestartPendingChip } from "@/components/RestartPendingChip";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/events",       icon: Timer,          label: "Events",      perm: "nav.events" },
   { to: "/automations",  icon: Clock,          label: "Automations", perm: "nav.automations" },
   { to: "/map",          icon: Map,            label: "Map",         perm: "nav.map" },
+  { to: "/plugins",    icon: Puzzle,         label: "Plugins",   perm: "nav.backups" },
   { to: "/backups",   icon: HardDrive,      label: "Backups",   perm: "nav.backups" },
   { to: "/configure", icon: Settings,       label: "Configure", perm: "nav.configure" },
   { to: "/admin",     icon: ShieldCheck,    label: "Admin",     perm: "nav.admin" },
@@ -63,13 +65,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         aria-label="Main navigation"
       >
         {/* Brand */}
-        <div className="flex items-center justify-center lg:justify-start gap-2
-                        px-3 lg:px-4 py-5
+        <div className="flex flex-col gap-2 px-3 lg:px-4 py-5
                         border-b border-[#D9D5D0] dark:border-[#363944]">
-          <Pickaxe className="w-5 h-5 text-[#5B9BF0] flex-shrink-0" aria-hidden />
-          <span className="hidden lg:block font-bold text-[#1C1E27] dark:text-[#EAECF0] text-sm truncate">
-            redstoneCipher
-          </span>
+          <div className="flex items-center justify-center lg:justify-start gap-2">
+            <Pickaxe className="w-5 h-5 text-[#5B9BF0] flex-shrink-0" aria-hidden />
+            <span className="hidden lg:block font-bold text-[#1C1E27] dark:text-[#EAECF0] text-sm truncate">
+              redstoneCipher
+            </span>
+          </div>
+          <div className="hidden lg:block">
+            <RestartPendingChip />
+          </div>
         </div>
 
         {/* Nav links */}

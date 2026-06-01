@@ -18,8 +18,11 @@ import { ChatPage }         from "@/features/chat/ChatPage";
 import { MusicPage }        from "@/features/music/MusicPage";
 import { EventsPage }       from "@/features/events/EventsPage";
 import { AutomationsPage }  from "@/features/automations/AutomationsPage";
-import { PlayersPage }      from "@/features/players/PlayersPage";
-import { PlayerStatsPage }  from "@/features/players/PlayerStatsPage";
+import { PlayersPage }        from "@/features/players/PlayersPage";
+import { PlayerStatsPage }    from "@/features/players/PlayerStatsPage";
+import { PluginsHome }        from "@/features/plugins/PluginsHome";
+import { PluginDetailPage }   from "@/features/plugins/PluginDetailPage";
+import { InstalledList }      from "@/features/plugins/InstalledList";
 import { Loader2 }          from "lucide-react";
 import { OnboardingWizard, isOnboardingComplete } from "@/features/onboarding/OnboardingWizard";
 
@@ -160,6 +163,9 @@ export default function App() {
                         <Route path="/automations"       element={<ErrorBoundary label="Automations"><AutomationsPage /></ErrorBoundary>} />
                         <Route path="/admin"             element={<ErrorBoundary label="Admin"><AdminPage /></ErrorBoundary>} />
                         <Route path="/admin/permissions" element={<ErrorBoundary label="Admin"><AdminPage /></ErrorBoundary>} />
+                        <Route path="/plugins"              element={<ErrorBoundary label="Plugins"><PluginsHome /></ErrorBoundary>} />
+                        <Route path="/plugins/detail/:key"  element={<ErrorBoundary label="Plugin Detail"><PluginDetailPage /></ErrorBoundary>} />
+                        <Route path="/plugins/installed"    element={<ErrorBoundary label="Installed Plugins"><InstalledList /></ErrorBoundary>} />
                       </Routes>
                     </Layout>
                   </div>

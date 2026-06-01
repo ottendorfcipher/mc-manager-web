@@ -216,6 +216,17 @@ async fn main() -> anyhow::Result<()> {
     // Spawn the scheduled-jobs runner (cron-style automations).
     lib::minecraft::scheduled_runner::spawn_scheduled_task(state.clone());
 
+    // Spawn the plugin install/remove job runner.
+    lib::minecraft::plugin_install::spawn_job_runner(state.pool.clone(), cfg.clone());
+
+    // Spawn the plugin update checker (every 6 hours).
+    lib::minecraft::plugin_updater::spawn_plugin_updater(state.pool.clone(), cfg.clone());
+
+    // Seed the default plugin goals if the table is empty.
+    if let Err(e) = lib::db::plugin_goals::seed_goals_if_empty(&state.pool).await {
+        tracing::warn!("plugin_goals seed failed: {e}");
+    }
+
     // Spawn Discord gateway manager (hot-reload supported via watch channel).
     lib::discord::spawn_manager(
         state.discord_config_tx.subscribe(),
