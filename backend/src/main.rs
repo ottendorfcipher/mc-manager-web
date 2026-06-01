@@ -86,6 +86,16 @@ async fn main() -> anyhow::Result<()> {
         state.bounty_board_tx.clone(),
     );
 
+    // Re-apply all saved player aliases as scoreboard teams on startup.
+    // Fire-and-forget — a slow or offline MC server doesn't block boot.
+    {
+        let pool2 = state.pool.clone();
+        let cfg2  = cfg.clone();
+        tokio::spawn(async move {
+            lib::minecraft::aliases::apply_all_aliases_at_startup(&pool2, &cfg2).await;
+        });
+    }
+
     // Spawn the nearest-pin HUD task (self-paced, no channels).
     lib::minecraft::pin_hud_runner::spawn_pin_hud_task(
         cfg.clone(),
