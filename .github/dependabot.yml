@@ -1,0 +1,63 @@
+version: 2
+
+updates:
+  # ── Rust / Cargo ─────────────────────────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    # Group all non-security patch/minor updates into a single PR to reduce noise.
+    groups:
+      rust-non-breaking:
+        update-types:
+          - "patch"
+          - "minor"
+        dependency-type: "production"
+      rust-dev:
+        dependency-type: "development"
+    ignore:
+      # sqlx minor versions can break compile-time query checks — review manually.
+      - dependency-name: "sqlx"
+        update-types: ["version-update:semver-minor"]
+
+  # ── Node / npm (frontend) ────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    groups:
+      # Group all React + Vite + TanStack updates into one PR.
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@tanstack/*"
+          - "vite*"
+          - "@vitejs/*"
+      # Linting / formatting tools together.
+      dev-tooling:
+        patterns:
+          - "eslint*"
+          - "typescript*"
+          - "prettier*"
+          - "@types/*"
+        dependency-type: "development"
+      # Remaining prod deps grouped.
+      frontend-deps:
+        dependency-type: "production"
+        update-types:
+          - "patch"
+          - "minor"

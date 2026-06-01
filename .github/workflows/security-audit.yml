@@ -1,0 +1,71 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/Cargo.toml'
+      - 'backend/Cargo.lock'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+  pull_request:
+    paths:
+      - 'backend/Cargo.toml'
+      - 'backend/Cargo.lock'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+  # Run weekly so newly-published CVEs are caught even without a code push.
+  schedule:
+    - cron: '0 9 * * 1'   # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  # ── Rust: cargo audit ──────────────────────────────────────────────────────
+  rust-audit:
+    name: Rust security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-audit-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        working-directory: backend
+        run: cargo audit
+        # cargo-audit exits non-zero on any RUSTSEC advisory; the job will fail
+        # and GitHub will notify on the security tab.
+
+  # ── Node: npm audit ────────────────────────────────────────────────────────
+  npm-audit:
+    name: Frontend npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Run npm audit
+        working-directory: frontend
+        # --audit-level=high: fail only on high/critical — moderate is noisy
+        # for React ecosystem packages.  Adjust to 'moderate' if you want
+        # stricter enforcement.
+        run: npm audit --audit-level=high --omit=dev

@@ -11,7 +11,7 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    db::{installed_plugins, plugin_jobs, plugins_catalog},
+    db::{installed_plugins, plugin_jobs, plugins_catalog, settings},
     minecraft::{modrinth, plugin_jar},
 };
 
@@ -53,7 +53,7 @@ pub async fn advance_job(
 
 async fn resolve_install(
     pool: &SqlitePool,
-    _cfg: &Config,
+    cfg:  &Config,
     job:  &plugin_jobs::PluginJob,
 ) -> anyhow::Result<()> {
     plugin_jobs::set_state(pool, job.id, "resolving", Some("Resolving dependencies")).await?;
@@ -71,7 +71,12 @@ async fn resolve_install(
         .unwrap_or(&project_key)
         .to_string();
 
-    let client = modrinth::build_client();
+    // Load Modrinth PAT from settings for higher rate limits.
+    let pat = settings::get(pool, &cfg.settings_enc_key, "modrinth.pat")
+        .await
+        .ok()
+        .flatten();
+    let client = modrinth::build_client_with_pat(pat.as_deref());
 
     // Get versions for the main plugin.
     let versions = modrinth::get_versions(&client, &slug).await?;
