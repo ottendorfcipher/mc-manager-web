@@ -28,5 +28,6 @@ pub mod properties;
 pub mod roles;
 pub mod server;
 pub mod onboarding;
+pub mod tailscale;
 pub mod users;
 pub mod worlds;

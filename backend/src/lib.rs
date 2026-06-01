@@ -110,6 +110,9 @@ pub fn build_router(state: AppState) -> Router {
         // Live data
         .route("/metrics", get(handlers::metrics::snapshot))
         .route("/mc/players", get(handlers::mc_players::list))
+        // Tailscale: per-user device list, drives the dashboard
+        // "your device isn't on the VPN" banner.
+        .route("/tailscale/my-devices", get(handlers::tailscale::my_devices))
         // server.properties
         .route(
             "/properties",
