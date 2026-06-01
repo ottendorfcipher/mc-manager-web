@@ -41,7 +41,14 @@ struct RawSnapshot {
 ///
 /// Returns the number of rows upserted.
 pub async fn refresh_snapshots(pool: &sqlx::SqlitePool, cfg: &Config) -> Result<usize> {
-    // 1. Flush playerdata to disk so reads are current
+    // 1. Check if anyone is online before doing a save-all flush.
+    //    save-all flush every 5 s with an empty server spams the MC log
+    //    and wastes SSH round-trips.  We ask `list` via SSH RCON-style
+    //    command, then only flush if at least one player is online.
+    let online_count = count_online_players(cfg).await;
+    if online_count == 0 {
+        return Ok(0);
+    }
     let _ = ssh::fifo_command(cfg, "save-all flush").await;
 
     // 2. Run the Python extractor on mc-server-1
@@ -161,5 +168,23 @@ async fn write_bluemap_players(cfg: &Config, snapshots: &[RawSnapshot]) {
                 tracing::warn!("bluemap players.json write: {e} (further warnings suppressed)");
             }
         }
+    }
+}
+
+
+/// Check how many players are currently online via RCON `list` command.
+/// Returns 0 on any error or if the server is offline.  This is used to
+/// gate save-all flushes so we don't spam the MC log when nobody is online.
+async fn count_online_players(cfg: &Config) -> u32 {
+    // Use mcrcon via SSH to get the player count.  The `list` command
+    // outputs "There are N of a max M players online: ..."
+    let script = format!(
+        "mcrcon -H 127.0.0.1 -P 25575 -p \"$(grep ^rcon.password {}/server.properties | cut -d= -f2)\" list 2>/dev/null | grep -oP '(?<=There are )\\d+' || echo 0",
+        cfg.mc_server_dir
+    );
+    let out = ssh::run(&cfg, &script).await;
+    match out {
+        Ok((stdout, _)) => stdout.trim().parse::<u32>().unwrap_or(0),
+        Err(_) => 0,
     }
 }
