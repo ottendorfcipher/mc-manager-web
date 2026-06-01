@@ -2,19 +2,21 @@
 //!
 //! Aliases are stored in the `preferences` table as `alias:{ign}`.
 //!
-//! In-game we use **scoreboard teams** to change how a player's name
-//! appears both above their head and in the TAB list without any plugin:
+//! In-game we use **scoreboard teams** with a colored prefix to show
+//! the alias above the player's head and in the TAB list.  Pure vanilla
+//! Paper 1.21 cannot completely replace the MC username with custom text
+//! without a plugin — but prefix + gold color makes the alias the
+//! visually dominant element:
 //!
 //!   /team add rc_{ign}
 //!   /team join rc_{ign} {ign}
-//!   /team modify rc_{ign} displayName {"text":"{alias}"}
+//!   /team modify rc_{ign} prefix {"text":"<alias> ","color":"gold","bold":true}
+//!   /team modify rc_{ign} color gold
 //!   /team modify rc_{ign} collisionRule never
 //!   /team modify rc_{ign} nametagVisibility always
 //!
-//! The team `displayName` replaces the player's name in the TAB list
-//! and the nametag above their head (Paper 1.18+).  The original MC
-//! username still appears in chat (Paper logs it), but the visual
-//! identity everywhere else shows the alias.
+//! This shows `[gold]Nick [gray]ChaoticLuc` above the head and in the
+//! TAB list — the alias leads, the MC username follows in smaller grey.
 //!
 //! Removing an alias tears down the team entirely:
 //!   /team remove rc_{ign}
@@ -80,13 +82,19 @@ pub async fn list_all_aliases(pool: &sqlx::SqlitePool) -> Vec<(String, String)> 
 pub async fn apply_alias_in_game(cfg: &Config, ign: &str, alias: &str) {
     // Sanitise alias for JSON embedding: escape backslash and double-quote.
     let safe = alias.replace('\\', r"\\").replace('"', r#"\""#);
-    let team  = team_name(ign);
-    let name_json = format!(r#"{{"text":"{safe}","color":"white"}}"#);
+    let team = team_name(ign);
+
+    // Prefix JSON: the alias in gold+bold, followed by a space, so the
+    // display reads "[gold]Nick [white]ChaoticLuc" above the head and in
+    // the TAB list.  Pure vanilla can't fully replace the MC username, but
+    // a bold gold prefix makes the alias the visually dominant element.
+    let prefix_json = format!(r#"{{"text":"{safe} ","color":"gold","bold":true}}"#);
 
     let cmds: Vec<String> = vec![
         format!("team add {team}"),               // idempotent: noop if exists
         format!("team join {team} {ign}"),
-        format!("team modify {team} displayName {name_json}"),
+        format!("team modify {team} prefix {prefix_json}"),
+        format!("team modify {team} color white"),
         format!("team modify {team} collisionRule never"),
         format!("team modify {team} nametagVisibility always"),
     ];
