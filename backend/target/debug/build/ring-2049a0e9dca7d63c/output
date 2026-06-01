@@ -32,10 +32,6 @@ cargo:rerun-if-env-changed=CFLAGS_aarch64_apple_darwin
 CFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=CFLAGS_aarch64-apple-darwin
 CFLAGS_aarch64-apple-darwin = None
-cargo:warning=ranlib: warning: 'libring_core_0_17_14_.a(a0330e891e733f4e-gfp_p256.o)' has no symbols
-cargo:warning=ranlib: warning: 'libring_core_0_17_14_.a(a0330e891e733f4e-p256.o)' has no symbols
-cargo:warning=ranlib: warning: 'libring_core_0_17_14_.a(a0330e891e733f4e-gfp_p256.o)' has no symbols
-cargo:warning=ranlib: warning: 'libring_core_0_17_14_.a(a0330e891e733f4e-p256.o)' has no symbols
 cargo:rustc-link-lib=static=ring_core_0_17_14_
 cargo:rerun-if-env-changed=CC_aarch64-apple-darwin
 CC_aarch64-apple-darwin = None
@@ -59,7 +55,7 @@ CFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=CFLAGS_aarch64-apple-darwin
 CFLAGS_aarch64-apple-darwin = None
 cargo:rustc-link-lib=static=ring_core_0_17_14__test
-cargo:rustc-link-search=native=/private/tmp/mc-build-fresh/backend/target/debug/build/ring-2049a0e9dca7d63c/out
+cargo:rustc-link-search=native=/Users/nicholasweiner/Desktop/mc-manager-web/backend/target/debug/build/ring-2049a0e9dca7d63c/out
 cargo:rerun-if-changed=crypto/perlasm/x86_64-xlate.pl
 cargo:rerun-if-changed=crypto/perlasm/x86gas.pl
 cargo:rerun-if-changed=crypto/perlasm/x86nasm.pl
