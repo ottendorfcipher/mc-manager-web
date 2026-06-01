@@ -1,4 +1,9 @@
 pub mod aliases;
+pub mod modrinth;
+pub mod plugin_health;
+pub mod plugin_install;
+pub mod plugin_jar;
+pub mod plugin_updater;
 pub mod backup;
 pub mod bounty_runner;
 pub mod chat_watcher;

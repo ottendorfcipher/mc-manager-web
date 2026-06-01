@@ -1,4 +1,9 @@
 pub mod audit;
+pub mod installed_plugins;
+pub mod plugin_goals;
+pub mod plugin_health;
+pub mod plugin_jobs;
+pub mod plugins_catalog;
 pub mod bounty_boards;
 pub mod countdowns;
 pub mod credits;
