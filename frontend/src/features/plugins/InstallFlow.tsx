@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, CheckCircle, AlertCircle, Loader2, RotateCcw, Zap } from "lucide-react";
+import { api } from "@/api/client";
 import { PLUGIN_VOCAB, jobStateLabel, isTerminalState } from "./vocab";
 import type { JobState } from "./vocab";
-
-const API = "/api";
 
 interface PluginJob {
   id:             number;
@@ -36,26 +35,10 @@ function stepIndex(state: JobState): number {
   return PIPELINE_STEPS.indexOf(state);
 }
 
-async function startInstall(projectKey: string, autoRestart: boolean): Promise<{ job_id: number }> {
-  const resp = await fetch(`${API}/plugins/install`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({
-      project_key:  projectKey,
-      auto_restart: autoRestart,
-    }),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? "Install failed");
-  }
-  return resp.json();
-}
+const startInstall = (projectKey: string, autoRestart: boolean): Promise<{ job_id: number }> =>
+  api.post("/plugins/install", { project_key: projectKey, auto_restart: autoRestart });
 
-async function triggerRestart(): Promise<void> {
-  const resp = await fetch(`${API}/plugins/restart`, { method: "POST" });
-  if (!resp.ok) throw new Error("Failed to trigger restart");
-}
+const triggerRestart = (): Promise<unknown> => api.post("/plugins/restart", {});
 
 function StepList({ currentState }: { currentState: JobState }) {
   const current = stepIndex(currentState);
@@ -98,11 +81,7 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
 
   const { data: job } = useQuery<PluginJob>({
     queryKey:       ["plugins/jobs", jobId],
-    queryFn:        async () => {
-      const resp = await fetch(`${API}/plugins/jobs/${jobId}`);
-      if (!resp.ok) throw new Error("Failed to fetch job");
-      return resp.json();
-    },
+    queryFn:        () => api.get(`/plugins/jobs/${jobId}`),
     enabled:        !!jobId,
     refetchInterval: (query) => {
       const state = (query.state.data as PluginJob | undefined)?.state;
