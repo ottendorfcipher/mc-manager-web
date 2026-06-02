@@ -18,9 +18,14 @@ pub struct GiveRequest {
     pub item_id: String,
     #[serde(default = "one")]
     pub count: u32,
-    /// Whether the player is currently online. If omitted the backend
-    /// checks the live player list automatically.
+    /// Whether the player is currently online.  If true, uses the instant
+    /// RCON `give` command; if false (or omitted), edits the NBT playerdata
+    /// file directly so the item appears when they next log in.
     pub online: Option<bool>,
+    /// Player UUID — if supplied by the client we use it directly and skip
+    /// the snapshot lookup.  Sending this makes offline delivery reliable
+    /// even when no snapshot has been captured yet.
+    pub uuid: Option<String>,
 }
 fn one() -> u32 {
     1
@@ -39,13 +44,16 @@ pub async fn give(
         return Err(AppError::BadRequest("item_id is required".into()));
     }
 
-    // Look up the player's UUID from the snapshot (needed for offline give)
-    let snap = player_snapshots::get_by_ign(&state.pool, &ign).await?;
-    let uuid = snap.as_ref().map(|s| s.uuid.as_str());
+    // Use client-supplied UUID first; fall back to snapshot lookup.
+    let uuid_owned: Option<String> = if let Some(u) = body.uuid.filter(|s| !s.is_empty()) {
+        Some(u)
+    } else {
+        player_snapshots::get_by_ign(&state.pool, &ign)
+            .await?
+            .map(|s| s.uuid)
+    };
+    let uuid = uuid_owned.as_deref();
 
-    // Determine online status: prefer caller-supplied flag, otherwise assume
-    // offline (safe default — offline path works for online players too with a
-    // slight delay, but online path is instant).
     let online = body.online.unwrap_or(false);
 
     give_item::give(&state.config, &ign, uuid, &body.item_id, body.count, online).await?;
