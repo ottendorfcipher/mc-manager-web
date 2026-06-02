@@ -72,6 +72,8 @@ pub struct ModrinthProject {
     pub description: String,
     pub icon_url:    Option<String>,
     pub downloads:   u64,
+    // API returns "followers" but we expose it as "follows" internally.
+    #[serde(rename = "followers", alias = "follows")]
     pub follows:     u64,
     pub license:     Option<ModrinthLicense>,
     pub source_url:  Option<String>,
