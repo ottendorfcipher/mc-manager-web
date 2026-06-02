@@ -2,10 +2,9 @@ import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Users, ExternalLink, Loader2, CheckCircle, Circle } from "lucide-react";
+import { api } from "@/api/client";
 import { InstallFlow } from "./InstallFlow";
 import { PLUGIN_VOCAB } from "./vocab";
-
-const API = "/api";
 
 interface DepSummary {
   title:        string;
@@ -27,12 +26,7 @@ interface PluginDetail {
 }
 
 async function fetchDetail(key: string): Promise<PluginDetail> {
-  const resp = await fetch(`${API}/plugins/detail/${encodeURIComponent(key)}`);
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? "Not found");
-  }
-  return resp.json();
+  return api.get(`/plugins/detail/${encodeURIComponent(key)}`);
 }
 
 function DepLine({ dep }: { dep: DepSummary }) {
