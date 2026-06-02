@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, RotateCcw, Trash2, ArrowUpCircle } from "lucide-react";
+import { api } from "@/api/client";
 import { PLUGIN_VOCAB, statusLabel } from "./vocab";
 import type { PluginStatus } from "./vocab";
-
-const API = "/api";
 
 interface InstalledPlugin {
   id:               number;
@@ -24,38 +23,11 @@ interface InstalledPlugin {
   last_status_at:   string | null;
 }
 
-async function fetchInstalled(): Promise<InstalledPlugin[]> {
-  const resp = await fetch(`${API}/plugins/installed`);
-  if (!resp.ok) throw new Error("Failed to load installed plugins");
-  return resp.json();
-}
-
-async function removePlugin(filename: string): Promise<void> {
-  const resp = await fetch(`${API}/plugins/installed/${encodeURIComponent(filename)}`, {
-    method: "DELETE",
-  });
-  if (!resp.ok) throw new Error("Failed to remove plugin");
-}
-
-async function updatePlugin(filename: string): Promise<void> {
-  const resp = await fetch(`${API}/plugins/update/${encodeURIComponent(filename)}`, {
-    method: "POST",
-  });
-  if (!resp.ok) throw new Error("Failed to start update");
-}
-
-async function updateAll(): Promise<void> {
-  const resp = await fetch(`${API}/plugins/update-all`, { method: "POST" });
-  if (!resp.ok) throw new Error("Failed to start update-all");
-}
-
-async function undoLast(): Promise<void> {
-  const resp = await fetch(`${API}/plugins/undo-last`, { method: "POST" });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? "Undo failed");
-  }
-}
+const fetchInstalled  = (): Promise<InstalledPlugin[]> => api.get("/plugins/installed");
+const removePlugin    = (filename: string) => api.delete(`/plugins/installed/${encodeURIComponent(filename)}`);
+const updatePlugin    = (filename: string) => api.post(`/plugins/update/${encodeURIComponent(filename)}`, {});
+const updateAll       = () => api.post("/plugins/update-all", {});
+const undoLast        = () => api.post("/plugins/undo-last", {});
 
 function StatusBadge({ status }: { status: PluginStatus }) {
   const label = statusLabel(status);

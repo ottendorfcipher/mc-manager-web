@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Shield, Home, Coins, Siren, MessageSquare, Gamepad2, Search, Download, Plus, Loader2 } from "lucide-react";
+import { api } from "@/api/client";
 import { InstallFlow } from "./InstallFlow";
 
 const API = "/api";
@@ -37,15 +38,7 @@ async function fetchBrowse(q?: string, goal?: string): Promise<BrowseResponse> {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (goal) params.set("goal", goal);
-  const resp = await fetch(`${API}/plugins/browse?${params}`);
-  if (!resp.ok) throw new Error("Failed to load plugins");
-  return resp.json();
-}
-
-async function fetchGoals(): Promise<PluginGoal[]> {
-  const resp = await fetch(`${API}/plugins/browse?limit=0`);
-  if (!resp.ok) return [];
-  return [];
+  return api.get(`/plugins/browse?${params}`);
 }
 
 function PluginCard({
