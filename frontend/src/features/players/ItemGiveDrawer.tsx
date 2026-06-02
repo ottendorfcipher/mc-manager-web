@@ -631,7 +631,7 @@ interface Props {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ItemGiveDrawer({ ign, online, onClose }: Props) {
+export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
   const [category, setCategory] = useState<Category>("all");
   const [query,    setQuery]    = useState("");
   const [selected, setSelected] = useState<MCItem | null>(null);
@@ -679,6 +679,10 @@ export function ItemGiveDrawer({ ign, online, onClose }: Props) {
         item_id: `minecraft:${selected!.id}`,
         count,
         online,
+        // Always send UUID so the backend can use the offline path
+        // (direct NBT edit) even when the player's online status is
+        // uncertain or they disconnect mid-request.
+        uuid,
       }),
     onSuccess: () => {
       setSuccess(true);
