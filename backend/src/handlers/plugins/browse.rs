@@ -179,7 +179,9 @@ pub async fn browse(
     }
 
     // Default: return starter essentials.
-    let client = modrinth::build_client_with_pat(crate::handlers::modrinth_settings::get_pat(&state).await.as_deref());
+    let pat = crate::handlers::modrinth_settings::get_pat(&state).await;
+    tracing::debug!("plugins/browse: PAT configured={}", pat.is_some());
+    let client = modrinth::build_client_with_pat(pat.as_deref());
     let mut results = Vec::new();
 
     for slug in STARTER_ESSENTIALS {
@@ -200,29 +202,37 @@ pub async fn browse(
                 compatible:   true,
                 is_installed,
             });
-        } else if let Ok(project) = modrinth::get_project(&client, slug).await {
-            let _ = plugins_catalog::upsert(
-                &state.pool, &project_key, "modrinth",
-                &project.slug, &project.title, project.icon_url.as_deref(),
-                Some(&project.description),
-                r#"["paper","spigot","bukkit"]"#, r#"["1.21"]"#,
-                project.downloads as i64, project.follows as i64,
-                project.license.as_ref().map(|l| l.id.as_str()),
-                project.source_url.as_deref(), None,
-            ).await;
-            results.push(CatalogSummary {
-                project_key,
-                slug:         project.slug,
-                title:        project.title,
-                icon_url:     project.icon_url,
-                description:  project.description,
-                downloads:    project.downloads,
-                compatible:   true,
-                is_installed,
-            });
+        } else {
+            match modrinth::get_project(&client, slug).await {
+                Ok(project) => {
+                    let _ = plugins_catalog::upsert(
+                        &state.pool, &project_key, "modrinth",
+                        &project.slug, &project.title, project.icon_url.as_deref(),
+                        Some(&project.description),
+                        r#"["paper","spigot","bukkit"]"#, r#"["1.21"]"#,
+                        project.downloads as i64, project.follows as i64,
+                        project.license.as_ref().map(|l| l.id.as_str()),
+                        project.source_url.as_deref(), None,
+                    ).await;
+                    results.push(CatalogSummary {
+                        project_key,
+                        slug:         project.slug,
+                        title:        project.title,
+                        icon_url:     project.icon_url,
+                        description:  project.description,
+                        downloads:    project.downloads,
+                        compatible:   true,
+                        is_installed,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("plugins/browse: get_project({slug}) failed: {e}");
+                }
+            }
         }
     }
 
+    tracing::debug!("plugins/browse: returning {} results", results.len());
     let total = results.len() as u32;
     Ok(Json(BrowseResponse { results, total }))
 }
