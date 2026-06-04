@@ -7,62 +7,74 @@ use serde::{Deserialize, Serialize};
 
 use crate::{db::permissions, error::AppError, state::AppState};
 
-/// The only cookie name Firebase Hosting forwards through Cloud Run rewrites.
-/// All other cookie names are stripped from both requests and responses.
-pub const JWT_COOKIE: &str = "__session";
+pub const JWT_COOKIE:      &str = "__session";
 pub const JWT_EXPIRY_SECS: i64 = 8 * 3600;
+
+/// Header name used by the frontend when an admin is acting on behalf of
+/// another user.  The value is the target user's email address.
+pub const IMPERSONATE_HEADER: &str = "x-impersonate-as";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String, // email
+    pub sub: String,
     pub role: String,
     pub exp: i64,
     pub iat: i64,
 }
 
-/// Extractor: reads the JWT cookie and validates it.
-/// Injects `AuthUser` into handlers that declare it as a parameter.
-/// Permissions are loaded from the DB on every request so admin-time changes
-/// take effect without needing users to sign out.
-/// `level` is loaded from the `roles` table so custom roles with arbitrary
-/// levels work seamlessly alongside the five system roles.
+/// Authenticated user context injected into every handler.
+///
+/// When an admin is impersonating another user:
+///   • `email` / `role` / `level` / `permissions` reflect the **target** user
+///     (so the portal renders and behaves as that user would see it).
+///   • `real_email` / `real_role` / `real_level` are always the **actual**
+///     signed-in admin — used for permission checks on the impersonation
+///     operation itself and for all audit log entries.
+///   • `impersonating_as` is `Some(target_email)`.
+///
+/// When NOT impersonating all fields are identical and `impersonating_as` is None.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
+    /// Effective email (target user when impersonating, own email otherwise).
     pub email: String,
+    /// Effective role.
     pub role: String,
-    /// Numeric level loaded from the `roles` table (0 = lowest, 4 = global_admin).
+    /// Effective numeric level (0 = visitor … 4 = global_admin).
     pub level: u8,
+    /// Effective permission set.
     pub permissions: Arc<HashSet<String>>,
+
+    /// Always the real signed-in admin's email.
+    pub real_email: String,
+    /// Always the real signed-in admin's role.
+    pub real_role: String,
+    /// Always the real signed-in admin's level.
+    pub real_level: u8,
+    /// Some(target) when acting as another user, None otherwise.
+    pub impersonating_as: Option<String>,
 }
 
 impl AuthUser {
-    /// Returns this user's role level.
-    pub fn level(&self) -> u8 {
-        self.level
+    pub fn level(&self) -> u8 { self.level }
+    pub fn has(&self, key: &str) -> bool { self.permissions.contains(key) }
+
+    /// Label for audit log entries — always attributes the action to the real
+    /// admin, with a suffix when impersonation is active so it is never hidden.
+    pub fn audit_actor(&self) -> String {
+        match &self.impersonating_as {
+            Some(target) => format!("{} [acting as {}]", self.real_email, target),
+            None         => self.real_email.clone(),
+        }
     }
 
-    /// Check a permission key (e.g. "server.vm.start").
-    pub fn has(&self, key: &str) -> bool {
-        self.permissions.contains(key)
-    }
+    pub fn is_impersonating(&self) -> bool { self.impersonating_as.is_some() }
 
-    // Legacy boolean helpers, retained so handler call sites keep compiling.
-    // Each now delegates to the permission check.
-    pub fn can_manage_users(&self) -> bool {
-        self.has("users.invite") || self.has("users.remove")
-    }
-    pub fn can_manage_admins(&self) -> bool {
-        self.has("users.permissions.edit")
-    }
-    pub fn can_control_server(&self) -> bool {
-        self.has("server.vm.start") || self.has("server.service.start")
-    }
-    pub fn can_write_config(&self) -> bool {
-        self.has("config.write")
-    }
-    pub fn can_restore_backup(&self) -> bool {
-        self.has("backups.restore")
-    }
+    // Legacy helpers — kept for backwards compat.
+    pub fn can_manage_users(&self)  -> bool { self.has("users.invite") || self.has("users.remove") }
+    pub fn can_manage_admins(&self) -> bool { self.has("users.permissions.edit") }
+    pub fn can_control_server(&self)-> bool { self.has("server.vm.start") || self.has("server.service.start") }
+    pub fn can_write_config(&self)  -> bool { self.has("config.write") }
+    pub fn can_restore_backup(&self)-> bool { self.has("backups.restore") }
 }
 
 #[async_trait]
@@ -73,6 +85,7 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // ── 1. Validate the JWT (real signed-in user) ─────────────────────────
         let jar = CookieJar::from_request_parts(parts, state)
             .await
             .map_err(|_| AppError::Unauthenticated)?;
@@ -82,31 +95,100 @@ impl FromRequestParts<AppState> for AuthUser {
             .map(|c| c.value().to_owned())
             .ok_or(AppError::Unauthenticated)?;
 
-        let key = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
+        let key    = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
         let claims = decode::<Claims>(&token, &key, &Validation::new(Algorithm::HS256))
             .map_err(|_| AppError::Unauthenticated)?
             .claims;
 
-        let perms = permissions::effective_for(&state.pool, &claims.sub, &claims.role)
-            .await
-            .map_err(|_| AppError::Unauthenticated)?;
-
-        // Load role level from the DB so custom roles with arbitrary levels
-        // work alongside the five built-in system roles.
-        let level = crate::db::roles::level_for(&state.pool, &claims.role)
+        let real_email = claims.sub.clone();
+        let real_role  = claims.role.clone();
+        let real_level = crate::db::roles::level_for(&state.pool, &real_role)
             .await
             .min(255) as u8;
 
+        // ── 2. Check for impersonation header ─────────────────────────────────
+        let target_email: Option<String> = parts
+            .headers
+            .get(IMPERSONATE_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty() && s.contains('@'));
+
+        if let Some(ref target) = target_email {
+            // (a) Only admin (≥3) may use impersonation.
+            if real_level < 3 {
+                return Err(AppError::Forbidden(
+                    "Only admins may use impersonation".into(),
+                ));
+            }
+            // (b) Cannot impersonate yourself.
+            if *target == real_email {
+                return Err(AppError::BadRequest(
+                    "Cannot impersonate yourself".into(),
+                ));
+            }
+            // (c) Target must exist.
+            let row = sqlx::query_as::<_, (String, String)>(
+                "SELECT email, role FROM users WHERE email = ?",
+            )
+            .bind(target)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?
+            .ok_or_else(|| AppError::NotFound(format!("User '{target}' not found")))?;
+
+            let (_tgt_email, tgt_role) = row;
+            let tgt_level = crate::db::roles::level_for(&state.pool, &tgt_role)
+                .await
+                .min(255) as u8;
+
+            // (d) Cannot impersonate a peer or superior.
+            if tgt_level >= real_level {
+                return Err(AppError::Forbidden(
+                    "Cannot impersonate a user at the same or higher role level".into(),
+                ));
+            }
+
+            let tgt_perms = permissions::effective_for(&state.pool, target, &tgt_role)
+                .await
+                .map_err(|_| AppError::Unauthenticated)?;
+
+            tracing::info!(
+                real = %real_email,
+                target = %target,
+                "impersonation: session active",
+            );
+
+            return Ok(AuthUser {
+                email:            target.clone(),
+                role:             tgt_role,
+                level:            tgt_level,
+                permissions:      Arc::new(tgt_perms),
+                real_email,
+                real_role,
+                real_level,
+                impersonating_as: Some(target.clone()),
+            });
+        }
+
+        // ── 3. Normal (non-impersonated) path ─────────────────────────────────
+        let perms = permissions::effective_for(&state.pool, &real_email, &real_role)
+            .await
+            .map_err(|_| AppError::Unauthenticated)?;
+
         Ok(AuthUser {
-            email: claims.sub,
-            role: claims.role,
-            level,
-            permissions: Arc::new(perms),
+            email:            real_email.clone(),
+            role:             real_role.clone(),
+            level:            real_level,
+            permissions:      Arc::new(perms),
+            real_email,
+            real_role,
+            real_level,
+            impersonating_as: None,
         })
     }
 }
 
-/// Guard: returns Forbidden if the actor is missing the required permission.
 pub fn require_perm(actor: &AuthUser, key: &str) -> crate::error::Result<()> {
     if !actor.has(key) {
         return Err(AppError::Forbidden(format!(
@@ -117,8 +199,7 @@ pub fn require_perm(actor: &AuthUser, key: &str) -> crate::error::Result<()> {
     Ok(())
 }
 
-/// Guard: returns Forbidden if the actor's role level is below `min_level`.
-#[allow(dead_code)] // Preserved for any caller still using level-based checks.
+#[allow(dead_code)]
 pub fn require_role(actor: &AuthUser, min_level: u8, action: &str) -> crate::error::Result<()> {
     if actor.level() < min_level {
         return Err(AppError::Forbidden(format!(
@@ -129,20 +210,14 @@ pub fn require_role(actor: &AuthUser, min_level: u8, action: &str) -> crate::err
     Ok(())
 }
 
-/// Issue a signed JWT for the given email/role.
 pub fn issue_jwt(email: &str, role: &str, secret: &str) -> anyhow::Result<String> {
     use jsonwebtoken::{encode, EncodingKey, Header};
-
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
-        sub: email.to_owned(),
+        sub:  email.to_owned(),
         role: role.to_owned(),
-        iat: now,
-        exp: now + JWT_EXPIRY_SECS,
+        iat:  now,
+        exp:  now + JWT_EXPIRY_SECS,
     };
-    Ok(encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )?)
+    Ok(encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))?)
 }

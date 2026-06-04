@@ -83,7 +83,7 @@ pub async fn create(
         AppError::Internal(anyhow::anyhow!("World not found after insert"))
     })?;
 
-    audit::log(&state.pool, &actor.email, "create_world", Some(&slug), None).await?;
+    audit::log(&state.pool, &actor.audit_actor(), "create_world", Some(&slug), None).await?;
     Ok((StatusCode::CREATED, Json(world)))
 }
 
@@ -108,7 +108,7 @@ pub async fn delete(
     worlds::remove(&state.pool, id).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "delete_world",
         Some(&world.slug),
         None,
@@ -160,7 +160,7 @@ pub async fn activate(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "switch_world",
         Some(&format!("{} → {}", current.slug, target.slug)),
         None,
@@ -198,7 +198,7 @@ pub async fn set_members(
     worlds::set_members(&state.pool, id, &body.emails).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "update_world_members",
         Some(&id.to_string()),
         None,
@@ -271,7 +271,7 @@ pub async fn create_backup(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "create_world_backup",
         Some(&format!("{} ({})", filename, world.slug)),
         Some("mc-server-1"),

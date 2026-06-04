@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavPrefsStore } from "@/store/auth";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug, Package, Eye, EyeOff, ClipboardList, RefreshCw, Menu } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug, Package, Eye, EyeOff, ClipboardList, RefreshCw, Menu, UserCheck, LogOut } from "lucide-react";
+import { useImpersonationStore } from "@/store/auth";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -790,6 +791,14 @@ function UsersTab() {
               <TailscaleInvitePanel email={selectedUser.email} displayName={selectedUser.display_name} />
             )}
 
+            {/* View as — impersonation */}
+            {canEdit(selectedUser) && (
+              <ViewAsButton
+                email={selectedUser.email}
+                displayName={selectedUser.display_name}
+              />
+            )}
+
             {/* Remove user */}
             {canRemove && canEdit(selectedUser) && (
               <div className="pt-2 border-t border-[#D9D5D0] dark:border-[#363944]">
@@ -806,6 +815,129 @@ function UsersTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── View As (impersonation) ───────────────────────────────────────────────────
+
+interface ImpersonationTarget {
+  email: string; display_name: string; role: string;
+  role_level: number; allowed: boolean; reason: string | null;
+}
+
+function ViewAsButton({ email, displayName }: { email: string; displayName: string }) {
+  const { impersonatingAs, startImpersonation, stopImpersonation } = useImpersonationStore();
+  const qc = useQueryClient();
+  const [checking, setChecking] = useState(false);
+  const [preview, setPreview]   = useState<ImpersonationTarget | null>(null);
+  const [open, setOpen]         = useState(false);
+
+  const isActive = impersonatingAs === email;
+
+  async function start() {
+    setChecking(true);
+    try {
+      const data: ImpersonationTarget = await api.get(
+        `/admin/impersonation/validate?email=${encodeURIComponent(email)}`
+      );
+      setPreview(data);
+      setOpen(true);
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Could not validate user");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function confirm() {
+    if (!preview?.allowed) return;
+    startImpersonation(email, displayName);
+    setOpen(false);
+    qc.invalidateQueries({ queryKey: ["me"] });
+    qc.clear();
+    // Reload to re-render the full app under the impersonated permissions.
+    window.location.href = "/";
+  }
+
+  function stop() {
+    stopImpersonation();
+    qc.invalidateQueries({ queryKey: ["me"] });
+    qc.clear();
+    window.location.reload();
+  }
+
+  return (
+    <div className="pt-2 border-t border-[#D9D5D0] dark:border-[#363944] space-y-2">
+      <p className="text-xs font-semibold text-meta uppercase tracking-wider">Impersonation</p>
+      <p className="text-xs text-meta">
+        View the portal exactly as this user sees it. Every action you take
+        is logged under your account with a proxy marker.
+      </p>
+
+      {isActive ? (
+        <button onClick={stop} className="btn-secondary text-sm flex items-center gap-1.5 w-full justify-center">
+          <LogOut className="w-4 h-4" aria-hidden />
+          Exit view as {displayName}
+        </button>
+      ) : (
+        <button
+          onClick={start}
+          disabled={checking}
+          className="btn-secondary text-sm flex items-center gap-1.5 w-full justify-center disabled:opacity-50"
+        >
+          {checking
+            ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            : <UserCheck className="w-4 h-4" aria-hidden />}
+          View as {displayName}
+        </button>
+      )}
+
+      {/* Confirmation modal */}
+      {open && preview && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" role="alertdialog">
+          <div className="card max-w-sm w-full space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEF3C7] dark:bg-[#2A1F00] flex items-center justify-center flex-shrink-0">
+                <Eye className="w-5 h-5 text-[#92400E] dark:text-[#FCD34D]" aria-hidden />
+              </div>
+              <div>
+                <h2 className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
+                  View as {preview.display_name}?
+                </h2>
+                <p className="text-xs text-meta mt-0.5">{preview.email} · {preview.role}</p>
+              </div>
+            </div>
+
+            {preview.allowed ? (
+              <>
+                <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
+                  You will see the portal as <strong>{preview.display_name}</strong> sees it.
+                  Every action you take will be logged as{" "}
+                  <code className="text-xs font-mono">you [acting as {preview.email}]</code>.
+                  The impersonation ends when you click Exit or close the tab.
+                </p>
+                <div className="rounded-lg bg-[#FFFBEB] dark:bg-[#2A1F00] border border-[#FCD34D]/50 px-3 py-2 text-xs text-[#92400E] dark:text-[#FCD34D]">
+                  ⚠️ You will be redirected to the dashboard as this user.
+                  Destructive actions (deletes, world switches) will still execute against the real server.
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setOpen(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+                  <button onClick={confirm} className="btn-primary flex-1 text-sm flex items-center justify-center gap-1.5">
+                    <UserCheck className="w-4 h-4" aria-hidden />
+                    Start session
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-[#F87171]">{preview.reason ?? "Not allowed."}</p>
+                <button onClick={() => setOpen(false)} className="btn-secondary w-full text-sm">Close</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

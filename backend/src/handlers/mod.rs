@@ -1,5 +1,6 @@
 pub mod audit_log;
 pub mod auth;
+pub mod impersonation;
 pub mod modrinth_settings;
 pub mod plugins;
 pub mod backups;

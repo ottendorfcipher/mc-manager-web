@@ -55,7 +55,7 @@ pub async fn invite(
     let user = users::create(&state.pool, &actor.email, body).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "invite_user",
         Some(&user.email),
         None,
@@ -105,7 +105,7 @@ pub async fn update(
     if let Some(name) = &body.display_name {
         users::update_display_name(&state.pool, &email, name).await?;
     }
-    audit::log(&state.pool, &actor.email, "update_user", Some(&email), None).await?;
+    audit::log(&state.pool, &actor.audit_actor(), "update_user", Some(&email), None).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -128,7 +128,7 @@ pub async fn remove(
         ));
     }
     users::remove(&state.pool, &email).await?;
-    audit::log(&state.pool, &actor.email, "remove_user", Some(&email), None).await?;
+    audit::log(&state.pool, &actor.audit_actor(), "remove_user", Some(&email), None).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
