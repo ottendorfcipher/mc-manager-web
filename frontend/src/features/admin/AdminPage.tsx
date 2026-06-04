@@ -224,7 +224,6 @@ export function AdminPage() {
 
 function MapSettingsTab() {
   const qc = useQueryClient();
-  const { showConfigureNav, setShowConfigureNav } = useNavPrefsStore();
 
   const { data: settings, isLoading } = useQuery<BlueMapSettings>({
     queryKey: ["bluemap-settings"],
@@ -241,41 +240,6 @@ function MapSettingsTab() {
 
   return (
     <div className="space-y-4">
-      {/* ── Configure tab visibility ──────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-1">
-          Navigation
-        </h3>
-        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mb-3">
-          Control which pages appear in the sidebar. Changes apply immediately to this device.
-        </p>
-        <div className="card flex items-start justify-between gap-4">
-          <div>
-            <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
-              Show Configure in sidebar
-            </p>
-            <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB] mt-1">
-              Exposes the server.properties editor in the navigation. Off by default —
-              enable when you need to adjust server settings.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowConfigureNav(!showConfigureNav)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-              showConfigureNav ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"
-            }`}
-            aria-pressed={showConfigureNav}
-            aria-label="Toggle Configure in sidebar"
-          >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                showConfigureNav ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </div>
-      </div>
-
       {/* ── BlueMap ──────────────────────────────────────────────────── */}
       <div>
         <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] mb-1">
@@ -330,6 +294,54 @@ function IntegrationsTab() {
       </div>
       <DiscordSettingsPanel />
       <ModrinthSettingsPanel />
+      <NavigationPrefsPanel />
+    </div>
+  );
+}
+
+// ── Navigation preferences ────────────────────────────────────────────────────
+// Configure page is opt-in — hidden by default so it doesn't clutter the nav
+// for admins who don't need server.properties access on every visit.
+
+function NavigationPrefsPanel() {
+  const { showConfigureNav, setShowConfigureNav } = useNavPrefsStore();
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 flex-shrink-0 rounded-lg bg-[#F7F5F2] dark:bg-[#1E212B]
+                        flex items-center justify-center">
+          <Package className="w-5 h-5 text-meta" aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+            Navigation Preferences
+          </p>
+          <p className="text-xs text-meta mt-0.5">
+            Controls which pages appear in your sidebar. Changes apply only to this device.
+          </p>
+        </div>
+      </div>
+      <div className="flex items-start gap-4 rounded-lg bg-[#F7F5F2] dark:bg-[#1E212B] px-4 py-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">Show Configure in sidebar</p>
+          <p className="text-xs text-meta mt-0.5">
+            Exposes the <code className="font-mono text-[10px]">server.properties</code> editor.
+            Off by default — enable only when adjusting server settings.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={showConfigureNav}
+          aria-label="Show Configure page in navigation"
+          onClick={() => setShowConfigureNav(!showConfigureNav)}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors
+            focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
+            ${showConfigureNav ? "bg-[#5B9BF0]" : "bg-[#9B9EA6]"}`}
+        >
+          <span className={`inline-block h-5 w-5 mt-0.5 rounded-full bg-white shadow transition-transform
+            ${showConfigureNav ? "translate-x-5" : "translate-x-0.5"}`} />
+        </button>
+      </div>
     </div>
   );
 }
