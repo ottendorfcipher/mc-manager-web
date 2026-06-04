@@ -157,6 +157,7 @@ export function PluginDetailPage() {
       {installing && (
         <InstallFlow
           projectKey={data.project_key}
+          pluginTitle={data.title}
           onClose={() => setInstalling(false)}
         />
       )}

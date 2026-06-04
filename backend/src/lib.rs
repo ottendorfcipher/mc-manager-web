@@ -352,6 +352,7 @@ pub fn build_router(state: AppState) -> Router {
         // Plugin system
         .route("/plugins/browse",           get(handlers::plugins::browse::browse))
         .route("/plugins/detail/:key",      get(handlers::plugins::detail::detail))
+        .route("/plugins/preview/:key",     get(handlers::plugins::preview::preview))
         .route("/plugins/install",          post(handlers::plugins::install::install))
         .route("/plugins/installed",        get(handlers::plugins::installed::list))
         .route("/plugins/installed/:filename", delete(handlers::plugins::installed::remove))

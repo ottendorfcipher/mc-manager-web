@@ -4,7 +4,7 @@ import { Users, Clock, Cpu, Brain, ServerCrash, Activity } from "lucide-react";
 import { api } from "@/api/client";
 import { useMetrics } from "@/hooks/useMetrics";
 import { StatusDot } from "@/components/Badge";
-import { TailscaleStatusBanner } from "./TailscaleStatusBanner";
+
 import type { ServerStatus } from "@/types";
 
 function MetricTile({
@@ -101,9 +101,6 @@ export function DashboardPage() {
           Live overview of your Minecraft server
         </p>
       </div>
-
-      {/* "Your device isn't on the VPN" warning, only when relevant. */}
-      <TailscaleStatusBanner />
 
       {/* Status row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">

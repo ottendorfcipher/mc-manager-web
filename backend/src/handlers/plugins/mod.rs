@@ -1,5 +1,6 @@
 pub mod browse;
 pub mod detail;
+pub mod preview;
 pub mod install;
 pub mod installed;
 pub mod jobs;

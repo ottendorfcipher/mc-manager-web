@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, CheckCircle, AlertCircle, Loader2, RotateCcw, Zap } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Loader2, RotateCcw, Zap, Package, AlertTriangle } from "lucide-react";
 import { api } from "@/api/client";
 import { PLUGIN_VOCAB, jobStateLabel, isTerminalState } from "./vocab";
 import type { JobState } from "./vocab";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface PluginJob {
   id:             number;
@@ -17,10 +19,32 @@ interface PluginJob {
   finished_at:    string | null;
 }
 
-interface InstallFlowProps {
-  projectKey: string;
-  onClose:    () => void;
+interface DepInfo {
+  project_id:   string;
+  title:        string;
+  is_installed: boolean;
 }
+
+interface ConflictInfo {
+  project_id: string;
+  title:      string;
+}
+
+interface DependencyPreview {
+  missing_deps:   DepInfo[];
+  satisfied_deps: DepInfo[];
+  conflicts:      ConflictInfo[];
+  can_install:    boolean;
+  version:        string | null;
+}
+
+interface InstallFlowProps {
+  projectKey:  string;
+  pluginTitle?: string;
+  onClose:     () => void;
+}
+
+// ── Pipeline steps (shown as animated checklist) ─────────────────────────────
 
 const PIPELINE_STEPS: JobState[] = [
   "resolving",
@@ -35,11 +59,6 @@ function stepIndex(state: JobState): number {
   return PIPELINE_STEPS.indexOf(state);
 }
 
-const startInstall = (projectKey: string, autoRestart: boolean): Promise<{ job_id: number }> =>
-  api.post("/plugins/install", { project_key: projectKey, auto_restart: autoRestart });
-
-const triggerRestart = (): Promise<unknown> => api.post("/plugins/restart", {});
-
 function StepList({ currentState }: { currentState: JobState }) {
   const current = stepIndex(currentState);
   return (
@@ -48,7 +67,6 @@ function StepList({ currentState }: { currentState: JobState }) {
         const done    = i < current;
         const active  = i === current;
         const pending = i > current;
-
         return (
           <li key={step} className={`flex items-center gap-3 text-sm ${pending ? "text-meta" : ""}`}>
             {done ? (
@@ -68,25 +86,68 @@ function StepList({ currentState }: { currentState: JobState }) {
   );
 }
 
-export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
-  const qc = useQueryClient();
-  const [jobId, setJobId]           = useState<number | null>(null);
-  const [autoRestart, setAutoRestart] = useState(false);
-  const [restarting, setRestarting] = useState(false);
+// ── API helpers ───────────────────────────────────────────────────────────────
 
-  const installMut = useMutation({
-    mutationFn: () => startInstall(projectKey, autoRestart),
-    onSuccess:  (data) => setJobId(data.job_id),
+const startInstall = (projectKey: string, autoRestart: boolean): Promise<{ job_id: number }> =>
+  api.post("/plugins/install", { project_key: projectKey, auto_restart: autoRestart });
+
+const triggerRestart = (): Promise<unknown> => api.post("/plugins/restart", {});
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+type Screen =
+  | "preview"       // fetching + showing dep preview
+  | "confirm_deps"  // user sees deps + must confirm
+  | "conflict"      // blocking conflict — can't install
+  | "installing"    // job running
+  | "restart"       // waiting for restart decision
+  | "done"
+  | "failed";
+
+export function InstallFlow({ projectKey, pluginTitle, onClose }: InstallFlowProps) {
+  const qc = useQueryClient();
+  const [screen,      setScreen]      = useState<Screen>("preview");
+  const [jobId,       setJobId]       = useState<number | null>(null);
+  const [autoRestart, setAutoRestart] = useState(false);
+  const [restarting,  setRestarting]  = useState(false);
+
+  // ── Fetch dependency preview ────────────────────────────────────────────────
+  const { data: preview, isLoading: previewLoading } = useQuery<DependencyPreview>({
+    queryKey: ["plugins/preview", projectKey],
+    queryFn:  () => api.get(`/plugins/preview/${encodeURIComponent(projectKey)}`),
+    staleTime: 60_000,
+    onSuccess: (data) => {
+      if (data.conflicts.length > 0) {
+        setScreen("conflict");
+      } else {
+        setScreen("confirm_deps");
+      }
+    },
   });
 
+  // ── Start install job ───────────────────────────────────────────────────────
+  const installMut = useMutation({
+    mutationFn: () => startInstall(projectKey, autoRestart),
+    onSuccess: (data) => {
+      setJobId(data.job_id);
+      setScreen("installing");
+    },
+  });
+
+  // ── Poll job ────────────────────────────────────────────────────────────────
   const { data: job } = useQuery<PluginJob>({
-    queryKey:       ["plugins/jobs", jobId],
-    queryFn:        () => api.get(`/plugins/jobs/${jobId}`),
-    enabled:        !!jobId,
+    queryKey:  ["plugins/jobs", jobId],
+    queryFn:   () => api.get(`/plugins/jobs/${jobId}`),
+    enabled:   !!jobId,
     refetchInterval: (query) => {
       const state = (query.state.data as PluginJob | undefined)?.state;
       if (!state || isTerminalState(state) || state === "restart_pending") return false;
       return 1000;
+    },
+    onSuccess: (data) => {
+      if (data.state === "done")            setScreen("done");
+      else if (data.state === "failed")     setScreen("failed");
+      else if (data.state === "restart_pending") setScreen("restart");
     },
   });
 
@@ -100,21 +161,12 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
     }
   }
 
-  const isLoading = installMut.isPending;
-  const state     = job?.state ?? null;
-  const failed    = state === "failed";
-  const done      = state === "done";
+  const title = pluginTitle ?? projectKey.replace("modrinth:", "");
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 z-50"
-        aria-hidden
-        onClick={onClose}
-      />
-
-      {/* Sheet */}
+      <div className="fixed inset-0 bg-black/50 z-50" aria-hidden onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -122,28 +174,116 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
         className="fixed inset-x-0 bottom-0 z-50 bg-white dark:bg-[#1C1E27] rounded-t-2xl shadow-2xl
                    max-w-lg mx-auto px-5 pt-5 pb-8 modal-enter"
       >
-        {/* Drag handle */}
         <div className="w-10 h-1 bg-[#D9D5D0] dark:bg-[#363944] rounded-full mx-auto mb-4" />
 
         <div className="flex items-center justify-between mb-5">
-          <h2 className="font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
-            {done ? "All done!" : failed ? "Something went wrong" : "Adding to server"}
+          <h2 className="font-semibold text-[#1C1E27] dark:text-[#EAECF0] truncate pr-4">
+            {screen === "done"     ? "All done!"
+           : screen === "failed"   ? "Something went wrong"
+           : screen === "conflict" ? "Can't install"
+           : title}
           </h2>
-          <button
-            onClick={onClose}
-            className="icon-btn"
-            aria-label="Close"
-          >
+          <button onClick={onClose} className="icon-btn flex-shrink-0" aria-label="Close">
             <X className="w-4 h-4" aria-hidden />
           </button>
         </div>
 
-        {/* Pre-start */}
-        {!jobId && !isLoading && (
+        {/* ── Preview loading ──────────────────────────────────────────────── */}
+        {screen === "preview" && previewLoading && (
+          <div className="space-y-3 py-2">
+            {["Checking compatibility…", "Finding required helpers…", "Checking for conflicts…"].map((s) => (
+              <div key={s} className="flex items-center gap-3 text-sm text-meta">
+                <Loader2 className="w-4 h-4 text-[#5B9BF0] animate-spin flex-shrink-0" aria-hidden />
+                {s}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Conflict — blocking ──────────────────────────────────────────── */}
+        {screen === "conflict" && preview && (
           <div className="space-y-4">
-            <p className="text-sm text-meta">
-              We'll save a safety copy of your server first, then add the add-on.
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-[#F87171] flex-shrink-0 mt-0.5" aria-hidden />
+              <p className="text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+                <span className="font-semibold">{title}</span>{" "}
+                {PLUGIN_VOCAB.incompatible_with}:
+              </p>
+            </div>
+            <ul className="space-y-1 ml-8">
+              {preview.conflicts.map((c) => (
+                <li key={c.project_id} className="flex items-center gap-2 text-sm">
+                  <AlertCircle className="w-3.5 h-3.5 text-[#F87171]" aria-hidden />
+                  <span className="font-medium text-[#1C1E27] dark:text-[#EAECF0]">{c.title}</span>
+                  <span className="text-meta text-xs">is already installed</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-meta">
+              Remove the conflicting plugin(s) first, then try again.
             </p>
+            <button onClick={onClose} className="btn-secondary w-full">Close</button>
+          </div>
+        )}
+
+        {/* ── Dependency confirmation ──────────────────────────────────────── */}
+        {screen === "confirm_deps" && preview && (
+          <div className="space-y-4">
+            {/* Missing deps that will be auto-installed */}
+            {preview.missing_deps.length > 0 && (
+              <div className="rounded-lg bg-[#EFF6FF] dark:bg-[#1E3A5F] p-3 space-y-2">
+                <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">
+                  This also needs {preview.missing_deps.length === 1
+                    ? "1 required helper"
+                    : `${preview.missing_deps.length} required helpers`}{" "}
+                  — we'll install them too:
+                </p>
+                <ul className="space-y-1.5">
+                  {preview.missing_deps.map((dep) => (
+                    <li key={dep.project_id} className="flex items-center gap-2 text-sm">
+                      <Package className="w-3.5 h-3.5 text-[#5B9BF0] flex-shrink-0" aria-hidden />
+                      <span className="font-medium text-[#1C1E27] dark:text-[#EAECF0]">
+                        {dep.title}
+                      </span>
+                      <span className="text-meta text-xs">{PLUGIN_VOCAB.dependency}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Already-satisfied deps (informational) */}
+            {preview.satisfied_deps.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-meta font-medium uppercase tracking-wider">
+                  Already installed
+                </p>
+                <ul className="space-y-1">
+                  {preview.satisfied_deps.map((dep) => (
+                    <li key={dep.project_id} className="flex items-center gap-2 text-sm text-meta">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" aria-hidden />
+                      {dep.title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* No deps at all */}
+            {preview.missing_deps.length === 0 && preview.satisfied_deps.length === 0 && (
+              <p className="text-sm text-meta">
+                No required helpers — this plugin is self-contained.
+                We'll save a safety copy of your server first.
+              </p>
+            )}
+
+            {/* Version */}
+            {preview.version && (
+              <p className="text-xs text-meta">
+                Version to install: <span className="font-mono">{preview.version}</span>
+              </p>
+            )}
+
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -155,27 +295,38 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
                 Restart server automatically when ready
               </span>
             </label>
+
             {installMut.error && (
               <p className="text-sm text-[#F87171]">
                 {(installMut.error as Error).message}
               </p>
             )}
-            <button
-              onClick={() => installMut.mutate()}
-              className="btn-primary w-full"
-            >
-              Add to server
-            </button>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => installMut.mutate()}
+                disabled={installMut.isPending}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {installMut.isPending && (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                )}
+                {preview.missing_deps.length > 0
+                  ? `Install ${preview.missing_deps.length + 1} plugins`
+                  : "Add to server"}
+              </button>
+              <button onClick={onClose} className="btn-secondary">Cancel</button>
+            </div>
           </div>
         )}
 
-        {/* In progress */}
-        {jobId && !done && !failed && state !== "restart_pending" && (
-          <StepList currentState={state ?? "resolving"} />
+        {/* ── Installing (pipeline progress) ──────────────────────────────── */}
+        {screen === "installing" && (
+          <StepList currentState={job?.state ?? "resolving"} />
         )}
 
-        {/* Restart pending */}
-        {state === "restart_pending" && (
+        {/* ── Restart pending ──────────────────────────────────────────────── */}
+        {screen === "restart" && (
           <div className="space-y-4">
             <div className="flex items-start gap-3">
               <Zap className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" aria-hidden />
@@ -204,21 +355,27 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
           </div>
         )}
 
-        {/* Done */}
-        {done && (
+        {/* ── Done ─────────────────────────────────────────────────────────── */}
+        {screen === "done" && (
           <div className="flex flex-col items-center gap-4 py-4">
             <CheckCircle className="w-12 h-12 text-emerald-500" aria-hidden />
             <p className="text-sm text-center text-meta">
-              The add-on is installed and running on your server.
+              {title} is installed and running on your server.
             </p>
-            <button onClick={() => { qc.invalidateQueries({ queryKey: ["plugins/installed"] }); onClose(); }} className="btn-primary">
+            <button
+              onClick={() => {
+                qc.invalidateQueries({ queryKey: ["plugins/installed"] });
+                onClose();
+              }}
+              className="btn-primary"
+            >
               Done
             </button>
           </div>
         )}
 
-        {/* Failed */}
-        {failed && (
+        {/* ── Failed ───────────────────────────────────────────────────────── */}
+        {screen === "failed" && (
           <div className="space-y-3">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-[#F87171] flex-shrink-0 mt-0.5" aria-hidden />
@@ -233,23 +390,18 @@ export function InstallFlow({ projectKey, onClose }: InstallFlowProps) {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={() => { setJobId(null); installMut.reset(); }}
+                onClick={() => {
+                  setJobId(null);
+                  installMut.reset();
+                  setScreen("confirm_deps");
+                }}
                 className="btn-secondary flex-1 flex items-center justify-center gap-2"
               >
                 <RotateCcw className="w-4 h-4" aria-hidden />
                 Try again
               </button>
-              <button onClick={onClose} className="btn-secondary flex-1">
-                Dismiss
-              </button>
+              <button onClick={onClose} className="btn-secondary flex-1">Dismiss</button>
             </div>
-          </div>
-        )}
-
-        {/* Loading spinner before jobId */}
-        {isLoading && (
-          <div className="flex justify-center py-6">
-            <Loader2 className="w-6 h-6 text-[#5B9BF0] animate-spin" aria-label="Starting install" />
           </div>
         )}
       </div>
