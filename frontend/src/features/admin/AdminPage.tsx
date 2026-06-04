@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavPrefsStore } from "@/store/auth";
-import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug, Package, Eye, EyeOff } from "lucide-react";
+import { UserPlus, X, Link, Users, Pickaxe, ShieldCheck, ChevronRight, Shield, ListChecks, Trash2, Map as MapIcon, Globe, Send, CheckCircle2, AlertTriangle, Loader2, Plug, Package, Eye, EyeOff, ClipboardList, RefreshCw, Menu } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -14,118 +14,210 @@ import { InvitePortal } from "./InvitePortal";
 import { ROLE_LEVELS }  from "@/types";
 import { toast } from "@/components/Toast";
 
-type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds" | "integrations";
+type Tab = "users" | "roles" | "pairing" | "permissions" | "whitelist" | "pending" | "map" | "worlds" | "integrations" | "audit";
 
-// ── AdminPage ───────────────────────────────────────────────────────────────────
+// ── Nav groups — organise 10 sections into 3 mental models ───────────────────
+// NNG: group by task, not by implementation. KLM-GOMS: fewer visual items =
+// lower scan cost per navigation action.
 
-export function AdminPage() {
+interface NavItem { id: Tab; label: string; Icon: React.ElementType; }
+interface NavGroup { label: string; items: NavItem[]; }
+
+function useAdminNavGroups() {
   const { user, hasPerm } = useAuthStore();
-  const [tab, setTab] = useState<Tab>("users");
-
+  const isGlobalAdmin    = user?.role === "global_admin";
   const canSeeUsers      = hasPerm("users.view") || hasPerm("users.invite") || hasPerm("users.remove");
   const canSeeRoles      = hasPerm("roles.view") || hasPerm("roles.create") || hasPerm("roles.edit");
-  const canManage        = hasPerm("users.invite") || hasPerm("users.remove");
   const canEditPerms     = hasPerm("roles.edit") || hasPerm("users.permissions.edit");
+  const canManage        = hasPerm("users.invite") || hasPerm("users.remove");
   const canManageWl      = hasPerm("server.whitelist.manage");
   const canSeePending    = hasPerm("players.pending.view") || hasPerm("players.pending.manage");
   const canSeeWorlds     = hasPerm("worlds.view");
   const canConfigDiscord = hasPerm("discord.configure");
-  const isGlobalAdmin    = user?.role === "global_admin";
 
-  const tabs = [
-    { id: "users"       as Tab, label: "Users",              Icon: Users,       show: canSeeUsers },
-    { id: "roles"       as Tab, label: "Roles",              Icon: Shield,      show: canSeeRoles },
-    { id: "pairing"     as Tab, label: "Minecraft Pairing",  Icon: Pickaxe,     show: canManage },
-    { id: "pending"     as Tab, label: "Pending Players",    Icon: UserPlus,    show: canSeePending },
-    { id: "whitelist"   as Tab, label: "MC Whitelist",       Icon: ListChecks,  show: canManageWl },
-    { id: "worlds"      as Tab, label: "Worlds",             Icon: Globe,       show: canSeeWorlds },
-    { id: "map"          as Tab, label: "Map",          Icon: MapIcon,     show: isGlobalAdmin },
-    { id: "integrations" as Tab, label: "Integrations",  Icon: Plug,        show: canConfigDiscord },
-    { id: "permissions"  as Tab, label: "Permissions",   Icon: ShieldCheck, show: canEditPerms },
-  ].filter((t) => t.show);
+  const groups: NavGroup[] = [
+    {
+      label: "Team & Access",
+      items: [
+        canSeeUsers    && { id: "users"       as Tab, label: "Users",             Icon: Users },
+        canSeeRoles    && { id: "roles"       as Tab, label: "Roles",             Icon: Shield },
+        canEditPerms   && { id: "permissions" as Tab, label: "Permissions",       Icon: ShieldCheck },
+        canManage      && { id: "pairing"     as Tab, label: "MC Pairing",        Icon: Pickaxe },
+        canSeePending  && { id: "pending"     as Tab, label: "Pending Players",   Icon: UserPlus },
+        canManageWl    && { id: "whitelist"   as Tab, label: "MC Whitelist",      Icon: ListChecks },
+      ].filter(Boolean) as NavItem[],
+    },
+    {
+      label: "Server",
+      items: [
+        canSeeWorlds && { id: "worlds" as Tab, label: "Worlds",  Icon: Globe },
+        isGlobalAdmin && { id: "map"   as Tab, label: "Map",     Icon: MapIcon },
+      ].filter(Boolean) as NavItem[],
+    },
+    {
+      label: "System",
+      items: [
+        canConfigDiscord && { id: "integrations" as Tab, label: "Integrations", Icon: Plug },
+        isGlobalAdmin    && { id: "audit"        as Tab, label: "Audit Log",    Icon: ClipboardList },
+      ].filter(Boolean) as NavItem[],
+    },
+  ].filter((g) => g.items.length > 0);
+
+  return groups;
+}
+
+// ── AdminPage ─────────────────────────────────────────────────────────────────
+
+export function AdminPage() {
+  const [tab,        setTab]        = useState<Tab>("users");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const groups = useAdminNavGroups();
+
+  // All flat items (for keyboard nav)
+  const allItems = groups.flatMap((g) => g.items);
+  const currentLabel = allItems.find((i) => i.id === tab)?.label ?? "Admin";
+
+  function navigate(id: Tab) {
+    setTab(id);
+    setDrawerOpen(false);
+  }
+
+  // Sidebar nav — shared between the inline sidebar and the mobile drawer
+  function SidebarNav({ onSelect }: { onSelect: (id: Tab) => void }) {
+    return (
+      <nav aria-label="Admin navigation" className="space-y-5">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <p className="text-[10px] uppercase tracking-widest font-semibold text-meta px-3 mb-1 select-none">
+              {group.label}
+            </p>
+            <ul className="space-y-0.5">
+              {group.items.map(({ id, label, Icon }) => (
+                <li key={id}>
+                  <button
+                    onClick={() => onSelect(id)}
+                    aria-current={tab === id ? "page" : undefined}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left
+                      ${tab === id
+                        ? "bg-[#5B9BF0] text-white"
+                        : "text-[#6B6E78] dark:text-[#9BA0B0] hover:bg-[#F0EDE9] dark:hover:bg-[#2F323D] hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+                      }`}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" aria-hidden />
+                    {label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    );
+  }
 
   return (
-    <div className="page-wide">
-      <div>
-        <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Admin Settings</h1>
-        <p className="text-sm text-[#6B6E78] dark:text-[#A8AEBB]">
-          Manage users, roles, Minecraft accounts, and permissions
-        </p>
-      </div>
-
-      {/* Tab bar — scrollable on mobile; role=tablist with Arrow-key navigation */}
-      <div className="-mx-4 sm:mx-0 overflow-x-auto">
-      <div
-        role="tablist"
-        aria-label="Admin sections"
-        className="flex gap-1 border-b border-[#D9D5D0] dark:border-[#363944] min-w-max sm:min-w-0 px-4 sm:px-0"
-        onKeyDown={(e) => {
-          const idx = tabs.findIndex((t) => t.id === tab);
-          if (e.key === "ArrowRight") setTab(tabs[(idx + 1) % tabs.length].id);
-          else if (e.key === "ArrowLeft") setTab(tabs[(idx - 1 + tabs.length) % tabs.length].id);
-        }}
-      >
-        {tabs.map(({ id, label, Icon }) => (
+    <div className="p-4 sm:p-6 max-w-screen-xl mx-auto">
+      {/* Page header — mobile shows section name + hamburger */}
+      <div className="flex items-center justify-between mb-4 lg:mb-6">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Mobile hamburger — only visible below lg */}
           <button
-            key={id}
-            role="tab"
-            aria-selected={tab === id}
-            aria-controls={`tabpanel-${id}`}
-            id={`tab-${id}`}
-            onClick={() => setTab(id)}
-            data-testid={`tab-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === id
-                ? "border-[#5B9BF0] text-[#5B9BF0]"
-                : "border-transparent text-sub hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
-            }`}
+            onClick={() => setDrawerOpen(true)}
+            className="icon-btn lg:hidden flex-shrink-0"
+            aria-label="Open admin menu"
+            aria-expanded={drawerOpen}
           >
-            <Icon className="w-4 h-4" aria-hidden />
-            {label}
+            <Menu className="w-5 h-5" aria-hidden />
           </button>
-        ))}
-      </div>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0] truncate">
+              <span className="hidden lg:inline">Admin — </span>{currentLabel}
+            </h1>
+            <p className="text-xs sm:text-sm text-meta mt-0.5 hidden sm:block">
+              Manage users, roles, server, and integrations
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div role="tabpanel" id="tabpanel-users"       aria-labelledby="tab-users"       hidden={tab !== "users"}><UsersTab /></div>
-      <div role="tabpanel" id="tabpanel-roles"       aria-labelledby="tab-roles"       hidden={tab !== "roles"}><RolesTab /></div>
-      <div role="tabpanel" id="tabpanel-pairing"     aria-labelledby="tab-pairing"     hidden={tab !== "pairing"}><MCPairingTab /></div>
-      <div role="tabpanel" id="tabpanel-pending"     aria-labelledby="tab-pending"     hidden={tab !== "pending"}>
-        {tab === "pending" && (
-          <details className="mb-3" open={false}>
-            <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
-              How it works
-            </summary>
-            <p className="mt-2 text-xs text-meta leading-relaxed">
-              Players who connect via Tailscale for the first time are placed in this queue.
-              Their first session is allowed; subsequent join attempts are blocked until an admin
-              links their in-game name (IGN) to a portal account. Once linked, they can join freely.
-            </p>
-          </details>
-        )}
-        <PendingPlayersTab />
+      {/* Mobile drawer */}
+      {drawerOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+            aria-hidden
+            onClick={() => setDrawerOpen(false)}
+          />
+          <aside
+            className="fixed top-0 left-0 h-full w-72 bg-white dark:bg-[#1C1E27] z-50 shadow-2xl
+                       drawer-enter overflow-y-auto p-5 lg:hidden"
+            aria-label="Admin menu"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <span className="font-bold text-[#1C1E27] dark:text-[#EAECF0]">Admin Settings</span>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="icon-btn"
+                aria-label="Close menu"
+              >
+                <X className="w-4 h-4" aria-hidden />
+              </button>
+            </div>
+            <SidebarNav onSelect={navigate} />
+          </aside>
+        </>
+      )}
+
+      {/* Two-column layout: sidebar (lg+) + content */}
+      <div className="flex gap-6">
+        {/* Sidebar — hidden on mobile/tablet, shown on lg+ */}
+        <aside className="hidden lg:block w-52 flex-shrink-0">
+          <div className="sticky top-6">
+            <SidebarNav onSelect={navigate} />
+          </div>
+        </aside>
+
+        {/* Main content area */}
+        <main className="flex-1 min-w-0">
+          <div role="tabpanel" id="tabpanel-users"       aria-label="Users"             hidden={tab !== "users"}><UsersTab /></div>
+          <div role="tabpanel" id="tabpanel-roles"       aria-label="Roles"             hidden={tab !== "roles"}><RolesTab /></div>
+          <div role="tabpanel" id="tabpanel-pairing"     aria-label="MC Pairing"        hidden={tab !== "pairing"}><MCPairingTab /></div>
+          <div role="tabpanel" id="tabpanel-pending"     aria-label="Pending Players"   hidden={tab !== "pending"}>
+            {tab === "pending" && (
+              <details className="mb-3 card p-3" open={false}>
+                <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
+                  How it works
+                </summary>
+                <p className="mt-2 text-xs text-meta leading-relaxed">
+                  Players who connect via Tailscale for the first time are placed in this queue.
+                  Their first session is allowed; subsequent join attempts are blocked until an admin
+                  links their IGN to a portal account.
+                </p>
+              </details>
+            )}
+            <PendingPlayersTab />
+          </div>
+          <div role="tabpanel" id="tabpanel-whitelist"   aria-label="MC Whitelist"      hidden={tab !== "whitelist"}><MCWhitelistTab /></div>
+          <div role="tabpanel" id="tabpanel-worlds"      aria-label="Worlds"            hidden={tab !== "worlds"}>
+            {tab === "worlds" && (
+              <details className="mb-3 card p-3" open={false}>
+                <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
+                  How it works
+                </summary>
+                <p className="mt-2 text-xs text-meta leading-relaxed">
+                  Each world is stored in <code className="font-mono">/opt/minecraft/worlds/&#123;slug&#125;/</code>.
+                  Switching saves the current world, then loads the target — the server restarts briefly (1–3 min).
+                </p>
+              </details>
+            )}
+            <WorldsTab />
+          </div>
+          <div role="tabpanel" id="tabpanel-map"          aria-label="Map"               hidden={tab !== "map"}><MapSettingsTab /></div>
+          <div role="tabpanel" id="tabpanel-integrations" aria-label="Integrations"      hidden={tab !== "integrations"}><IntegrationsTab /></div>
+          <div role="tabpanel" id="tabpanel-audit"        aria-label="Audit Log"         hidden={tab !== "audit"}><AuditLogTab /></div>
+          <div role="tabpanel" id="tabpanel-permissions"  aria-label="Permissions"       hidden={tab !== "permissions"}><PermissionsPage /></div>
+        </main>
       </div>
-      <div role="tabpanel" id="tabpanel-whitelist"   aria-labelledby="tab-whitelist"   hidden={tab !== "whitelist"}><MCWhitelistTab /></div>
-      <div role="tabpanel" id="tabpanel-worlds"      aria-labelledby="tab-worlds"      hidden={tab !== "worlds"}>
-        {tab === "worlds" && (
-          <details className="mb-3" open={false}>
-            <summary className="cursor-pointer text-xs font-semibold text-meta hover:text-sub select-none">
-              How it works
-            </summary>
-            <p className="mt-2 text-xs text-meta leading-relaxed">
-              Each world is a named slot stored in <code className="font-mono">/opt/minecraft/worlds/&#123;slug&#125;/</code> on the game
-              server. Only one world is active at a time. Switching saves the current world first,
-              then loads the target — the Minecraft service restarts briefly (1–3 min). Backups
-              are stored per-world under <code className="font-mono">/opt/minecraft/backups/&#123;slug&#125;/daily/</code>.
-            </p>
-          </details>
-        )}
-        <WorldsTab />
-      </div>
-      <div role="tabpanel" id="tabpanel-map"          aria-labelledby="tab-map"          hidden={tab !== "map"}><MapSettingsTab /></div>
-      <div role="tabpanel" id="tabpanel-integrations" aria-labelledby="tab-integrations" hidden={tab !== "integrations"}><IntegrationsTab /></div>
-      <div role="tabpanel" id="tabpanel-permissions"  aria-labelledby="tab-permissions"  hidden={tab !== "permissions"}><PermissionsPage /></div>
     </div>
   );
 }
@@ -1287,6 +1379,117 @@ function UserPairingCard({
           <Link className="w-3.5 h-3.5" aria-hidden />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Audit Log tab ─────────────────────────────────────────────────────────────
+
+interface AuditEntry {
+  id:         number;
+  actor:      string;
+  action:     string;
+  target:     string | null;
+  detail:     string | null;
+  created_at: string;
+}
+
+// Human-readable action labels following NNG plain-language heuristics.
+const ACTION_LABELS: Record<string, string> = {
+  create_backup:         "Created backup",
+  delete_world:          "Deleted world",
+  restore_backup:        "Restored backup",
+  delete_backup:         "Deleted backup",
+  create_world:          "Created world",
+  activate_world:        "Activated world",
+  create_world_backup:   "Created world backup",
+  update_world_members:  "Updated world members",
+  create_dimension:      "Created dimension",
+  whitelist_add:         "Added to whitelist",
+  whitelist_remove:      "Removed from whitelist",
+  onboarding_invite:     "Sent invite",
+  op_add:                "Granted operator",
+  op_remove:             "Revoked operator",
+  ban_add:               "Banned player",
+  ban_remove:            "Unbanned player",
+  create_backup_now:     "Created manual backup",
+  restore_backup_now:    "Restored backup",
+};
+
+function formatAction(action: string): string {
+  return ACTION_LABELS[action] ?? action.replace(/_/g, " ");
+}
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function AuditLogTab() {
+  const qc = useQueryClient();
+
+  const { data: entries = [], isLoading } = useQuery<AuditEntry[]>({
+    queryKey: ["audit-log"],
+    queryFn:  () => api.get("/admin/audit-log?limit=200"),
+    staleTime: 30_000,
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-[#1C1E27] dark:text-[#EAECF0]">Audit Log</h2>
+          <p className="text-sm text-meta mt-0.5">
+            All security-relevant actions taken by team members.
+          </p>
+        </div>
+        <button
+          onClick={() => qc.invalidateQueries({ queryKey: ["audit-log"] })}
+          className="icon-btn"
+          aria-label="Refresh audit log"
+          title="Refresh"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-10">
+          <div className="w-6 h-6 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="text-sm text-meta text-center py-10">No audit entries yet.</p>
+      ) : (
+        <div className="card p-0 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-[#F7F5F2] dark:bg-[#1E212B] border-b border-[#D9D5D0] dark:border-[#363944]">
+              <tr>
+                <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-meta font-semibold">When</th>
+                <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-meta font-semibold">Who</th>
+                <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-meta font-semibold">Action</th>
+                <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-wider text-meta font-semibold hidden sm:table-cell">Target</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
+              {entries.map((e) => (
+                <tr key={e.id} className="hover:bg-[#F7F5F2] dark:hover:bg-[#1E212B] transition-colors">
+                  <td className="px-4 py-2.5 text-xs text-meta whitespace-nowrap">{fmtTime(e.created_at)}</td>
+                  <td className="px-4 py-2.5 truncate max-w-[120px]">
+                    <span className="text-xs font-mono text-[#1C1E27] dark:text-[#EAECF0]" title={e.actor}>
+                      {e.actor.split("@")[0]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-[#1C1E27] dark:text-[#EAECF0]">{formatAction(e.action)}</td>
+                  <td className="px-4 py-2.5 text-xs text-meta hidden sm:table-cell truncate max-w-[140px]" title={e.target ?? ""}>{e.target ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+pub mod audit_log;
 pub mod auth;
 pub mod modrinth_settings;
 pub mod plugins;
