@@ -11,8 +11,9 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Film, Plus, Trash2, Pencil, Eye, X, ChevronUp, ChevronDown,
-  Bold, Italic, GripVertical,
+  Bold, Italic, GripVertical, Heading2, AlignLeft, Minus,
 } from "lucide-react";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { api } from "@/api/client";
 import type { ScrollingCredits, CreditLine } from "@/types";
 
@@ -422,41 +423,51 @@ function LineRow({
         </button>
       </div>
 
-      {/* Type selector */}
-      <select
+      {/* Line type — 3 fixed options, segmented control */}
+      <SegmentedControl
+        label="Line type"
+        size="sm"
         value={line.type}
-        onChange={(e) => {
-          const t = e.target.value as CreditLine["type"];
+        onChange={(t) => {
           const patch: Partial<CreditLine> = { type: t };
           if (t === "heading") { patch.bold = true; patch.color = "gold"; }
           if (t === "blank") { patch.text = undefined; }
           if (t === "line" && !line.text) { patch.text = ""; }
           onChange(patch);
         }}
-        className={`${INPUT} w-[82px] text-[10px] flex-shrink-0`}
-      >
-        <option value="heading">Heading</option>
-        <option value="line">Line</option>
-        <option value="blank">Blank</option>
-      </select>
+        options={[
+          { value: "heading" as const, label: "H",    icon: Heading2,  title: "Heading — large centered title" },
+          { value: "line"    as const, label: "Text",  icon: AlignLeft, title: "Text line — scrolls in chat" },
+          { value: "blank"   as const, label: "—",     icon: Minus,     title: "Blank spacer line" },
+        ]}
+      />
 
       {line.type !== "blank" ? (
         <>
-          {/* Color */}
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <span
-              className="w-3 h-3 rounded-sm border border-[#D9D5D0] dark:border-[#555]"
+          {/* Color — swatch picker (pattern recognition, no label needed) */}
+          <div className="relative flex-shrink-0 group">
+            <button
+              type="button"
+              title={`Color: ${line.color}`}
+              className="w-6 h-6 rounded border-2 border-[#D9D5D0] dark:border-[#555]
+                         hover:border-[#5B9BF0] transition-colors"
               style={{ backgroundColor: colorHex(line.color) }}
             />
-            <select
-              value={line.color}
-              onChange={(e) => onChange({ color: e.target.value })}
-              className={`${INPUT} w-[90px] text-[10px]`}
-            >
+            <div className="absolute top-full left-0 mt-1 z-50 hidden group-focus-within:grid group-hover:grid
+                            grid-cols-8 gap-0.5 p-1.5 rounded-lg shadow-xl
+                            bg-white dark:bg-[#1C1E27] border border-[#D9D5D0] dark:border-[#363944]">
               {MC_COLORS.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onClick={() => onChange({ color: c.value })}
+                  className={`w-5 h-5 rounded transition-transform hover:scale-125
+                    ${line.color === c.value ? "ring-2 ring-[#5B9BF0] ring-offset-1" : ""}`}
+                  style={{ backgroundColor: c.hex }}
+                />
               ))}
-            </select>
+            </div>
           </div>
 
           {/* Bold / Italic */}

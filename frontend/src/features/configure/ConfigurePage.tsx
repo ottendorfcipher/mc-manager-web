@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Download, Save, RefreshCw, Upload } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
+import { SegmentedControl } from "@/components/SegmentedControl";
 
 type SettingDef =
   | { type: "toggle"; key: string; label: string; desc: string; locked?: boolean; lockMsg?: string }
@@ -184,11 +185,24 @@ export function ConfigurePage() {
             </button>
           )}
           {s.type === "select" && (
-            <select disabled={locked} value={val}
-              onChange={(e) => set(s.key, e.target.value)}
-              className="rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-2 py-1 text-sm disabled:opacity-50">
-              {s.options.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
+            // ≤5 options: segmented control (recognition over recall, all visible).
+            // >5 options: keep native select (too many to show inline).
+            s.options.length <= 5 ? (
+              <SegmentedControl
+                label={s.label}
+                size="sm"
+                disabled={locked}
+                value={val || s.options[0]}
+                onChange={(v) => set(s.key, v)}
+                options={s.options.map((o) => ({ value: o, label: o }))}
+              />
+            ) : (
+              <select disabled={locked} value={val}
+                onChange={(e) => set(s.key, e.target.value)}
+                className="rounded-lg border border-[#D9D5D0] dark:border-[#363944] bg-white dark:bg-[#2A2D38] px-2 py-1 text-sm disabled:opacity-50">
+                {s.options.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            )
           )}
           {s.type === "slider" && (
             <div className="flex items-center gap-2 w-full sm:w-48">

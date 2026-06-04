@@ -18,8 +18,9 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass, Tag,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Sword, Wand2, Footprints, Eye,
 } from "lucide-react";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { RoleBadge } from "@/components/Badge";
@@ -187,21 +188,24 @@ function PlayerSettings({
       {/* Alias */}
       {(isSelf || canAdmin) && <AliasEditor ign={ign} />}
 
-      {/* Gamemode */}
+      {/* Gamemode — segmented control: 4 fixed options, recognition > recall */}
       {canChangeGm && (
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold w-14 flex-shrink-0">Gamemode</span>
-          <select
-            value={link.gamemode}
-            onChange={(e) => onChangeGm(e.target.value)}
+        <div className="space-y-1">
+          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold">Gamemode</span>
+          <SegmentedControl
+            label={`${ign} gamemode`}
+            size="sm"
+            fullWidth
             disabled={gmPending}
-            aria-label={`${ign} gamemode`}
-            className="flex-1 h-7 rounded-md bg-white dark:bg-[#1C1E27] border border-[#D9D5D0]
-                       dark:border-[#363944] text-xs text-[#1C1E27] dark:text-[#EAECF0] px-2
-                       focus:outline-none focus:ring-1 focus:ring-[#5B9BF0] disabled:opacity-50"
-          >
-            {GAMEMODES.map((m) => <option key={m} value={m}>{GM_LABEL[m]}</option>)}
-          </select>
+            value={link.gamemode as Gamemode}
+            onChange={onChangeGm}
+            options={[
+              { value: "survival",  label: "Survival",  icon: Sword,    title: "Survival — normal gameplay, health & hunger" },
+              { value: "creative",  label: "Creative",  icon: Wand2,    title: "Creative — fly, unlimited resources" },
+              { value: "adventure", label: "Adventure", icon: Footprints, title: "Adventure — explore, limited block breaking" },
+              { value: "spectator", label: "Spectator", icon: Eye,      title: "Spectator — invisible observer" },
+            ]}
+          />
         </div>
       )}
 

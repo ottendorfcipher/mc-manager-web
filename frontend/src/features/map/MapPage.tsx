@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin as MapPinIcon, Users, Plus, Globe, Flame, Moon,
-         Eye, EyeOff, Trash2, Edit2 } from "lucide-react";
+         Eye, EyeOff, Trash2, Edit2, Lock, Users2 } from "lucide-react";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import type { BlueMapSettings, MapPin, PlayerSnapshot, McPlayer } from "@/types";
@@ -100,32 +101,47 @@ function PinForm({
         className="input-sm w-full resize-none"
         rows={2}
       />
-      <div className="grid grid-cols-2 gap-2">
-        <select
-          value={v.icon}
-          onChange={(e) => setV({ ...v, icon: e.target.value })}
-          className="input-sm"
-        >
+      {/* Icon — emoji button grid (recognition > recall, no hidden options) */}
+      <div className="space-y-1">
+        <p className="text-[10px] uppercase tracking-wider text-meta font-semibold">Icon</p>
+        <div className="flex gap-1.5 flex-wrap">
           {ICON_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>{o.label}</option>
+            <button
+              key={o.id}
+              type="button"
+              title={o.label}
+              onClick={() => setV({ ...v, icon: o.id })}
+              className={`w-9 h-9 rounded-lg text-lg flex items-center justify-center transition-all
+                ${v.icon === o.id
+                  ? "bg-[#5B9BF0] ring-2 ring-[#5B9BF0] ring-offset-1"
+                  : "bg-[#F0EDE9] dark:bg-[#2A2D38] hover:bg-[#E5E0DB] dark:hover:bg-[#363944]"}`}
+            >
+              {ICON_EMOJI[o.id]}
+            </button>
           ))}
-        </select>
-        <select
-          value={v.visibility}
-          onChange={(e) => setV({ ...v, visibility: e.target.value as "private" | "team" })}
-          className="input-sm"
-        >
-          <option value="private">🔒 Private</option>
-          <option value="team">🌐 Team</option>
-        </select>
+        </div>
       </div>
-      <select
+      {/* Visibility — 2 options: segmented toggle */}
+      <SegmentedControl
+        label="Visibility"
+        size="sm"
+        fullWidth
+        value={v.visibility}
+        onChange={(val) => setV({ ...v, visibility: val })}
+        options={[
+          { value: "private" as const, label: "Private", icon: Lock,   title: "Only visible to you" },
+          { value: "team"    as const, label: "Team",    icon: Users2, title: "Visible to all team members" },
+        ]}
+      />
+      {/* Dimension — 3 options: segmented control with icons */}
+      <SegmentedControl
+        label="Dimension"
+        size="sm"
+        fullWidth
         value={v.dimension}
-        onChange={(e) => setV({ ...v, dimension: e.target.value })}
-        className="input-sm w-full"
-      >
-        {DIM_MAP.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-      </select>
+        onChange={(val) => setV({ ...v, dimension: val })}
+        options={DIM_MAP.map((d) => ({ value: d.id, label: d.label, icon: d.icon }))}
+      />
       <div className="flex gap-2">
         <button
           onClick={() => onSubmit(v)}
