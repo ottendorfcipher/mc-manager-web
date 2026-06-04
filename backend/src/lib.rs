@@ -14,6 +14,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod minecraft;
 pub mod state;
+pub mod validation;
 
 // Re-export for integration tests and main.rs
 pub use db::settings;
@@ -26,13 +27,30 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    GovernorLayer,
+};
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::CorsLayer,
     trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
 use tracing::Level;
 
 pub fn build_router(state: AppState) -> Router {
+    // Rate limiting: 60 requests per minute per IP for the general API,
+    // burst up to 20.  This is intentionally permissive for a private server
+    // (all users are trusted staff) — the goal is bot/scanner prevention
+    // rather than strict throttling.
+    let governor_conf = std::sync::Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(1)        // refill 1 token/second
+            .burst_size(60)       // max burst: 60 requests
+            .use_headers()        // return Retry-After + X-RateLimit-* headers
+            .finish()
+            .unwrap(),
+    );
+
     let api = Router::new()
         // Auth
         .route("/me", get(handlers::auth::me))
@@ -278,6 +296,9 @@ pub fn build_router(state: AppState) -> Router {
             "/users/:email/tailscale-invite",
             post(handlers::onboarding::tailscale_invite_existing),
         )
+        // Audit log
+        .route("/admin/audit-log", get(handlers::audit_log::list_global))
+        .route("/me/audit-log",    get(handlers::audit_log::list_own))
         // Discord integration settings (global_admin only)
         .route(
             "/admin/discord-settings",
@@ -392,14 +413,44 @@ pub fn build_router(state: AppState) -> Router {
                 .on_response(DefaultOnResponse::new().level(Level::DEBUG))
                 .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
         )
+        // CORS — only the production origin and localhost dev server may call the API.
+        // `allow_credentials(true)` is required for the session cookie to be sent
+        // cross-origin (e.g. Vite dev proxy on a different port).  With credentials
+        // enabled, `allow_origin(Any)` is forbidden by the CORS spec — we must
+        // enumerate origins explicitly.
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_headers(Any)
-                .allow_methods(Any),
+                .allow_origin([
+                    "https://example.com".parse().unwrap(),
+                    "https://www.example.com".parse().unwrap(),
+                    // Local dev — Vite proxy; never reaches production
+                    "https://localhost:5173".parse().unwrap(),
+                    "http://localhost:5173".parse().unwrap(),
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::ACCEPT,
+                    axum::http::header::COOKIE,
+                ])
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_credentials(true),
         )
         .layer(axum::middleware::from_fn(
             crate::middleware::tailscale_guard,
         ))
+        // Security headers on every response (CSP, HSTS, X-Frame-Options, etc.)
+        .layer(axum::middleware::from_fn(
+            crate::middleware::security_headers,
+        ))
+        // Rate limiting: per-IP, 60 req/min burst, 1 req/s refill.
+        .layer(GovernorLayer { config: governor_conf })
         .with_state(state)
 }

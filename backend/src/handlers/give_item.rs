@@ -11,6 +11,7 @@ use crate::{
     error::{AppError, Result},
     minecraft::give_item,
     state::AppState,
+    validation,
 };
 
 #[derive(Deserialize)]
@@ -40,9 +41,8 @@ pub async fn give(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "players.give_items")?;
 
-    if body.item_id.trim().is_empty() {
-        return Err(AppError::BadRequest("item_id is required".into()));
-    }
+    validation::validate_ign(&ign)?;
+    validation::validate_item_id(body.item_id.trim())?;
 
     // Use client-supplied UUID first; fall back to snapshot lookup.
     let uuid_owned: Option<String> = if let Some(u) = body.uuid.filter(|s| !s.is_empty()) {

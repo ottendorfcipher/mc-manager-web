@@ -14,6 +14,7 @@ axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
 axum-extra = { version = "0.9", features = ["cookie", "cookie-signed"] }
 tower = { version = "0.4" }
 tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip"] }
+tower_governor = { version = "0.4", features = ["axum"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
