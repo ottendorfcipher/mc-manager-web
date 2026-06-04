@@ -141,7 +141,12 @@ pub async fn set_gamerule(
     if !actor.can_control_server() {
         return Err(AppError::Forbidden("control_server required".into()));
     }
-    let applied = console::set_gamerule(&state.config, &rule, &body.value).await?;
+    // `difficulty` is a special case: MC uses `/difficulty <level>` not `/gamerule`.
+    let applied = if rule == "difficulty" {
+        crate::gcloud::ssh::fifo_command(&state.config, &format!("difficulty {}", body.value)).await?
+    } else {
+        console::set_gamerule(&state.config, &rule, &body.value).await?
+    };
     // Persist so the UI can reflect the correct value on next load.
     let _ = world_gamerules::upsert(&state.pool, &rule, &body.value, &actor.email).await;
     Ok(Json(serde_json::json!({ "applied": applied })))
