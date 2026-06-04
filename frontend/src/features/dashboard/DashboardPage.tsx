@@ -17,14 +17,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Copy, Check, Users, Cpu, HardDrive, Clock, Music2,
-  MapPin, ChevronRight, Wifi, WifiOff, RefreshCw,
-  Pickaxe, Sword, Package, Heart,
+  Copy, Check, Users, Clock, Music2,
+  MapPin, ChevronRight, Wifi, Moon, RefreshCw,
+  Pickaxe, Sword, Package,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useMetrics } from "@/hooks/useMetrics";
-import { StatusDot } from "@/components/Badge";
 import type { ServerStatus, McPlayer, PlayerSnapshot, MusicState } from "@/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -270,18 +269,6 @@ export function DashboardPage() {
 
   return (
     <div className="page-wide space-y-5">
-      {/* ── Page header ────────────────────────────────────────────────────── */}
-      <div className="page-header">
-        <div>
-          <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Dashboard</h1>
-          <p className="text-sm text-meta mt-0.5">Live server overview</p>
-        </div>
-        <Link to="/configure" className="btn-secondary text-sm hidden sm:flex items-center gap-1.5">
-          <Package className="w-4 h-4" aria-hidden />
-          Configure
-        </Link>
-      </div>
-
       {/* ── Hero status bar — visibility of system status (NNG #1) ─────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -292,17 +279,13 @@ export function DashboardPage() {
             : "border-l-4 border-l-[#F87171]"}`}>
           {/* Status indicator cluster */}
           <div className="flex items-center gap-4 flex-1">
-            <div className="relative">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0
-                ${gameActive
-                  ? "bg-[#ECFDF5] dark:bg-[#052e16] text-[#36B37E]"
-                  : "bg-[#FEF2F2] dark:bg-[#3B1F1F] text-[#F87171]"}`}>
-                {gameActive ? "🟢" : "🔴"}
+            <div className="relative flex-shrink-0">
+              {/* Pulsing dot — the only active indicator */}
+              <div className={`w-3 h-3 rounded-full ${gameActive ? "bg-[#36B37E]" : "bg-[#F87171]"}`}>
+                {gameActive && (
+                  <span className="absolute inset-0 rounded-full bg-[#36B37E] animate-ping opacity-60" />
+                )}
               </div>
-              {gameActive && (
-                <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#36B37E]
-                                 ring-2 ring-white dark:ring-[#222530] animate-pulse" />
-              )}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -385,12 +368,17 @@ export function DashboardPage() {
             <RefreshCw className="w-3.5 h-3.5 text-meta" aria-hidden />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 justify-items-center">
-            <ArcGauge
-              value={metrics.players_online != null ? (metrics.players_online / 20) * 100 : 0}
-              color="#5B9BF0"
-              label="Players"
-              sublabel={`${metrics.players_online ?? 0} / 20`}
-            />
+            {/* Players: count + capacity — shown as number, not % */}
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-20 h-20 rounded-2xl bg-[#EFF6FF] dark:bg-[#1E3A5F] flex flex-col items-center justify-center gap-0.5">
+                <Users className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
+                <p className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0] leading-none">
+                  {metrics.players_online ?? 0}
+                </p>
+              </div>
+              <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]">Players</p>
+              <p className="text-[10px] text-meta">{metrics.players_online ?? 0} of 20</p>
+            </div>
             <ArcGauge
               value={metrics.jvm_mem_pct ?? null}
               color={
@@ -409,15 +397,21 @@ export function DashboardPage() {
               label="VM CPU"
               sublabel="all cores"
             />
-            <div className="flex flex-col items-center justify-center gap-2">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center
-                ${gameActive ? "bg-[#ECFDF5] dark:bg-[#052e16]" : "bg-[#F7F5F2] dark:bg-[#1E212B]"}`}>
-                <span className="text-2xl">{gameActive ? "⚡" : "💤"}</span>
+            {/* Uptime tile — clock icon, no emoji */}
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-20 h-20 rounded-2xl bg-[#F7F5F2] dark:bg-[#1E212B] flex flex-col items-center justify-center gap-0.5 px-1">
+                <Clock className="w-4 h-4 text-meta" aria-hidden />
+                {metrics.uptime_raw ? (
+                  <p className="text-sm font-bold text-[#1C1E27] dark:text-[#EAECF0] leading-none text-center">
+                    {(() => {
+                      const d = parseUptimeDate(metrics.uptime_raw);
+                      return d ? elapsedLabel(d, Date.now()) : "—";
+                    })()}
+                  </p>
+                ) : <p className="text-sm font-bold text-[#1C1E27] dark:text-[#EAECF0]">—</p>}
               </div>
-              <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]">Status</p>
-              <p className="text-[10px] text-meta capitalize">
-                {gameActive ? "Running" : "Offline"}
-              </p>
+              <p className="text-xs font-medium text-[#1C1E27] dark:text-[#EAECF0]">Uptime</p>
+              <p className="text-[10px] text-meta capitalize">{gameActive ? "running" : "offline"}</p>
             </div>
           </div>
         </div>
@@ -447,8 +441,8 @@ export function DashboardPage() {
 
           {online.length === 0 ? (
             <div className="flex flex-col items-center py-6 gap-2 text-meta">
-              <WifiOff className="w-8 h-8 opacity-20" aria-hidden />
-              <p className="text-sm">No players online</p>
+              <Moon className="w-8 h-8 opacity-20" aria-hidden />
+              <p className="text-sm">The server is quiet</p>
             </div>
           ) : (
             <ul className="space-y-2">
@@ -538,28 +532,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Quick links — KLM-GOMS one-click to any section ─────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {[
-          { to: "/players",  emoji: "🎒", label: "Inventory",  color: "bg-[#FEF3C7] dark:bg-[#2A2210]  text-[#B45309] dark:text-[#FBBF24]" },
-          { to: "/music",    emoji: "🎵", label: "Music",      color: "bg-[#EFF6FF] dark:bg-[#1E3A5F]  text-[#3B7DD8] dark:text-[#9CC1F5]" },
-          { to: "/map",      emoji: "🗺️", label: "Map",        color: "bg-[#ECFDF5] dark:bg-[#052e16]  text-[#059669] dark:text-[#6EE7B7]" },
-          { to: "/events",   emoji: "⚡", label: "Events",     color: "bg-[#FDF4FF] dark:bg-[#2E1A3B]  text-[#7C3AED] dark:text-[#C084FC]" },
-          { to: "/configure",emoji: "⚙️", label: "Configure",  color: "bg-[#F7F5F2] dark:bg-[#1E212B]  text-[#6B6E78] dark:text-[#A8AEBB]" },
-          { to: "/admin",    emoji: "🛡️", label: "Admin",      color: "bg-[#FEF2F2] dark:bg-[#3B1F1F]  text-[#DC2626] dark:text-[#FCA5A5]" },
-        ].map(({ to, emoji, label, color }) => (
-          <Link
-            key={to}
-            to={to}
-            className={`flex flex-col items-center gap-1.5 p-3 rounded-xl ${color}
-              hover:opacity-80 active:scale-95 transition-all duration-100
-              focus-visible:ring-2 focus-visible:ring-[#5B9BF0] outline-none`}
-          >
-            <span className="text-2xl">{emoji}</span>
-            <span className="text-xs font-medium">{label}</span>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
