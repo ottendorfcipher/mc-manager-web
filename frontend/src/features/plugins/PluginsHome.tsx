@@ -107,7 +107,8 @@ const HARDCODED_GOALS = [
 export function PluginsHome() {
   const [search, setSearch]         = useState("");
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
-  const [installKey, setInstallKey] = useState<string | null>(null);
+  const [installKey,   setInstallKey]   = useState<string | null>(null);
+  const [installTitle, setInstallTitle] = useState<string | undefined>(undefined);
 
   const { data, isLoading } = useQuery<BrowseResponse>({
     queryKey: ["plugins/browse", search, activeGoal],
@@ -115,8 +116,9 @@ export function PluginsHome() {
     staleTime: 60_000,
   });
 
-  function handleInstall(key: string) {
+  function handleInstall(key: string, title?: string) {
     setInstallKey(key);
+    setInstallTitle(title);
   }
 
   return (
@@ -196,7 +198,7 @@ export function PluginsHome() {
         {!isLoading && (
           <div className="space-y-2">
             {(data?.results ?? []).map((plugin) => (
-              <PluginCard key={plugin.project_key} plugin={plugin} onInstall={handleInstall} />
+              <PluginCard key={plugin.project_key} plugin={plugin} onInstall={() => handleInstall(plugin.project_key, plugin.title)} />
             ))}
             {!isLoading && (data?.results?.length ?? 0) === 0 && (
               <p className="text-sm text-meta text-center py-8">No add-ons found.</p>
@@ -209,7 +211,8 @@ export function PluginsHome() {
       {installKey && (
         <InstallFlow
           projectKey={installKey}
-          onClose={() => setInstallKey(null)}
+          pluginTitle={installTitle}
+          onClose={() => { setInstallKey(null); setInstallTitle(undefined); }}
         />
       )}
     </div>

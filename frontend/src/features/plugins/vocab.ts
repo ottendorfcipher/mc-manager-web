@@ -4,6 +4,7 @@ export const PLUGIN_VOCAB = {
   dependency:         "required helper",
   also_depends:       "also needs",
   incompatible:       "doesn't work alongside",
+  incompatible_with:  "doesn't work alongside plugins you already have",
   api_version_newer:  "built for a newer version of Minecraft than your server",
   not_tagged_current: "made for an older version — might work, might have hiccups",
 
