@@ -13,11 +13,12 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MapPin, Plus, Trash2, Pencil, Music2, Users, User, ChevronUp, ChevronDown,
-  X, CheckSquare, XSquare, TimerReset,
+  X, CheckSquare, XSquare, TimerReset, Globe, Flame, Moon,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { DiscIcon } from "@/components/DiscIcon";
 import { PartyChipBar } from "@/components/PartyChipBar";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import type { MusicZone, SoundEntry, McPlayer, ScrollingCredits } from "@/types";
 
 const INPUT = [
@@ -411,15 +412,18 @@ function ZoneForm({
       {/* Geometry: dimension + two corner points */}
       <div>
         <label className={LBL}>Dimension</label>
-        <select
+        <SegmentedControl
+          label="Dimension"
+          size="sm"
+          fullWidth
           value={dimension}
-          onChange={(e) => setDimension(e.target.value)}
-          className={`${INPUT} w-full sm:w-48`}
-        >
-          {DIMENSIONS.map((d) => (
-            <option key={d.value} value={d.value}>{d.label}</option>
-          ))}
-        </select>
+          onChange={setDimension}
+          options={[
+            { value: "minecraft:overworld",  label: "Overworld", icon: Globe  },
+            { value: "minecraft:the_nether", label: "Nether",    icon: Flame  },
+            { value: "minecraft:the_end",    label: "The End",   icon: Moon   },
+          ]}
+        />
       </div>
 
       <div className="space-y-2">

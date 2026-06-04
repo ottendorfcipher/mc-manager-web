@@ -10,10 +10,11 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DoorOpen, Plus, Trash2, Play, Users, User, X, Lock, CheckSquare, XSquare,
-  Hourglass, Rocket,
+  Hourglass, Rocket, Globe, Flame, Moon, Swords,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { PartyChipBar } from "@/components/PartyChipBar";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import type {
   LobbyWithAttendees, McPlayer, Countdown, RisingOcean, BountyBoard,
   CountdownState, RisingOceanState, BountyBoardState,
@@ -388,24 +389,25 @@ function LobbyForm({
         </div>
       </div>
 
-      {/* Linked event */}
+      {/* Linked event — 4 fixed types, segmented control */}
+      <div className="space-y-2">
+        <label className={LBL}>Launch type</label>
+        <SegmentedControl
+          label="Launch type"
+          size="sm"
+          fullWidth
+          value={linkType}
+          onChange={(val) => { setLinkType(val as CreateBody["linked_event_type"]); setLinkId(null); }}
+          options={[
+            { value: "manual"       as const, label: "Manual",       title: "No linked event — launch manually" },
+            { value: "countdown"    as const, label: "Countdown",    title: "Link to a countdown event" },
+            { value: "rising_oceans"as const, label: "Rising Oceans",title: "Link to a Rising Oceans event" },
+            { value: "bounty_board" as const, label: "Bounty Board", title: "Link to a Bounty Board event" },
+          ]}
+        />
+      </div>
       <div className="flex gap-3">
         <div className="flex-1">
-          <label className={LBL}>Launch type</label>
-          <select
-            value={linkType}
-            onChange={(e) => {
-              setLinkType(e.target.value as CreateBody["linked_event_type"]);
-              setLinkId(null);
-            }}
-            className={`${INPUT} w-full`}
-          >
-            <option value="manual">Manual (no event)</option>
-            <option value="countdown">Countdown</option>
-            <option value="rising_oceans">Rising Oceans</option>
-            <option value="bounty_board">Bounty Board</option>
-          </select>
-        </div>
         {linkType !== "manual" && (
           <div className="flex-1">
             <label className={LBL}>Pick event (must be pending)</label>
@@ -431,20 +433,22 @@ function LobbyForm({
       {/* Launch destination */}
       <div>
         <label className={LBL}>Where players land on launch</label>
-        <div className="grid grid-cols-4 gap-2">
-          <div>
-            <label className="block text-[9px] text-meta mb-0.5">Dimension</label>
-            <select
-              value={launchDim}
-              onChange={(e) => setLaunchDim(e.target.value)}
-              className={`${INPUT} w-full`}
-            >
-              <option value="minecraft:overworld">Overworld</option>
-              <option value="minecraft:the_nether">The Nether</option>
-              <option value="minecraft:the_end">The End</option>
-              <option value="redstonecipher:arena">Events Arena</option>
-            </select>
-          </div>
+        <div className="space-y-2 mb-2">
+          <SegmentedControl
+            label="Launch dimension"
+            size="sm"
+            fullWidth
+            value={launchDim}
+            onChange={setLaunchDim}
+            options={[
+              { value: "minecraft:overworld",  label: "Overworld", icon: Globe,  title: "The Overworld" },
+              { value: "minecraft:the_nether", label: "Nether",    icon: Flame,  title: "The Nether" },
+              { value: "minecraft:the_end",    label: "The End",   icon: Moon,   title: "The End" },
+              { value: "redstonecipher:arena", label: "Arena",     icon: Swords, title: "Events Arena dimension" },
+            ]}
+          />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="block text-[9px] text-meta mb-0.5">X</label>
             <input type="number" value={lx} onChange={(e) => setLx(Number(e.target.value) || 0)} className={`${INPUT} w-full`} />
