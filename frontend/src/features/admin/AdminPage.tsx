@@ -681,49 +681,66 @@ function UsersTab() {
                   const isSelected = selectedUser?.email === u.email;
 
                   return (
-                    <button
+                    <div
                       key={u.email}
-                      onClick={() => setSelectedUser(isSelected ? null : u)}
-                      className={`w-full text-left card flex items-center gap-3 transition-all ${
+                      className={`card flex items-center gap-3 transition-all ${
                         isSelected ? "ring-2 ring-[#5B9BF0]" : ""
                       }`}
                       data-testid="user-card"
                     >
-                      {/* Avatar */}
-                      <div
-                        className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs"
-                        style={{ backgroundColor: avatarBg }}
+                      {/* Clickable area — selects user for detail panel */}
+                      <button
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        onClick={() => setSelectedUser(isSelected ? null : u)}
                       >
-                        {u.avatar_url
-                          ? <img src={u.avatar_url} className="w-9 h-9 rounded-full" alt="" />
-                          : initials}
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
-                            {u.display_name}
-                          </span>
-                          {u.email === me?.email && (
-                            <span className="text-xs text-meta">(you)</span>
-                          )}
-                          <RoleBadge
-                            role={u.role}
-                            label={roleData?.label}
-                            color={roleData?.color}
-                          />
-                          {isPending && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] dark:bg-[#3D2A00] dark:text-[#FCD34D]">
-                              Pending sign-in
-                            </span>
-                          )}
+                        {/* Avatar */}
+                        <div
+                          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                          style={{ backgroundColor: avatarBg }}
+                        >
+                          {u.avatar_url
+                            ? <img src={u.avatar_url} className="w-9 h-9 rounded-full" alt="" />
+                            : initials}
                         </div>
-                        <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{u.email}</p>
-                      </div>
 
-                      <ChevronRight className="w-4 h-4 text-meta flex-shrink-0" aria-hidden />
-                    </button>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm text-[#1C1E27] dark:text-[#EAECF0]">
+                              {u.display_name}
+                            </span>
+                            {u.email === me?.email && (
+                              <span className="text-xs text-meta">(you)</span>
+                            )}
+                            <RoleBadge
+                              role={u.role}
+                              label={roleData?.label}
+                              color={roleData?.color}
+                            />
+                            {isPending && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] dark:bg-[#3D2A00] dark:text-[#FCD34D]">
+                                Pending sign-in
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#6B6E78] dark:text-[#A8AEBB]">{u.email}</p>
+                        </div>
+                      </button>
+
+                      {/* Quick "View as" button — visible for eligible targets */}
+                      {canEdit(u) && (
+                        <QuickViewAsButton
+                          email={u.email}
+                          displayName={u.display_name}
+                        />
+                      )}
+
+                      <ChevronRight
+                        className="w-4 h-4 text-meta flex-shrink-0 cursor-pointer"
+                        aria-hidden
+                        onClick={() => setSelectedUser(isSelected ? null : u)}
+                      />
+                    </div>
                   );
                 })}
             </div>
@@ -816,6 +833,68 @@ function UsersTab() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── Quick View As button (inline on user list row) ────────────────────────────
+// One-click entry point — no detail panel needed.
+
+function QuickViewAsButton({ email, displayName }: { email: string; displayName: string }) {
+  const { impersonatingAs, startImpersonation, stopImpersonation } = useImpersonationStore();
+  const qc = useQueryClient();
+  const [loading, setLoading] = useState(false);
+  const isActive = impersonatingAs === email;
+
+  async function handleClick(e: React.MouseEvent) {
+    e.stopPropagation(); // don't also select the user row
+    if (isActive) {
+      stopImpersonation();
+      qc.invalidateQueries({ queryKey: ["me"] });
+      qc.clear();
+      window.location.reload();
+      return;
+    }
+    setLoading(true);
+    try {
+      const data: ImpersonationTarget = await api.get(
+        `/admin/impersonation/validate?email=${encodeURIComponent(email)}`
+      );
+      if (!data.allowed) {
+        toast.error(data.reason ?? "Cannot impersonate this user");
+        return;
+      }
+      // Start directly — no confirm modal for quick-action path.
+      // The banner makes it immediately obvious the session is active.
+      startImpersonation(email, displayName);
+      qc.invalidateQueries({ queryKey: ["me"] });
+      qc.clear();
+      window.location.href = "/";
+    } catch (err: unknown) {
+      toast.error((err as Error).message ?? "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      title={isActive ? `Exit view as ${displayName}` : `View portal as ${displayName}`}
+      aria-label={isActive ? `Exit impersonating ${displayName}` : `View as ${displayName}`}
+      className={`flex-shrink-0 h-8 w-8 flex items-center justify-center rounded-lg
+                  transition-colors disabled:opacity-40
+                  ${isActive
+                    ? "bg-[#FEF3C7] dark:bg-[#2A1F00] text-[#92400E] dark:text-[#FCD34D]"
+                    : "text-meta hover:bg-[#EFF6FF] dark:hover:bg-[#1E3A5F] hover:text-[#5B9BF0]"
+                  }`}
+    >
+      {loading
+        ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        : isActive
+          ? <LogOut className="w-3.5 h-3.5" aria-hidden />
+          : <UserCheck className="w-3.5 h-3.5" aria-hidden />}
+    </button>
   );
 }
 
