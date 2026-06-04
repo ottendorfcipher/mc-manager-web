@@ -299,6 +299,11 @@ pub fn build_router(state: AppState) -> Router {
         // Audit log
         .route("/admin/audit-log", get(handlers::audit_log::list_global))
         .route("/me/audit-log",    get(handlers::audit_log::list_own))
+        // Admin impersonation — view the portal as another user
+        .route(
+            "/admin/impersonation/validate",
+            get(handlers::impersonation::validate),
+        )
         // Discord integration settings (global_admin only)
         .route(
             "/admin/discord-settings",

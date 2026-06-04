@@ -6,6 +6,7 @@ import {
   Backpack, Music2, Timer, Clock, MoreHorizontal, Puzzle,
 } from "lucide-react";
 import { RestartPendingChip } from "@/components/RestartPendingChip";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 
@@ -54,7 +55,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const moreNav    = hasMobileOverflow ? nav.slice(MOBILE_PRIMARY_COUNT)    : [];
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Impersonation banner — must be above everything when active */}
+      <ImpersonationBanner />
+
+      <div className="flex flex-1 overflow-hidden">
       {/* Skip to main content — available on every authenticated page */}
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
@@ -321,6 +326,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </>
       )}
+      </div>  {/* end flex-1 content wrapper */}
     </div>
   );
 }

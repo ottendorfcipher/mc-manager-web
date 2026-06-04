@@ -58,7 +58,7 @@ pub async fn vm_action(
         "reset" => instance::reset(&state.config).await?,
         _ => return Err(AppError::BadRequest(format!("Unknown action: {action}"))),
     }
-    audit::log(&state.pool, &actor.email, "vm_action", None, Some(&action)).await?;
+    audit::log(&state.pool, &actor.audit_actor(), "vm_action", None, Some(&action)).await?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -78,7 +78,7 @@ pub async fn service_action(
     ssh::run(&state.config, &format!("sudo systemctl {action} minecraft")).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "service_action",
         None,
         Some(&action),
@@ -104,7 +104,7 @@ pub async fn send_console(
     let applied = console::send(&state.config, &body.command).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "console",
         None,
         Some(&body.command),
@@ -240,7 +240,7 @@ pub async fn whitelist_action(
     let applied = console::send(&state.config, &cmd).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "whitelist",
         Some(&body.player),
         Some(&action),
@@ -265,7 +265,7 @@ pub async fn op_action(
         _ => return Err(AppError::BadRequest(format!("Unknown op action: {action}"))),
     };
     let applied = console::send(&state.config, &cmd).await?;
-    audit::log(&state.pool, &actor.email, &action, Some(&body.player), None).await?;
+    audit::log(&state.pool, &actor.audit_actor(), &action, Some(&body.player), None).await?;
     Ok(Json(
         serde_json::json!({ "applied": applied, "action": action, "player": body.player }),
     ))
@@ -285,7 +285,7 @@ pub async fn kick_player(
     let applied = console::send(&state.config, &cmd).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "kick",
         Some(&body.player),
         body.reason.as_deref(),
@@ -319,7 +319,7 @@ pub async fn ban_action(
     let applied = console::send(&state.config, &cmd).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         &action,
         Some(&body.player),
         body.reason.as_deref(),
@@ -345,7 +345,7 @@ pub async fn announce(
     let applied = console::send(&state.config, &format!("say {}", body.message)).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "announce",
         None,
         Some(&body.message),
@@ -361,6 +361,6 @@ pub async fn save_world(
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.save")?;
     let applied = console::send(&state.config, "save-all").await?;
-    audit::log(&state.pool, &actor.email, "save_world", None, None).await?;
+    audit::log(&state.pool, &actor.audit_actor(), "save_world", None, None).await?;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }

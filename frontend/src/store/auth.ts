@@ -17,6 +17,44 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPerm:    (key)     => (get().user?.permission_keys ?? []).includes(key),
 }));
 
+// ── Impersonation store ──────────────────────────────────────────────────────
+// Stores the target user email being impersonated.  The API client reads this
+// and injects X-Impersonate-As on every request.
+// Sessions survive page reload via sessionStorage (intentionally not
+// localStorage — closing the tab clears the impersonation).
+
+const IMP_KEY = "rsc_impersonate_as";
+
+interface ImpersonationState {
+  /** Email of the user being impersonated, or null. */
+  impersonatingAs: string | null;
+  /** Display name of the impersonated user (for the banner). */
+  impersonatingName: string | null;
+  startImpersonation: (email: string, name: string) => void;
+  stopImpersonation:  () => void;
+}
+
+export const useImpersonationStore = create<ImpersonationState>((set) => {
+  const stored = (() => {
+    try {
+      const raw = sessionStorage.getItem(IMP_KEY);
+      return raw ? (JSON.parse(raw) as { email: string; name: string }) : null;
+    } catch { return null; }
+  })();
+  return {
+    impersonatingAs:   stored?.email ?? null,
+    impersonatingName: stored?.name  ?? null,
+    startImpersonation: (email, name) => {
+      try { sessionStorage.setItem(IMP_KEY, JSON.stringify({ email, name })); } catch { /* ignore */ }
+      set({ impersonatingAs: email, impersonatingName: name });
+    },
+    stopImpersonation: () => {
+      try { sessionStorage.removeItem(IMP_KEY); } catch { /* ignore */ }
+      set({ impersonatingAs: null, impersonatingName: null });
+    },
+  };
+});
+
 // ── Navigation preferences store ─────────────────────────────────────────
 // Persists navigation display prefs in localStorage so they survive page reloads.
 // Separate from auth so Layout can subscribe without pulling in the full auth state.

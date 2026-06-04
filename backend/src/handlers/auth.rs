@@ -167,9 +167,12 @@ pub struct MeResponse {
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub permissions: Permissions,
-    /// Flat permission-key list (new model). The legacy boolean fields on
-    /// `permissions` are retained for one release so existing UI keeps working.
     pub permission_keys: Vec<String>,
+    /// When an admin is impersonating another user, this contains the
+    /// real admin's email so the frontend can show the proxy banner.
+    pub impersonating_as: Option<String>,
+    /// The real admin's email — identical to `email` when not impersonating.
+    pub real_email: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -204,5 +207,7 @@ pub async fn me(State(state): State<AppState>, actor: AuthUser) -> Result<Json<M
         },
         permission_keys,
         role: user.role,
+        impersonating_as: actor.impersonating_as.clone(),
+        real_email: if actor.is_impersonating() { Some(actor.real_email.clone()) } else { None },
     }))
 }

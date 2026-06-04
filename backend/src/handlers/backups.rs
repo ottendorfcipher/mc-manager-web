@@ -48,7 +48,7 @@ pub async fn create(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "create_backup",
         Some(&filename),
         Some("mc-server-1"),
@@ -97,7 +97,7 @@ pub async fn delete(
     backups::remove(&state.pool, id).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "delete_backup",
         Some(&run.filename),
         None,
@@ -122,7 +122,7 @@ pub async fn restore(
     backup::restore(&state.config, &run.file_path).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "restore_backup",
         Some(&run.filename),
         None,

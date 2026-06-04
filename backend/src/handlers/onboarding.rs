@@ -84,7 +84,7 @@ pub async fn invite(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "onboarding_invite",
         Some(&email),
         None,
@@ -103,7 +103,7 @@ pub async fn invite(
                     whitelist_added = true;
                     audit::log(
                         &state.pool,
-                        &actor.email,
+                        &actor.audit_actor(),
                         "whitelist_add",
                         Some(ign),
                         Some(&email),
@@ -227,7 +227,7 @@ pub async fn tailscale_invite_existing(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "tailscale_invite_resend",
         Some(&email),
         None,

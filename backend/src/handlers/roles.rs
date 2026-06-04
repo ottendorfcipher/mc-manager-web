@@ -77,7 +77,7 @@ pub async fn create(
     let role = roles::create(&state.pool, &actor.email, body).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "create_role",
         Some(&role.name),
         None,
@@ -113,7 +113,7 @@ pub async fn update(
     let updated = roles::update(&state.pool, &role_name, body, role.is_system).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "update_role",
         Some(&role_name),
         None,
@@ -157,7 +157,7 @@ pub async fn delete(
     roles::delete(&state.pool, &role_name).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "delete_role",
         Some(&role_name),
         None,
@@ -219,7 +219,7 @@ pub async fn set_permissions(
     permissions::set_for_role(&state.pool, &role_name, &body.permissions).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "set_role_permissions",
         Some(&role_name),
         Some(&format!("{} permissions", body.permissions.len())),
@@ -272,7 +272,7 @@ pub async fn add_override(
     permissions::add_override(&state.pool, &email, &body.permission_key, &actor.email).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "add_permission_override",
         Some(&email),
         Some(&body.permission_key),
@@ -291,7 +291,7 @@ pub async fn remove_override(
     permissions::remove_override(&state.pool, &email, &key).await?;
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "remove_permission_override",
         Some(&email),
         Some(&key),
