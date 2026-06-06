@@ -1,0 +1,28 @@
+# gitleaks configuration for redstoneCipher.
+# Extends the built-in ruleset (covers AWS, GCP, GitHub, Stripe, private keys,
+# JWTs, generic high-entropy API keys, etc.) and adds project-specific
+# allowlists for files that legitimately contain PLACEHOLDER values.
+
+title = "redstoneCipher gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for placeholders, examples, and docs"
+
+# Files that contain illustrative / placeholder credentials by design.
+paths = [
+    '''\.env\.example$''',
+    '''(^|/)docs/''',
+    '''(^|/)DEPLOYMENT\.md$''',
+    '''(^|/)README\.md$''',
+    '''watchdog\.env\.example$''',
+    '''(^|/)scripts/.*\.example$''',
+]
+
+# Obvious placeholder tokens used in examples/docs — never real secrets.
+regexes = [
+    '''(?i)(your[-_]?(api[-_]?key|token|secret|password)|changeme|placeholder|example|xxx+|<[^>]+>)''',
+    '''sk-proj-xxxxx''',
+]

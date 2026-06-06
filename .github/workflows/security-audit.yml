@@ -1,71 +1,229 @@
 name: Security Audit
 
+# Supply-chain audit pipeline.
+#
+# Hardening properties (see plans/velvet-tickling-stonebraker.md):
+#   • Every `uses:` is pinned to a full 40-char commit SHA (tag comment is
+#     informational only) — a hijacked action tag cannot inject code here.
+#   • Least-privilege GITHUB_TOKEN: read-only by default, escalated per-job.
+#   • All audit tools installed at a pinned version with --locked.
+#   • Hard-fail on HIGH/CRITICAL; moderate/dev findings are surfaced but
+#     non-blocking to keep signal-to-noise high for a solo maintainer.
+
 on:
   push:
     branches: [main]
     paths:
       - 'backend/Cargo.toml'
       - 'backend/Cargo.lock'
+      - 'backend/deny.toml'
       - 'frontend/package.json'
       - 'frontend/package-lock.json'
+      - '.github/workflows/security-audit.yml'
   pull_request:
     paths:
       - 'backend/Cargo.toml'
       - 'backend/Cargo.lock'
+      - 'backend/deny.toml'
       - 'frontend/package.json'
       - 'frontend/package-lock.json'
+      - '.github/workflows/security-audit.yml'
   # Run weekly so newly-published CVEs are caught even without a code push.
   schedule:
     - cron: '0 9 * * 1'   # Every Monday at 09:00 UTC
   workflow_dispatch:
 
+# Least privilege for the whole workflow. Jobs that need more declare it locally.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # ── Rust: cargo audit ──────────────────────────────────────────────────────
+  # ── Rust: cargo audit (RUSTSEC CVE advisories) ──────────────────────────────
   rust-audit:
-    name: Rust security audit
+    name: Rust CVE audit (cargo audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-audit-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: cargo-audit-
+            ~/.cargo/bin
+          key: cargo-audit-bin-0.22.2-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: cargo-audit-bin-0.22.2-
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - name: Install cargo-audit (pinned)
+        run: cargo install cargo-audit --locked --version 0.22.2
 
       - name: Run cargo audit
         working-directory: backend
-        run: cargo audit
-        # cargo-audit exits non-zero on any RUSTSEC advisory; the job will fail
-        # and GitHub will notify on the security tab.
+        # Exits non-zero on any RUSTSEC advisory; the job fails and GitHub
+        # notifies on the Security tab.
+        #
+        # The --ignore set MUST be kept in sync with backend/deny.toml
+        # [advisories].ignore. These all concern rustls-webpki 0.102.8, which
+        # enters the tree only via serenity's Discord-gateway TLS (fixed
+        # trusted endpoints); the 0.102 line has no patched release and the
+        # only fix is a serenity major upgrade. Our web/OAuth TLS uses the
+        # patched 0.103.13. Remove these once serenity moves to rustls >= 0.23.
+        run: >
+          cargo audit
+          --ignore RUSTSEC-2026-0049
+          --ignore RUSTSEC-2026-0098
+          --ignore RUSTSEC-2026-0099
+          --ignore RUSTSEC-2026-0104
 
-  # ── Node: npm audit ────────────────────────────────────────────────────────
-  npm-audit:
-    name: Frontend npm audit
+  # ── Rust: cargo deny (sources / licenses / bans policy) ─────────────────────
+  rust-deny:
+    name: Rust supply-chain policy (cargo deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Cache cargo registry
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: cargo-deny-bin-0.19.8-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: cargo-deny-bin-0.19.8-
+
+      - name: Install cargo-deny (pinned)
+        run: cargo install cargo-deny --locked --version 0.19.8
+
+      - name: Run cargo deny
+        working-directory: backend
+        # advisories, bans, licenses, sources — config in backend/deny.toml.
+        # Fails on any deny-level finding (e.g. a non-crates.io source, a
+        # disallowed license, a yanked crate).
+        run: cargo deny --all-features check
+
+  # ── Node: npm audit (production deps, HARD FAIL) ────────────────────────────
+  npm-audit:
+    name: Frontend prod audit (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (no lifecycle scripts)
         working-directory: frontend
         run: npm ci --ignore-scripts
 
-      - name: Run npm audit
+      - name: Run npm audit (prod, high+)
         working-directory: frontend
-        # --audit-level=high: fail only on high/critical — moderate is noisy
-        # for React ecosystem packages.  Adjust to 'moderate' if you want
-        # stricter enforcement.
+        # Hard fail on high/critical in shipped (production) dependencies.
         run: npm audit --audit-level=high --omit=dev
+
+  # ── Node: npm audit (dev/build deps, NON-BLOCKING) ──────────────────────────
+  npm-audit-dev:
+    name: Frontend dev-dep audit (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (no lifecycle scripts)
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Run npm audit (all deps, advisory only)
+        working-directory: frontend
+        # Build-time deps (vite/eslint/playwright) are an attack surface too,
+        # but noisier — surface them without blocking the build.
+        run: npm audit --audit-level=high || echo "::warning::Dev-dependency advisories found — review above (non-blocking)."
+
+  # ── Node: lockfile integrity (anti-tamper / anti-dependency-confusion) ──────
+  lockfile-lint:
+    name: Lockfile integrity (lockfile-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Validate package-lock.json
+        working-directory: frontend
+        # Every resolved entry must be https and point at the official npm
+        # registry — catches a lockfile rewritten to pull from a malicious
+        # mirror, and dependency-confusion substitutions.
+        run: >
+          npx --yes lockfile-lint@5.0.0
+          --path package-lock.json
+          --type npm
+          --allowed-hosts npm
+          --validate-https
+          --validate-integrity
+
+  # ── SBOMs: software bill of materials for both ecosystems ───────────────────
+  sbom:
+    name: Generate SBOMs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Cache cargo registry
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: cargo-cyclonedx-bin-0.5.9-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: cargo-cyclonedx-bin-0.5.9-
+
+      - name: Install cargo-cyclonedx (pinned)
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      - name: Generate Rust SBOM (CycloneDX)
+        working-directory: backend
+        run: cargo cyclonedx --format json --override-filename sbom
+
+      - name: Install frontend deps (no scripts)
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Generate frontend SBOM (CycloneDX)
+        working-directory: frontend
+        run: npx --yes @cyclonedx/cyclonedx-npm@4.2.1 --omit dev --output-format JSON --output-file sbom.json
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sboms
+          path: |
+            backend/sbom.json
+            frontend/sbom.json
+          if-no-files-found: warn
+          retention-days: 90

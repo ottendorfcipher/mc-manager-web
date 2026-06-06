@@ -1,0 +1,7 @@
+# Pin the Rust toolchain so local builds, CI, and the release build all use the
+# exact same compiler. Eliminates toolchain drift as a reproducibility/supply-
+# chain variable. Matches `rust-version` in Cargo.toml.
+[toolchain]
+channel = "1.88"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

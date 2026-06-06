@@ -1,0 +1,136 @@
+name: Release Build
+
+# Builds the production artifacts in a clean, pinned CI environment and produces
+# cryptographic provenance for them. The VPS then deploys these *verified*
+# artifacts instead of compiling on the server — so the production host never
+# runs rustc, never installs npm packages, and never contacts crates.io/npm at
+# deploy time. That removes the live build as a supply-chain attack surface.
+#
+# Each artifact ships with:
+#   • a SHA-256 checksum (verified on the server before the binary/files swap)
+#   • a CycloneDX SBOM
+#   • a SLSA-style build-provenance attestation (verifiable with `gh attestation`)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Backend: pinned, locked release build ───────────────────────────────────
+  backend:
+    name: Build backend binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # required by attest-build-provenance
+      attestations: write   # required by attest-build-provenance
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Cache cargo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: release-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: release-cargo-
+
+      # rust-toolchain.toml pins the channel (1.88); rustup installs it on first use.
+      - name: Show toolchain
+        working-directory: backend
+        run: rustup show && cargo --version
+
+      - name: Build (release, locked)
+        working-directory: backend
+        # --locked: fail if Cargo.lock would change — guarantees the build uses
+        # exactly the reviewed, committed dependency set.
+        run: cargo build --release --locked
+
+      - name: Checksum binary
+        working-directory: backend
+        run: |
+          cd target/release
+          sha256sum redstonecipher-server > redstonecipher-server.sha256
+          cat redstonecipher-server.sha256
+
+      - name: Generate Rust SBOM (CycloneDX)
+        working-directory: backend
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9 && cargo cyclonedx --format json --override-filename sbom
+
+      - name: Attest build provenance (binary)
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: backend/target/release/redstonecipher-server
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-${{ github.sha }}
+          path: |
+            backend/target/release/redstonecipher-server
+            backend/target/release/redstonecipher-server.sha256
+            backend/sbom.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # ── Frontend: pinned, scriptless build ──────────────────────────────────────
+  frontend:
+    name: Build frontend bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (no lifecycle scripts)
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Checksum manifest (per-file SHA-256)
+        working-directory: frontend/dist
+        run: |
+          find . -type f -exec sha256sum {} \; | sort > ../dist.sha256
+          cat ../dist.sha256
+
+      - name: Generate frontend SBOM (CycloneDX)
+        working-directory: frontend
+        run: npx --yes @cyclonedx/cyclonedx-npm@4.2.1 --omit dev --output-format JSON --output-file sbom.json
+
+      - name: Attest build provenance (dist)
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: frontend/dist.sha256
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-${{ github.sha }}
+          path: |
+            frontend/dist
+            frontend/dist.sha256
+            frontend/sbom.json
+          if-no-files-found: error
+          retention-days: 30

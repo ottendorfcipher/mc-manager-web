@@ -1,0 +1,96 @@
+# cargo-deny configuration — supply-chain policy layer for the Rust backend.
+#
+# This complements `cargo audit` (which gates on RUSTSEC CVEs) with policy
+# controls that catch a different class of supply-chain risk:
+#   • sources  — refuse any crate not from crates.io (blocks dependency
+#                confusion, rogue registries, and arbitrary git deps)
+#   • licenses — allowlist of acceptable licenses (a swapped-in dep carrying a
+#                hostile or unknown license fails the build)
+#   • advisories — yanked crates are rejected
+#   • bans     — surface duplicate versions; deny crates as needed
+#
+# Run locally:  cargo deny --all-features check
+# Run in CI:    .github/workflows/security-audit.yml (rust-deny job)
+
+[graph]
+all-features = true
+
+# ── Advisories ────────────────────────────────────────────────────────────────
+[advisories]
+version = 2
+# A yanked crate in the lockfile is a red flag (pulled for a reason).
+yanked = "deny"
+# CVE severity gating is handled by `cargo audit`; cargo-deny's advisory db
+# check still runs and reports. Add IDs here only to consciously waive one.
+ignore = [
+    # The following all concern rustls-webpki 0.102.8, which now enters the tree
+    # via EXACTLY ONE path: serenity 0.12.5 → tokio-tungstenite 0.21 →
+    # tokio-rustls 0.25 → rustls 0.22 → rustls-webpki 0.102. This path is used
+    # ONLY for serenity's outbound TLS to Discord's gateway (gateway.discord.gg /
+    # discord.com) — fixed, trusted, first-party endpoints.
+    #
+    #   • Our web-facing + OAuth + general HTTP TLS uses the PATCHED
+    #     rustls-webpki 0.103.13 (via reqwest 0.12) — fully remediated.
+    #   • The 0.102.x line has NO patched release; the only fix is a serenity
+    #     major upgrade off rustls 0.22, which risks breaking the Discord bridge.
+    #   • These cert-validation issues require a hostile certificate from the
+    #     peer; the peer here is Discord, so practical exposure is negligible.
+    #
+    # Tracked follow-up: upgrade serenity to a rustls >= 0.23 release, re-test the
+    # Discord bridge, then DELETE these ignores.
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102 via serenity Discord gateway only; no patch on 0.102 line" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102 via serenity Discord gateway only; no patch on 0.102 line" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102 via serenity Discord gateway only; no patch on 0.102 line" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102 CRL panic via serenity; we never parse CRLs; no patch on 0.102 line" },
+]
+
+# ── Licenses ──────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+# SPDX license expressions accepted across the dependency tree. All permissive
+# or weak/file-level copyleft (MPL) — no strong copyleft (GPL/AGPL) is allowed,
+# so a dependency that quietly changes to a viral license fails CI.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Unlicense",
+    "BSL-1.0",
+    "CC0-1.0",
+    "OpenSSL",
+    # webpki-roots ships Mozilla's CA bundle under the Community Data License.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+# Allowed licenses we list for headroom but that no current dep uses are fine.
+unused-allowed-license = "allow"
+
+# Skip our own unpublished workspace crate (it has no `license` field — it is
+# proprietary and never published to a registry).
+private = { ignore = true }
+
+# ── Bans ──────────────────────────────────────────────────────────────────────
+[bans]
+# Duplicate versions are noise, not a hard failure — surface them.
+multiple-versions = "warn"
+wildcards = "allow"
+# Add entries here to ban a specific crate, e.g. an unmaintained or risky one:
+# deny = [{ crate = "openssl", reason = "use rustls instead" }]
+deny = []
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+# The core anti-supply-chain control: only the official crates.io registry is
+# trusted. Any unknown registry or git source fails the build.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

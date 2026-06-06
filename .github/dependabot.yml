@@ -1,6 +1,25 @@
 version: 2
 
 updates:
+  # ── GitHub Actions ───────────────────────────────────────────────────────────
+  # Keeps SHA-pinned actions current: Dependabot opens PRs that bump both the
+  # pin SHA and the version comment, so pinning never means going stale.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
   # ── Rust / Cargo ─────────────────────────────────────────────────────────────
   - package-ecosystem: "cargo"
     directory: "/backend"

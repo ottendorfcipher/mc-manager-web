@@ -39,6 +39,37 @@ AmbientCapabilities=
 # Tokio/Axum server needs: networking, file I/O, threading, timers, signals).
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
+# Only allow the host's native syscall ABI (blocks x32/compat-ABI evasion).
+SystemCallArchitectures=native
+
+# ── Breach containment (added) ────────────────────────────────────────────────
+# These limit what a compromised dependency could do at runtime even if it
+# achieved code execution inside the process. None affect the app's behavior.
+
+# Address families the service actually uses:
+#   INET/INET6 — the HTTP server + all outbound HTTPS (OAuth, Discord, MC API)
+#   UNIX       — local IPC / logging sockets
+#   NETLINK    — required by glibc getaddrinfo for DNS + by the ssh subprocess
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# Kernel/host surfaces the service never touches — deny them.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# Misc privilege/behavior restrictions.
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+# Rust does not JIT, so write+execute memory is never needed — blocking it stops
+# a whole class of injected-shellcode techniques.
+MemoryDenyWriteExecute=yes
+# New files/dirs are owner-only by default.
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
