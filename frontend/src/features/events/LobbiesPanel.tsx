@@ -407,7 +407,6 @@ function LobbyForm({
         />
       </div>
       <div className="flex gap-3">
-        <div className="flex-1">
         {linkType !== "manual" && (
           <div className="flex-1">
             <label className={LBL}>Pick event (must be pending)</label>
