@@ -24,7 +24,7 @@ import { PluginsHome }        from "@/features/plugins/PluginsHome";
 import { PluginDetailPage }   from "@/features/plugins/PluginDetailPage";
 import { InstalledList }      from "@/features/plugins/InstalledList";
 import { Loader2 }          from "lucide-react";
-import { OnboardingWizard, isOnboardingComplete } from "@/features/onboarding/OnboardingWizard";
+import { OnboardingWizard, isOnboardingComplete, useOnboardingStore } from "@/features/onboarding/OnboardingWizard";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -102,15 +102,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   );
   const needsAgeGate = !ageConfirmed && !!user;
 
-  // Determine wizard visibility once user is known
-  const shouldShowWizard =
+  // Wizard visibility is two independent triggers:
+  //   1. First login (member who hasn't completed onboarding) — auto-shows once,
+  //      and `firstRunDismissed` lets the X/close actually hide it.
+  //   2. Manual re-open from the "Setup guide" button (useOnboardingStore).
+  const { isOpen: wizardManuallyOpen, closeWizard } = useOnboardingStore();
+  const [firstRunDismissed, setFirstRunDismissed] = useState(false);
+
+  const firstRunWizard =
     !!user &&
     user.role === "member" &&
-    !isOnboardingComplete();
+    !isOnboardingComplete() &&
+    !firstRunDismissed;
+
+  const showWizard = !needsAgeGate && (firstRunWizard || wizardManuallyOpen);
 
   const handleAgeConfirm = () => {
     localStorage.setItem(AGE_KEY, "1");
     setAgeConfirmed(true);
+  };
+
+  const handleWizardDismiss = () => {
+    setFirstRunDismissed(true);
+    closeWizard();
   };
 
   if (loading) return (
@@ -123,9 +137,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return (
     <>
       {needsAgeGate && <AgeGate onConfirm={handleAgeConfirm} />}
-      {!needsAgeGate && shouldShowWizard && (
-        <OnboardingWizard onDismiss={() => {}} />
-      )}
+      {showWizard && <OnboardingWizard onDismiss={handleWizardDismiss} />}
       {children}
     </>
   );
