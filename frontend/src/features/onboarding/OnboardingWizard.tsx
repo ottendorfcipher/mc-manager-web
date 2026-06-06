@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { create } from "zustand";
 import {
   Pickaxe, Globe,
   ChevronRight, ChevronLeft, CheckCircle2,
@@ -13,6 +14,20 @@ export const isOnboardingComplete = () =>
   localStorage.getItem(ONBOARDING_KEY) === "1";
 export const markOnboardingComplete = () =>
   localStorage.setItem(ONBOARDING_KEY, "1");
+
+// ── Re-open control ───────────────────────────────────────────────────────────
+// Lets any component (e.g. a "Setup guide" button in the Layout) re-launch the
+// wizard on demand, separate from the first-login auto-show.
+interface OnboardingUI {
+  isOpen: boolean;
+  openWizard: () => void;
+  closeWizard: () => void;
+}
+export const useOnboardingStore = create<OnboardingUI>((set) => ({
+  isOpen: false,
+  openWizard: () => set({ isOpen: true }),
+  closeWizard: () => set({ isOpen: false }),
+}));
 
 // ── Platform detection ────────────────────────────────────────────────────────
 function detectPlatform(): "mac" | "windows" | "ios" | "android" | "linux" {

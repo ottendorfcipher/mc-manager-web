@@ -3,12 +3,13 @@ import { NavLink } from "react-router-dom";
 import {
   Server, Users, HardDrive, Settings, Activity,
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
-  Backpack, Music2, Timer, Clock, MoreHorizontal, Puzzle,
+  Backpack, Music2, Timer, Clock, MoreHorizontal, Puzzle, HelpCircle,
 } from "lucide-react";
 import { RestartPendingChip } from "@/components/RestartPendingChip";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
+import { useOnboardingStore } from "@/features/onboarding/OnboardingWizard";
 
 const NAV = [
   { to: "/",          icon: Activity,       label: "Dashboard", perm: "nav.dashboard" },
@@ -39,6 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, hasPerm } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
   const { showConfigureNav } = useNavPrefsStore();
+  const openWizard = useOnboardingStore((s) => s.openWizard);
   const [moreOpen, setMoreOpen] = useState(false);
   const chatUnread = useChatUnread((s) => s.count);
 
@@ -119,6 +121,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Theme + user */}
         <div className="px-1.5 lg:px-2 pb-3 pt-3 space-y-2
                         border-t border-[#D9D5D0] dark:border-[#363944]">
+          {/* Setup guide — re-open the onboarding walkthrough on demand */}
+          <button
+            onClick={openWizard}
+            title="Setup guide"
+            aria-label="Open the setup guide"
+            className="nav-item justify-center lg:justify-start min-h-[44px] w-full"
+          >
+            <HelpCircle className="w-4 h-4 flex-shrink-0" aria-hidden />
+            <span className="hidden lg:block flex-1 text-left">Setup guide</span>
+          </button>
+
           <div className="flex flex-col lg:flex-row items-stretch gap-0.5 lg:gap-1">
             {THEME_OPTIONS.map(([t, Icon, label]) => (
               <button
@@ -276,6 +289,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             {/* User + theme in drawer */}
             <div className="border-t border-[#D9D5D0] dark:border-[#363944] pt-3 space-y-3">
+              {/* Setup guide — re-open the onboarding walkthrough */}
+              <button
+                onClick={() => { setMoreOpen(false); openWizard(); }}
+                aria-label="Open the setup guide"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium
+                           min-h-[52px] text-[#6B6E78] dark:text-[#A8AEBB]
+                           hover:bg-[#F0EDE9] dark:hover:bg-[#2A2D38] transition-colors"
+              >
+                <HelpCircle className="w-5 h-5 flex-shrink-0" aria-hidden />
+                Setup guide
+              </button>
+
               {user && (
                 <div className="flex items-center gap-3 px-2">
                   {user.avatar_url ? (
