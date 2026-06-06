@@ -71,7 +71,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 tower = { version = "0.4", features = ["util"] }
-axum-test = "15"
+axum-test = "20"
 
 [profile.release]
 opt-level = 3
