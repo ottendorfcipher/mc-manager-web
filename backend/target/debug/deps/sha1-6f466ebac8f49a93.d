@@ -1,9 +1,0 @@
-/Users/nicholasweiner/Desktop/mc-manager-web/backend/target/debug/deps/sha1-6f466ebac8f49a93.d: /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs
-
-/Users/nicholasweiner/Desktop/mc-manager-web/backend/target/debug/deps/libsha1-6f466ebac8f49a93.rlib: /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs
-
-/Users/nicholasweiner/Desktop/mc-manager-web/backend/target/debug/deps/libsha1-6f466ebac8f49a93.rmeta: /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs
-
-/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs:
-/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs:
-/Users/nicholasweiner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs:
