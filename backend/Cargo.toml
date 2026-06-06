@@ -65,7 +65,7 @@ dotenvy = "0.15"
 # TypeScript type generation (dev dependency semantics, but needed at build time)
 ts-rs = { version = "10", features = ["serde-json-impl", "chrono-impl", "uuid-impl"] }
 urlencoding = "2"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 time = { version = "0.3", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["io"] }
 
