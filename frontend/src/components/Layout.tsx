@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { RestartPendingChip } from "@/components/RestartPendingChip";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { NowPlayingWidget } from "@/components/NowPlayingWidget";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 import { useOnboardingStore } from "@/features/onboarding/OnboardingWizard";
@@ -352,6 +353,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </>
       )}
       </div>  {/* end flex-1 content wrapper */}
+
+      {/* Persistent preview player — stays mounted across route changes */}
+      <NowPlayingWidget />
     </div>
   );
 }
