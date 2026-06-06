@@ -10,6 +10,7 @@ import { McItemImage } from "@/components/McItemImage";
 import { DiscIcon } from "@/components/DiscIcon";
 import { MusicZonesPanel } from "./MusicZonesPanel";
 import { CreditsPanel } from "./CreditsPanel";
+import { useMusicPreviewStore } from "@/store/musicPreview";
 import type { SoundEntry, MusicState, MusicQueueEntry } from "@/types";
 
 const INPUT = [
@@ -39,11 +40,12 @@ export function MusicPage() {
 
   // ── In-browser OGG preview (custom tracks only) ──────────────────────────────
   //
-  // A single shared <audio> driven by usePreview — switching tracks
-  // implicitly stops whatever was playing, so users never end up with
-  // two clips overlapping.
+  // Playback lives in a module-scoped store so it continues across route/tab
+  // changes; a persistent NowPlayingWidget (rendered in Layout) shows controls.
 
-  const preview = usePreview();
+  const previewPlay  = useMusicPreviewStore((s) => s.play);
+  const previewTrack = useMusicPreviewStore((s) => s.track);
+  const previewOn    = useMusicPreviewStore((s) => s.playing);
 
   // ── Music state (now-playing + queue) ────────────────────────────────────────
 
@@ -375,9 +377,15 @@ export function MusicPage() {
                         enqueueing={enqueueMut.isPending && enqueueMut.variables === t.id}
                         onRemove={() => removeTrackMut.mutate(t.id)}
                         removing={removeTrackMut.isPending && removeTrackMut.variables === t.id}
-                        isPreviewing={preview.currentId === t.id}
-                        previewPlaying={preview.playing}
-                        onTogglePreview={() => preview.toggle(t.id)}
+                        isPreviewing={previewTrack?.id === t.id}
+                        previewPlaying={previewTrack?.id === t.id && previewOn}
+                        onTogglePreview={() => previewPlay({
+                          id:           t.id,
+                          title:        t.display_name,
+                          artist:       t.artist,
+                          imageUrl:     t.image_url,
+                          durationSecs: t.duration_secs,
+                        })}
                       />
                     ))}
                   </div>
@@ -731,53 +739,6 @@ function CustomTrackCard({
 // switching to a different track auto-stops the old one.  The element is
 // created lazily on first interaction so we don't pay the cost (or trip
 // autoplay policies) for users who never click Preview.
-
-function usePreview() {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [state, setState] = useState<{ soundId: string; playing: boolean } | null>(null);
-
-  const getAudio = useCallback(() => {
-    if (!audioRef.current) {
-      const a = new Audio();
-      a.preload = "none";
-      a.addEventListener("play",  () => setState((s) => s ? { ...s, playing: true  } : s));
-      a.addEventListener("pause", () => setState((s) => s ? { ...s, playing: false } : s));
-      a.addEventListener("ended", () => setState(null));
-      a.addEventListener("error", () => setState(null));
-      audioRef.current = a;
-    }
-    return audioRef.current;
-  }, []);
-
-  const toggle = useCallback((soundId: string) => {
-    const audio = getAudio();
-    if (state?.soundId === soundId) {
-      // Same track: toggle play/pause.
-      if (audio.paused) audio.play().catch(() => {});
-      else              audio.pause();
-    } else {
-      // New track: swap the source and start fresh.
-      audio.src = `/api/music/tracks/${encodeURIComponent(soundId)}/preview`;
-      audio.currentTime = 0;
-      audio.play().catch(() => {});
-      setState({ soundId, playing: true });
-    }
-  }, [state?.soundId, getAudio]);
-
-  // Stop + release on unmount so leaving the page doesn't leak the audio.
-  useEffect(() => {
-    return () => {
-      const a = audioRef.current;
-      if (a) { a.pause(); a.removeAttribute("src"); a.load(); }
-    };
-  }, []);
-
-  return {
-    currentId: state?.soundId ?? null,
-    playing:   state?.playing ?? false,
-    toggle,
-  };
-}
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
 
