@@ -53,7 +53,7 @@
     "eslint-plugin-sonarjs": "^3.0.5",
     "globals": "^17.4.0",
     "jscpd": "^4.0.5",
-    "knip": "^5.70.0",
+    "knip": "^6.16.0",
     "postcss": "^8.5.9",
     "tailwindcss": "^3.4.19",
     "type-coverage": "^2.29.7",
