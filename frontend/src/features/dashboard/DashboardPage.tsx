@@ -24,6 +24,7 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useMetrics } from "@/hooks/useMetrics";
+import { EventStatusCard } from "./EventStatusCard";
 import type { ServerStatus, McPlayer, PlayerSnapshot, MusicState } from "@/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -360,6 +361,9 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Event status (members see active/scheduled; admins manage in Events) ── */}
+      <EventStatusCard />
+
       {/* ── Performance gauges ───────────────────────────────────────────────── */}
       {metrics ? (
         <div className="card">
@@ -370,8 +374,8 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 justify-items-center">
             {/* Players: count + capacity — shown as number, not % */}
             <div className="flex flex-col items-center gap-1">
-              <div className="w-20 h-20 rounded-2xl bg-[#EFF6FF] dark:bg-[#1E3A5F] flex flex-col items-center justify-center gap-0.5">
-                <Users className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
+              <div className="w-20 h-20 rounded-2xl bg-[#F7F5F2] dark:bg-[#1E212B] flex flex-col items-center justify-center gap-0.5">
+                <Users className="w-4 h-4 text-meta" aria-hidden />
                 <p className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0] leading-none">
                   {metrics.players_online ?? 0}
                 </p>

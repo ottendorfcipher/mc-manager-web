@@ -1,10 +1,9 @@
 //! Party CRUD + member management.
 //!
 //! Authorization model:
-//!   • Anyone authenticated can list parties they own OR are a member of
-//!     (via player_links).
-//!   • Owner of a party can create/edit/delete it + manage members.
-//!   • A user with `players.view_any` can manage any party (admin override).
+//!   • Anyone authenticated can list the parties they have been added to.
+//!   • Only `parties.manage` (admin / global_admin) may create, edit, delete a
+//!     party or manage its membership. Managers also see ALL parties.
 
 use axum::{
     extract::{Path, State},
@@ -33,8 +32,9 @@ pub async fn list(
     State(state): State<AppState>,
     actor:        AuthUser,
 ) -> Result<Json<Vec<PartyWithMembers>>> {
-    // Admins see everything; everyone else sees only theirs (owned or member-of).
-    let rows = if actor.has("players.view_any") {
+    // Party managers (admin+) see everything; everyone else sees only the
+    // parties they have been added to (member-of).
+    let rows = if actor.has("parties.manage") {
         parties::list_all(&state.pool).await?
     } else {
         parties::list_for_user(&state.pool, &actor.email).await?
@@ -67,6 +67,7 @@ pub async fn create(
     actor:        AuthUser,
     Json(body):   Json<CreateBody>,
 ) -> Result<(StatusCode, Json<parties::Party>)> {
+    crate::auth::middleware::require_perm(&actor, "parties.manage")?;
     let name = body.name.trim();
     if name.is_empty() || name.len() > 40 {
         return Err(AppError::BadRequest("Name must be 1–40 characters".into()));
@@ -102,16 +103,12 @@ pub struct UpdateBody {
     pub color:       String,
 }
 
-async fn check_owner(state: &AppState, actor: &AuthUser, id: i64) -> Result<parties::Party> {
-    let p = parties::get(&state.pool, id).await?
-        .ok_or_else(|| AppError::NotFound(format!("Party {id} not found")))?;
-    if actor.has("players.view_any") || p.owner_email.eq_ignore_ascii_case(&actor.email) {
-        Ok(p)
-    } else {
-        Err(AppError::Forbidden(format!(
-            "Only the owner ({}) can manage this party", p.owner_email,
-        )))
-    }
+/// Party management (create/edit/delete/membership) is admin-only via the
+/// `parties.manage` permission. Returns the party so callers can use its fields.
+async fn check_manage(state: &AppState, actor: &AuthUser, id: i64) -> Result<parties::Party> {
+    crate::auth::middleware::require_perm(actor, "parties.manage")?;
+    parties::get(&state.pool, id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Party {id} not found")))
 }
 
 pub async fn update(
@@ -120,7 +117,7 @@ pub async fn update(
     Path(id):     Path<i64>,
     Json(body):   Json<UpdateBody>,
 ) -> Result<StatusCode> {
-    let _ = check_owner(&state, &actor, id).await?;
+    let _ = check_manage(&state, &actor, id).await?;
     let name = body.name.trim();
     if name.is_empty() || name.len() > 40 {
         return Err(AppError::BadRequest("Name must be 1–40 characters".into()));
@@ -136,7 +133,7 @@ pub async fn delete(
     actor:        AuthUser,
     Path(id):     Path<i64>,
 ) -> Result<StatusCode> {
-    let _ = check_owner(&state, &actor, id).await?;
+    let _ = check_manage(&state, &actor, id).await?;
     parties::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -154,7 +151,7 @@ pub async fn add_member(
     Path(id):     Path<i64>,
     Json(body):   Json<AddMemberBody>,
 ) -> Result<StatusCode> {
-    let _ = check_owner(&state, &actor, id).await?;
+    let _ = check_manage(&state, &actor, id).await?;
     let ign = body.ign.trim();
     if ign.is_empty() {
         return Err(AppError::BadRequest("ign is required".into()));
@@ -170,7 +167,7 @@ pub async fn remove_member(
     actor:        AuthUser,
     Path((id, ign)): Path<(i64, String)>,
 ) -> Result<StatusCode> {
-    let _ = check_owner(&state, &actor, id).await?;
+    let _ = check_manage(&state, &actor, id).await?;
     parties::remove_member(&state.pool, id, &ign).await?;
     Ok(StatusCode::NO_CONTENT)
 }

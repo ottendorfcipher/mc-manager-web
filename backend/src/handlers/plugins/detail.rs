@@ -32,9 +32,10 @@ pub struct DepSummary {
 
 pub async fn detail(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
     Path(key): Path<String>,
 ) -> Result<Json<PluginDetail>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     // Normalise key: accept "modrinth:slug" or just "slug".
     let (project_key, slug) = if key.contains(':') {
         let slug = key.split(':').nth(1).unwrap_or(&key).to_string();

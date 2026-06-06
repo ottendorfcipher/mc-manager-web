@@ -16,9 +16,10 @@ pub struct JobListParams {
 
 pub async fn get_job(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<PluginJob>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let job = plugin_jobs::get(&state.pool, id).await?
         .ok_or_else(|| AppError::NotFound(format!("Job {id} not found")))?;
     Ok(Json(job))
@@ -26,9 +27,10 @@ pub async fn get_job(
 
 pub async fn list_jobs(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
     Query(params): Query<JobListParams>,
 ) -> Result<Json<Vec<PluginJob>>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let jobs = if params.active.unwrap_or(false) {
         plugin_jobs::list_active(&state.pool).await?
     } else {

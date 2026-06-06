@@ -11,6 +11,7 @@ import {
   Users, Plus, Trash2, Pencil, X, Save, UserPlus, UserMinus,
 } from "lucide-react";
 import { api } from "@/api/client";
+import { useAuthStore } from "@/store/auth";
 import type { PartyWithMembers, McPlayer } from "@/types";
 
 const INPUT = [
@@ -47,6 +48,7 @@ const COLOR_HEX: Record<string, string> = {
 
 export function PartiesCard() {
   const qc = useQueryClient();
+  const canManage = useAuthStore((s) => s.hasPerm)("parties.manage");
   const { data: parties = [] } = useQuery<PartyWithMembers[]>({
     queryKey: ["parties"],
     queryFn:  () => api.get("/parties"),
@@ -72,7 +74,7 @@ export function PartiesCard() {
         <h2 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0] flex items-center gap-2">
           <Users className="w-4 h-4 text-[#5B9BF0]" /> Parties
         </h2>
-        {!creating && (
+        {!creating && canManage && (
           <button
             onClick={() => setCreating(true)}
             className="btn-primary text-xs flex items-center gap-1"
@@ -82,11 +84,12 @@ export function PartiesCard() {
         )}
       </div>
       <p className="text-[11px] text-meta -mt-1">
-        Group players together for one-click targeting in events, music zones,
-        and lobbies. Owners and admins can edit; everyone sees parties they're in.
+        {canManage
+          ? "Group players together for one-click targeting in events, music zones, and lobbies."
+          : "Parties you've been added to. Ask an admin to create a party or add you to one."}
       </p>
 
-      {creating && (
+      {creating && canManage && (
         <NewPartyForm
           loading={createMut.isPending}
           onSubmit={(b) => createMut.mutate(b)}
@@ -97,13 +100,16 @@ export function PartiesCard() {
       <div className="space-y-2">
         {parties.length === 0 && !creating && (
           <p className="text-xs text-meta italic py-2 text-center">
-            No parties yet. Create one to group players for quick targeting.
+            {canManage
+              ? "No parties yet. Create one to group players for quick targeting."
+              : "You're not in any parties yet."}
           </p>
         )}
         {parties.map((p) => (
           <PartyRow
             key={p.id}
             party={p}
+            canManage={canManage}
             onDelete={() => {
               if (confirm(`Delete party "${p.name}"?`)) deleteMut.mutate(p.id);
             }}
@@ -117,10 +123,11 @@ export function PartiesCard() {
 // ── PartyRow ──────────────────────────────────────────────────────────────────
 
 function PartyRow({
-  party, onDelete,
+  party, onDelete, canManage,
 }: {
-  party:    PartyWithMembers;
-  onDelete: () => void;
+  party:     PartyWithMembers;
+  onDelete:  () => void;
+  canManage: boolean;
 }) {
   const qc = useQueryClient();
   const [editing, setEditing]   = useState(false);
@@ -199,7 +206,7 @@ function PartyRow({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {editing ? (
+          {canManage && (editing ? (
             <>
               <button
                 onClick={() => updateMut.mutate({ name: name.trim(), color, description: description.trim() || undefined })}
@@ -232,7 +239,7 @@ function PartyRow({
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </>
-          )}
+          ))}
         </div>
       </div>
 
@@ -253,16 +260,18 @@ function PartyRow({
               loading="lazy"
             />
             <span className="text-[#1C1E27] dark:text-[#EAECF0] font-medium">{m.player_ign}</span>
-            <button
-              onClick={() => removeMemberMut.mutate(m.player_ign)}
-              className="text-meta hover:text-[#EF4444] -mr-1"
-              title="Remove"
-            >
-              <X className="w-2.5 h-2.5" />
-            </button>
+            {canManage && (
+              <button
+                onClick={() => removeMemberMut.mutate(m.player_ign)}
+                className="text-meta hover:text-[#EF4444] -mr-1"
+                title="Remove"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
           </span>
         ))}
-        {!addingMember ? (
+        {canManage && (!addingMember ? (
           <button
             onClick={() => setAddingMember(true)}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed
@@ -277,7 +286,7 @@ function PartyRow({
             existing={new Set(party.members.map((m) => m.player_ign))}
             onDone={() => setAddingMember(false)}
           />
-        )}
+        ))}
       </div>
     </div>
   );

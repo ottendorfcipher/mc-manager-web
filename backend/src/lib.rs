@@ -179,6 +179,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         // Player snapshots (inventory + location)
         .route("/players/snapshots", get(handlers::player_data::list))
+        .route("/players/locations", get(handlers::player_data::locations))
         .route(
             "/players/snapshots/refresh",
             post(handlers::player_data::refresh),
@@ -321,6 +322,7 @@ pub fn build_router(state: AppState) -> Router {
             "/events/countdowns",
             get(handlers::events::list).post(handlers::events::create),
         )
+        .route("/events/summary",               get(handlers::events::summary))
         .route("/events/countdowns/state",      get(handlers::events::get_state))
         .route("/events/countdowns/stream",      get(handlers::events::stream))
         .route("/events/countdowns/:id/start",   post(handlers::events::start))

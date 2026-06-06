@@ -12,6 +12,7 @@ pub async fn update_plugin(
     actor: AuthUser,
     Path(filename): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let plugin = installed_plugins::get_by_filename(&state.pool, &filename).await?
         .ok_or_else(|| AppError::NotFound(format!("Plugin '{filename}' not installed")))?;
 
@@ -45,6 +46,7 @@ pub async fn update_all(
     State(state): State<AppState>,
     actor: AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let plugins = installed_plugins::list(&state.pool).await?;
     let updatable: Vec<_> = plugins.into_iter()
         .filter(|p| p.update_available != 0 && p.project_key.is_some())

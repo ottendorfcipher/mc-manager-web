@@ -526,7 +526,12 @@ export function TeamPage() {
 
   const onlineCount = mcPlayers.filter((p) => p.online).length;
 
-  const sorted = users
+  // Only show people who have actually accepted their invite (signed in at least
+  // once). Invited-but-never-logged-in users have last_login == null and are
+  // managed from the Admin tab, not surfaced in the social roster.
+  const accepted = users.filter((u) => u.last_login != null);
+
+  const sorted = accepted
     .filter((u) =>
       !search ||
       u.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -547,7 +552,7 @@ export function TeamPage() {
           <span className="text-xs font-semibold text-[#1C1E27] dark:text-[#EAECF0]">
             {onlineCount > 0 ? `${onlineCount} online` : "No one online"}
           </span>
-          <span className="text-xs text-meta">· {users.length} members</span>
+          <span className="text-xs text-meta">· {accepted.length} members</span>
         </div>
 
         {/* Search */}

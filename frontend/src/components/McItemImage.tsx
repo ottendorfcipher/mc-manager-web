@@ -10,12 +10,22 @@ import { useState, useEffect } from "react";
  *     On error, fall back to block/{name}.png (handles edge cases).
  *  3. If both fail, show a styled placeholder with the item name.
  *
- * Source: InventivetalentDev/minecraft-assets@1.21.1 via jsDelivr CDN.
- * preconnect hint in index.html ensures the CDN connection is pre-warmed.
+ * Source: InventivetalentDev/minecraft-assets@1.21.11 via jsDelivr CDN — pinned
+ * to the server's exact version so newer items (mace, wind_charge, bundle,
+ * ominous_bottle, every spawn egg, etc.) resolve. preconnect hint in index.html
+ * pre-warms the CDN connection.
  */
 
 const BASE =
-  "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.1/assets/minecraft/textures/";
+  "https://cdn.jsdelivr.net/gh/InventivetalentDev/minecraft-assets@1.21.11/assets/minecraft/textures/";
+
+// ── Texture-name aliases ─────────────────────────────────────────────────────
+// A handful of items have no texture file matching their id (the game renders
+// them from a base texture + tint/overlay). Map them to a sensible base so they
+// show a real image instead of a placeholder.
+const TEXTURE_ALIAS: Record<string, string> = {
+  tipped_arrow: "arrow",
+};
 
 // ── Item IDs whose texture lives in block/ not item/ ─────────────────────────
 // Keeping this set avoids a 404 round-trip for every block or plant item that
@@ -113,7 +123,8 @@ function initialState(bare: string): State {
 }
 
 export function McItemImage({ id, size = 32, className = "" }: Props) {
-  const bare = id.replace("minecraft:", "");
+  const raw  = id.replace("minecraft:", "");
+  const bare = TEXTURE_ALIAS[raw] ?? raw;
   const [state, setState] = useState<State>(() => initialState(bare));
 
   // Reset to the correct starting state whenever the item id changes.
@@ -125,24 +136,29 @@ export function McItemImage({ id, size = 32, className = "" }: Props) {
     null;
 
   if (!src) {
-    // Final fallback: grey square with a question mark and item ID tooltip.
-    // Shown for modded/custom items that have no vanilla texture.
-    const label = bare.replace(/_/g, " ");
+    // Final fallback: a subtle item-box glyph (not a jarring "?") with the real
+    // item name as a tooltip. Reached only for the rare item with no texture.
+    const label = raw.replace(/_/g, " ");
+    const glyph = Math.round(size * 0.55);
     return (
       <div
         style={{ width: size, height: size }}
         className={`rounded flex items-center justify-center
-                    bg-[#D9D5D0] dark:bg-[#2A2D38] flex-shrink-0
-                    border border-[#C0BCB7] dark:border-[#363944] ${className}`}
+                    bg-[#EDEAE6] dark:bg-[#23262F] flex-shrink-0
+                    border border-[#D9D5D0] dark:border-[#363944] ${className}`}
         title={label}
         aria-label={label}
       >
-        <span
-          className="font-bold text-meta select-none leading-none"
-          style={{ fontSize: Math.max(8, size * 0.35) }}
+        {/* generic "item" cube */}
+        <svg
+          width={glyph} height={glyph} viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+          strokeLinejoin="round" className="text-meta opacity-60" aria-hidden
         >
-          ?
-        </span>
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+          <path d="m3.3 7 8.7 5 8.7-5" />
+          <path d="M12 22V12" />
+        </svg>
       </div>
     );
   }

@@ -48,9 +48,10 @@ pub struct ConflictInfo {
 
 pub async fn preview(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
     Path(project_key): Path<String>,
 ) -> Result<Json<DependencyPreview>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let slug = project_key
         .strip_prefix("modrinth:")
         .unwrap_or(&project_key)

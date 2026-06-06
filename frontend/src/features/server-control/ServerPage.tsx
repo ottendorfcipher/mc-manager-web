@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2, Terminal, Save, Megaphone, UserX, ShieldOff, Crown,
   CrownIcon, Sword, Zap,
+  Backpack, MapPin, HeartPulse, ChevronsDown, Flame, Snowflake, Droplet, Bed,
+  Sun, CloudRain, Bomb, Bug, Timer, Target, Trophy, ScrollText, MessageSquare,
+  Globe, Bell, User, Minus, Plus, Lock,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
 import { toast } from "@/components/Toast";
@@ -21,7 +25,12 @@ const DIFFICULTIES = [
 // ── Gamerules ─────────────────────────────────────────────────────────────────
 // Grouped by mental model. NNG recognition > recall: emoji + plain-language labels.
 
-const GAMERULE_GROUPS = [
+type BoolRule = { key: string; label: string; desc: string; onVal: string; offVal: string; defaultOn: boolean };
+type NumRule  = { key: string; label: string; desc: string; type: "number"; defaultVal: number; min: number; max: number };
+type Rule     = BoolRule | NumRule;
+type RuleGroup = { label: string; rules: Rule[] };
+
+const GAMERULE_GROUPS: RuleGroup[] = [
   {
     label: "Player Mechanics",
     rules: [
@@ -56,7 +65,23 @@ const GAMERULE_GROUPS = [
       { key: "showDeathMessages",    label: "Death Messages",           desc: "Broadcast to chat when a player or pet dies.",        onVal: "true",  offVal: "false", defaultOn: true  },
     ],
   },
-] as const;
+];
+
+// Per-rule + per-group icons for the card-tile layout (recognition over recall).
+const RULE_ICONS: Record<string, LucideIcon> = {
+  keepInventory: Backpack, reducedDebugInfo: MapPin, naturalRegeneration: HeartPulse,
+  fallDamage: ChevronsDown, fireDamage: Flame, freezeDamage: Snowflake,
+  drowningDamage: Droplet, playersSleepingPercentage: Bed,
+  doDaylightCycle: Sun, doWeatherCycle: CloudRain, doFireTick: Flame,
+  mobGriefing: Bomb, doMobSpawning: Bug, randomTickSpeed: Timer, spawnRadius: Target,
+  announceAdvancements: Trophy, sendCommandFeedback: Terminal,
+  logAdminCommands: ScrollText, showDeathMessages: MessageSquare,
+};
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  "Player Mechanics": User,
+  "World & Environment": Globe,
+  "Social & Notifications": Bell,
+};
 
 type GameruleKey = string;
 
@@ -93,67 +118,102 @@ const VM_STEPS: Record<string, { after: number; text: string }[]> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function Toggle({
-  checked, onChange, disabled, label, desc,
-}: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string; desc: string }) {
+// ── Gamerule card-tile primitives ─────────────────────────────────────────────
+
+function StatusBadge({ on }: { on: boolean }) {
   return (
-    <div className="flex items-center gap-4 py-3">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">{label}</p>
-        <p className="text-xs text-meta">{desc}</p>
-      </div>
-      <button
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-5 w-9 rounded-full transition-colors
-          focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
-          ${checked ? "bg-[#5B9BF0]" : "bg-[#D9D5D0] dark:bg-[#363944]"}
-          disabled:opacity-50`}
-      >
-        <span className={`inline-block h-4 w-4 rounded-full bg-white shadow translate-y-0.5
-          transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`} />
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+        on
+          ? "bg-[#ECFDF5] text-[#047857] dark:bg-[#052e16] dark:text-[#6EE7B7]"
+          : "bg-[#F0EDE9] text-meta dark:bg-[#2A2D38]"
+      }`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${on ? "bg-[#36B37E]" : "bg-[#9B9EA6]"}`} />
+      {on ? "Enabled" : "Disabled"}
+    </span>
+  );
+}
+
+function Switch({ checked, onChange, disabled, label }: {
+  checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 rounded-full transition-colors flex-shrink-0
+        focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
+        ${checked ? "bg-[#5B9BF0]" : "bg-[#D9D5D0] dark:bg-[#363944]"}
+        disabled:opacity-50 disabled:cursor-not-allowed`}
+    >
+      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow translate-y-0.5
+        transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`} />
+    </button>
+  );
+}
+
+function Stepper({ value, onChange, min, max, disabled }: {
+  value: number; onChange: (v: number) => void; min: number; max: number; disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const commit = (n: number) => {
+    const c = Math.max(min, Math.min(max, isNaN(n) ? min : n));
+    setDraft(String(c));
+    onChange(c);
+  };
+  const btn = "w-6 h-6 flex items-center justify-center rounded-md border border-[#D9D5D0] " +
+    "dark:border-[#363944] text-meta hover:text-[#5B9BF0] hover:border-[#5B9BF0] " +
+    "disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
+  return (
+    <div className="flex items-center gap-1 flex-shrink-0">
+      <button className={btn} disabled={disabled} aria-label="Decrease"
+        onClick={() => commit((parseInt(draft) || 0) - 1)}>
+        <Minus className="w-3 h-3" aria-hidden />
+      </button>
+      <input
+        type="number" min={min} max={max} value={draft} disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(parseInt(draft))}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(parseInt(draft)); }}
+        className="w-12 text-center rounded-md border border-[#D9D5D0] dark:border-[#363944]
+                   bg-white dark:bg-[#2A2D38] text-sm py-1 text-[#1C1E27] dark:text-[#EAECF0]
+                   focus:outline-none focus:ring-2 focus:ring-[#5B9BF0] disabled:opacity-50
+                   [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      <button className={btn} disabled={disabled} aria-label="Increase"
+        onClick={() => commit((parseInt(draft) || 0) + 1)}>
+        <Plus className="w-3 h-3" aria-hidden />
       </button>
     </div>
   );
 }
 
-function NumberRule({
-  label, desc, value, onChange, min, max, disabled,
-}: { label: string; desc: string; value: number; onChange: (v: number) => void; min: number; max: number; disabled?: boolean }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => { setDraft(String(value)); }, [value]);
+function GameruleTile({ icon: Icon, label, desc, badge, control, flash }: {
+  icon: LucideIcon; label: string; desc: string;
+  badge: React.ReactNode; control: React.ReactNode; flash?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-4 py-3">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">{label}</p>
-        <p className="text-xs text-meta">{desc}</p>
+    <div className="rounded-xl border border-[#D9D5D0] dark:border-[#363944]
+                    bg-[#F7F5F2] dark:bg-[#1E212B] p-3 flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <Icon className="w-4 h-4 text-[#5B9BF0] flex-shrink-0 mt-0.5" aria-hidden />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0] leading-tight">{label}</p>
+          <p className="text-[11px] text-meta leading-snug mt-0.5">{desc}</p>
+        </div>
+        {flash && (
+          <CheckCircle2 className="w-4 h-4 text-[#36B37E] flex-shrink-0 animate-[modal-in_150ms_ease]" aria-hidden />
+        )}
       </div>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const n = Math.max(min, Math.min(max, parseInt(draft) || min));
-          setDraft(String(n));
-          onChange(n);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            const n = Math.max(min, Math.min(max, parseInt(draft) || min));
-            setDraft(String(n));
-            onChange(n);
-          }
-        }}
-        className="w-20 text-center rounded-lg border border-[#D9D5D0] dark:border-[#363944]
-                   bg-white dark:bg-[#2A2D38] text-sm px-2 py-1 text-[#1C1E27] dark:text-[#EAECF0]
-                   focus:outline-none focus:ring-2 focus:ring-[#5B9BF0] disabled:opacity-50"
-      />
+      <div className="flex items-center justify-between gap-2 mt-auto pt-0.5">
+        {badge ?? <span />}
+        {control}
+      </div>
     </div>
   );
 }
@@ -451,60 +511,75 @@ export function ServerPage() {
         </div>
       </div>
 
-      {/* ── Gamerules (grouped) ─────────────────────────────────────────────── */}
-      <div className="card space-y-6">
-        <SectionHeader>🎮 Game Rules</SectionHeader>
-        {GAMERULE_GROUPS.map((group) => (
-          <div key={group.label}>
-            <p className="text-xs font-semibold text-meta mb-1 uppercase tracking-wider">{group.label}</p>
-            <div className="divide-y divide-[#D9D5D0] dark:divide-[#363944]">
-              {group.rules.map((rule) => {
-                const isNum = "type" in rule && rule.type === "number";
-                if (isNum) {
-                  const r = rule as {key: string; label: string; desc: string; min: number; max: number; defaultVal: number};
+      {/* ── Game rules (card tiles, grouped) ───────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <SectionHeader>🎮 Game Rules</SectionHeader>
+          {!canControl && (
+            <span className="flex items-center gap-1 text-[11px] text-meta">
+              <Lock className="w-3 h-3" aria-hidden /> View only
+            </span>
+          )}
+        </div>
+        {GAMERULE_GROUPS.map((group) => {
+          const GroupIcon = GROUP_ICONS[group.label] ?? Globe;
+          const bools = group.rules.filter((r) => !("type" in r) || r.type !== "number");
+          const onCount = bools.filter((r) => grStates[(r as { key: string }).key]).length;
+          return (
+            <div key={group.label} className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <GroupIcon className="w-4 h-4 text-[#5B9BF0]" aria-hidden />
+                  <h3 className="text-sm font-semibold text-[#1C1E27] dark:text-[#EAECF0]">{group.label}</h3>
+                </div>
+                {bools.length > 0 && (
+                  <span className="text-[11px] text-meta tabular-nums">{onCount} of {bools.length} on</span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {group.rules.map((rule) => {
+                  const Icon  = RULE_ICONS[rule.key] ?? Zap;
+                  const isNum = "type" in rule && rule.type === "number";
+                  if (isNum) {
+                    const r = rule as { key: string; label: string; desc: string; min: number; max: number; defaultVal: number };
+                    return (
+                      <GameruleTile
+                        key={r.key} icon={Icon} label={r.label} desc={r.desc} flash={grFlash[r.key]}
+                        badge={
+                          <span className="text-[10px] font-medium text-meta px-2 py-0.5 rounded-full bg-[#F0EDE9] dark:bg-[#2A2D38] tabular-nums">
+                            {r.min}–{r.max}
+                          </span>
+                        }
+                        control={
+                          <Stepper
+                            value={grNumbers[r.key] ?? r.defaultVal}
+                            onChange={(n) => setNumber(r.key, n)}
+                            min={r.min} max={r.max} disabled={!canControl}
+                          />
+                        }
+                      />
+                    );
+                  }
+                  const r  = rule as { key: string; label: string; desc: string; onVal: string; offVal: string; defaultOn: boolean };
+                  const on = grStates[r.key];
                   return (
-                    <NumberRule
-                      key={r.key}
-                      label={r.label}
-                      desc={r.desc}
-                      value={grNumbers[r.key] ?? r.defaultVal}
-                      onChange={(n) => setNumber(r.key, n)}
-                      min={r.min}
-                      max={r.max}
-                      disabled={!canControl}
+                    <GameruleTile
+                      key={r.key} icon={Icon} label={r.label} desc={r.desc} flash={grFlash[r.key]}
+                      badge={<StatusBadge on={on} />}
+                      control={
+                        <Switch
+                          checked={on}
+                          onChange={(v) => setToggle(r.key, r.onVal, r.offVal, v)}
+                          disabled={!canControl} label={r.label}
+                        />
+                      }
                     />
                   );
-                }
-                const r = rule as {key: string; label: string; desc: string; onVal: string; offVal: string; defaultOn: boolean};
-                return (
-                  <div key={r.key} className="flex items-center gap-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#1C1E27] dark:text-[#EAECF0]">{r.label}</p>
-                      <p className="text-xs text-meta">{r.desc}</p>
-                    </div>
-                    {grFlash[r.key] && (
-                      <CheckCircle2 className="w-4 h-4 text-[#36B37E] flex-shrink-0 animate-[modal-in_150ms_ease]" aria-hidden />
-                    )}
-                    <button
-                      role="switch"
-                      aria-checked={grStates[r.key]}
-                      aria-label={r.label}
-                      disabled={!canControl}
-                      onClick={() => setToggle(r.key, r.onVal, r.offVal, !grStates[r.key])}
-                      className={`relative inline-flex h-5 w-9 rounded-full transition-colors
-                        focus-visible:ring-2 focus-visible:ring-[#5B9BF0]
-                        ${grStates[r.key] ? "bg-[#5B9BF0]" : "bg-[#D9D5D0] dark:bg-[#363944]"}
-                        disabled:opacity-50`}
-                    >
-                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow translate-y-0.5
-                        transition-transform ${grStates[r.key] ? "translate-x-4" : "translate-x-0.5"}`} />
-                    </button>
-                  </div>
-                );
-              })}
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── Whitelist ────────────────────────────────────────────────────────── */}

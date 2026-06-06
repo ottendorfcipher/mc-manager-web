@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Shield, Home, Coins, Siren, MessageSquare, Gamepad2, Search, Download, Plus, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
+import { useAuthStore } from "@/store/auth";
 import { InstallFlow } from "./InstallFlow";
+import { InstalledList } from "./InstalledList";
 
 const API = "/api";
 
@@ -105,6 +107,18 @@ const HARDCODED_GOALS = [
 ];
 
 export function PluginsHome() {
+  const canManage = useAuthStore((s) => s.hasPerm)("plugins.manage");
+
+  // Members and below can VIEW installed add-ons but not browse/install. Show
+  // them the read-only installed list instead of the catalog.
+  if (!canManage) {
+    return <InstalledList readOnly />;
+  }
+
+  return <PluginsBrowser />;
+}
+
+function PluginsBrowser() {
   const [search, setSearch]         = useState("");
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
   const [installKey,   setInstallKey]   = useState<string | null>(null);

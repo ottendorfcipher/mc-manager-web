@@ -21,7 +21,7 @@ const NAV = [
   { to: "/events",       icon: Timer,          label: "Events",      perm: "nav.events" },
   { to: "/automations",  icon: Clock,          label: "Automations", perm: "nav.automations" },
   { to: "/map",          icon: Map,            label: "Map",         perm: "nav.map" },
-  { to: "/plugins",    icon: Puzzle,         label: "Plugins",   perm: "nav.backups" },
+  { to: "/plugins",    icon: Puzzle,         label: "Plugins",   perm: "nav.plugins" },
   { to: "/backups",   icon: HardDrive,      label: "Backups",   perm: "nav.backups" },
   { to: "/configure", icon: Settings,       label: "Configure", perm: "nav.configure" },
   { to: "/admin",     icon: ShieldCheck,    label: "Admin",     perm: "nav.admin" },

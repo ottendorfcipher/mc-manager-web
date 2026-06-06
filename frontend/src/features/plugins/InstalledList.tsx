@@ -47,7 +47,7 @@ function StatusBadge({ status }: { status: PluginStatus }) {
   );
 }
 
-export function InstalledList() {
+export function InstalledList({ readOnly = false }: { readOnly?: boolean } = {}) {
   const qc = useQueryClient();
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [feedback, setFeedback]           = useState<string | null>(null);
@@ -100,9 +100,11 @@ export function InstalledList() {
           </h1>
           <p className="text-sm text-meta mt-1">
             {plugins?.length ?? 0} add-on{plugins?.length !== 1 ? "s" : ""} on your server
+            {readOnly && " · view only"}
           </p>
         </div>
 
+        {!readOnly && (
         <div className="flex gap-2">
           {updateCount > 0 && (
             <button
@@ -129,6 +131,7 @@ export function InstalledList() {
             {PLUGIN_VOCAB.undo}
           </button>
         </div>
+        )}
       </div>
 
       {feedback && (
@@ -171,6 +174,7 @@ export function InstalledList() {
                     </div>
                   </div>
 
+                  {!readOnly && (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {plugin.update_available !== 0 && plugin.project_key && (
                       <button
@@ -210,6 +214,7 @@ export function InstalledList() {
                       </button>
                     )}
                   </div>
+                  )}
                 </li>
               ))}
             </ul>

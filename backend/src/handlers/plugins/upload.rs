@@ -28,6 +28,7 @@ pub async fn upload(
     actor: AuthUser,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<UploadResult>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let mut jar_bytes: Option<(Vec<u8>, String)> = None;
 
     while let Some(field) = multipart.next_field().await

@@ -43,9 +43,10 @@ pub struct CatalogSummary {
 
 pub async fn browse(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
     Query(params): Query<BrowseParams>,
 ) -> Result<Json<BrowseResponse>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     let limit  = params.limit.unwrap_or(20).min(50);
     let offset = params.offset.unwrap_or(0);
 

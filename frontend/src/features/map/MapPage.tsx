@@ -5,7 +5,7 @@ import { MapPin as MapPinIcon, Users, Plus, Globe, Flame, Moon,
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/store/auth";
-import type { BlueMapSettings, MapPin, PlayerSnapshot, McPlayer } from "@/types";
+import type { BlueMapSettings, MapPin, PlayerLocation, McPlayer } from "@/types";
 import { PlayerDetailPanel } from "./PlayerDetailPanel";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -302,9 +302,11 @@ export function MapPage() {
   }
 
   // ── Data
-  const { data: snapshots = [] } = useQuery<PlayerSnapshot[]>({
-    queryKey: ["snapshots"],
-    queryFn:  () => api.get("/players/snapshots"),
+  // Location-only feed (no inventory) — visible to all members so the map shows
+  // everyone's position, not just the viewer's own linked players.
+  const { data: snapshots = [] } = useQuery<PlayerLocation[]>({
+    queryKey: ["player-locations"],
+    queryFn:  () => api.get("/players/locations"),
     refetchInterval: 60_000,
   });
 
