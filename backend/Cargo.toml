@@ -63,7 +63,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 
 # TypeScript type generation (dev dependency semantics, but needed at build time)
-ts-rs = { version = "10", features = ["serde-json-impl", "chrono-impl", "uuid-impl"] }
+ts-rs = { version = "12", features = ["serde-json-impl", "chrono-impl", "uuid-impl"] }
 urlencoding = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 time = { version = "0.3", features = ["serde"] }
