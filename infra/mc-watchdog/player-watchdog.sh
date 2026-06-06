@@ -3,9 +3,11 @@
 # Tails latest.log, calls example.com on every join, kicks unapproved players.
 # On allowed joins, applies the stored per-player gamemode via RCON.
 
-BACKEND="https://example.com"
-TOKEN="***REMOVED-ROTATED-SECRET***"
-LOG="/opt/minecraft/server/logs/latest.log"
+# Config comes from the environment (systemd EnvironmentFile=/etc/mc-watchdog.env).
+# NEVER hardcode the token in source — see infra/mc-watchdog/watchdog.env.example.
+BACKEND="${BACKEND_URL:-https://example.com}"
+TOKEN="${WATCHDOG_TOKEN:?WATCHDOG_TOKEN must be set in /etc/mc-watchdog.env (openssl rand -hex 32, must match backend)}"
+LOG="${MC_LOG_PATH:-/opt/minecraft/server/logs/latest.log}"
 
 get_rcon_pass() {
     grep '^rcon.password=' /opt/minecraft/server/server.properties | cut -d= -f2

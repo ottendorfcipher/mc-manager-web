@@ -3,6 +3,9 @@ name = "redstonecipher-server"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
+# Proprietary, never published to a registry. Prevents accidental `cargo publish`
+# and lets cargo-deny skip the license check for our own crate.
+publish = false
 
 [[bin]]
 name = "redstonecipher-server"
@@ -33,7 +36,10 @@ anyhow = "1"
 
 # Auth
 jsonwebtoken = "9"
-oauth2 = "4"
+# NOTE: the `oauth2` crate was removed — it was unused (auth/google.rs builds the
+# OAuth URLs manually and performs token exchange via our own reqwest client).
+# Removing it drops the entire legacy reqwest-0.11 / rustls-0.21 / webpki-0.101
+# chain, clearing RUSTSEC-2026-0098, RUSTSEC-2026-0099 and RUSTSEC-2025-0134.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 base64 = "0.22"
 rand = "0.8"
