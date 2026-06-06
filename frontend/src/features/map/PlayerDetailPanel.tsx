@@ -67,11 +67,13 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
   const [showGive, setShowGive] = useState(false);
 
   const canGive    = hasPerm("players.give_items");
+  const canViewInv = hasPerm("players.view_any");
 
   const { data: snap, isLoading } = useQuery<PlayerSnapshot>({
     queryKey:  ["snapshot", ign],
     queryFn:   () => api.get(`/players/snapshots/${encodeURIComponent(ign)}`),
     retry:     false,
+    enabled:   canViewInv,   // members can see locations but not inventories
   });
 
   // Is this player currently online?
@@ -127,14 +129,16 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
                 <Package className="w-4 h-4" />
               </button>
             )}
-            <button
-              onClick={() => refreshMut.mutate()}
-              disabled={refreshMut.isPending}
-              title="Refresh snapshot"
-              className="icon-btn"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshMut.isPending ? "animate-spin" : ""}`} />
-            </button>
+            {canViewInv && (
+              <button
+                onClick={() => refreshMut.mutate()}
+                disabled={refreshMut.isPending}
+                title="Refresh snapshot"
+                className="icon-btn"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshMut.isPending ? "animate-spin" : ""}`} />
+              </button>
+            )}
             <button onClick={onClose} className="icon-btn hover:text-[#F87171] hover:bg-[#FEE2E2] dark:hover:bg-[#3B1F1F]">
               <X className="w-4 h-4" />
             </button>
@@ -147,7 +151,9 @@ export function PlayerDetailPanel({ ign, onClose }: Props) {
           </div>
         ) : !snap ? (
           <div className="flex-1 flex items-center justify-center text-sm text-meta p-6 text-center">
-            No snapshot yet. Click Refresh to capture current state.
+            {canViewInv
+              ? "No snapshot yet. Click Refresh to capture current state."
+              : "Inventory details are only visible to admins. You can see player locations on the map."}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-4 space-y-4">

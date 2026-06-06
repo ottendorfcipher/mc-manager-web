@@ -9,8 +9,9 @@ use crate::{
 
 pub async fn list(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
 ) -> Result<Json<Vec<installed_plugins::InstalledPlugin>>> {
+    crate::auth::middleware::require_perm(&actor, "nav.plugins")?;
     let plugins = installed_plugins::list(&state.pool).await?;
     Ok(Json(plugins))
 }
@@ -20,6 +21,7 @@ pub async fn remove(
     actor: AuthUser,
     Path(filename): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     // Verify the plugin exists.
     let existing = installed_plugins::get_by_filename(&state.pool, &filename).await?;
     if existing.is_none() {

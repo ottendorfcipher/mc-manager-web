@@ -9,8 +9,9 @@ use crate::{
 
 pub async fn undo_last(
     State(state): State<AppState>,
-    _actor: AuthUser,
+    actor: AuthUser,
 ) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     // Find the most recent completed job with a backup_id.
     let recent = plugin_jobs::list_recent(&state.pool, 20).await?;
     let job = recent.iter()

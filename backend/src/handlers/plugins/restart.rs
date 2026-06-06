@@ -9,8 +9,9 @@ use crate::{
 
 pub async fn restart_for_plugins(
     State(state): State<AppState>,
-    _actor: AuthUser,
+    actor: AuthUser,
 ) -> Result<StatusCode> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     plugin_install::trigger_restart_and_verify(&state.pool, &state.config)
         .await
         .map_err(|e| crate::error::AppError::ExternalCommand(e.to_string()))?;

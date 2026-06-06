@@ -151,6 +151,27 @@ export interface PlayerSnapshot {
   captured_at:    string;
 }
 
+/** Location-only view of a player (no inventory) — visible to members for the map. */
+export interface PlayerLocation {
+  ign:         string;
+  x:           number;
+  y:           number;
+  z:           number;
+  dimension:   string;
+  captured_at: string;
+}
+
+/** Dashboard event-status summary (members can see active/scheduled events). */
+export interface EventStatusItem {
+  kind:   "countdown" | "scheduled" | string;
+  name:   string;
+  detail: string | null;
+}
+export interface EventSummary {
+  active:    EventStatusItem[];
+  scheduled: EventStatusItem[];
+}
+
 export interface MapPin {
   id:         number;
   x:          number;

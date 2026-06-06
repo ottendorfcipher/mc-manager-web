@@ -20,6 +20,7 @@ pub async fn install(
     actor: AuthUser,
     Json(body): Json<InstallBody>,
 ) -> Result<Json<serde_json::Value>> {
+    crate::auth::middleware::require_perm(&actor, "plugins.manage")?;
     if body.project_key.trim().is_empty() {
         return Err(crate::error::AppError::BadRequest("project_key is required".into()));
     }

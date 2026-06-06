@@ -17,7 +17,10 @@ use tracing::warn;
 
 use crate::{
     auth::middleware::AuthUser,
-    db::countdowns::{self, CountdownStatePayload},
+    db::{
+        countdowns::{self, CountdownStatePayload},
+        scheduled_jobs,
+    },
     error::{AppError, Result},
     minecraft::{
         countdown as mc,
@@ -66,6 +69,65 @@ pub async fn get_state(
     };
 
     Ok(Json(CountdownStatePayload { active, recent }))
+}
+
+// ── GET /api/events/summary ─────────────────────────────────────────────────
+// Lightweight active/scheduled snapshot for the dashboard. Visible to members
+// (`events.status.view`) even though the full Events tab is admin-only — so
+// regular users can see *that* an event is happening without managing it.
+
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct EventStatusItem {
+    pub kind:   String,         // "countdown" | "scheduled"
+    pub name:   String,
+    pub detail: Option<String>, // remaining time, cron expression, etc.
+}
+
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct EventSummary {
+    pub active:    Vec<EventStatusItem>,
+    pub scheduled: Vec<EventStatusItem>,
+}
+
+pub async fn summary(
+    State(state): State<AppState>,
+    actor: AuthUser,
+) -> Result<Json<EventSummary>> {
+    crate::auth::middleware::require_perm(&actor, "events.status.view")?;
+
+    let mut active = Vec::new();
+    {
+        let guard = state.countdown_active.lock().await;
+        if let Some(a) = guard.as_ref() {
+            let secs = a.remaining_secs().max(0);
+            let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+            let clock = if h > 0 {
+                format!("{h}:{m:02}:{s:02}")
+            } else {
+                format!("{m:02}:{s:02}")
+            };
+            active.push(EventStatusItem {
+                kind:   "countdown".into(),
+                name:   a.title.clone(),
+                detail: Some(if a.paused { format!("{clock} (paused)") } else { clock }),
+            });
+        }
+    }
+
+    let scheduled = scheduled_jobs::list(&state.pool)
+        .await?
+        .into_iter()
+        .filter(|j| j.enabled != 0)
+        .map(|j| EventStatusItem {
+            kind:   "scheduled".into(),
+            name:   j.name,
+            detail: Some(j.cron_expr),
+        })
+        .collect();
+
+    Ok(Json(EventSummary { active, scheduled }))
 }
 
 // ── GET /api/events/countdowns/stream ──────────────────────────────────────────
