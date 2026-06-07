@@ -21,6 +21,22 @@ pub struct InstalledPlugin {
     pub last_status_at:   Option<String>,
 }
 
+/// Find a single plugin by its in-jar declared name or its filename.
+/// One indexed lookup instead of fetching the whole table and scanning.
+pub async fn find_by_name(pool: &SqlitePool, name: &str) -> Result<Option<InstalledPlugin>> {
+    Ok(sqlx::query_as::<_, InstalledPlugin>(
+        "SELECT * FROM installed_plugins
+          WHERE declared_name = ? OR filename = ?
+          ORDER BY (declared_name = ?) DESC, installed_at DESC
+          LIMIT 1",
+    )
+    .bind(name)
+    .bind(name)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert(
     pool:             &SqlitePool,
