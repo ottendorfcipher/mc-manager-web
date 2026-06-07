@@ -17,6 +17,8 @@ pub fn spawn_plugin_updater(pool: SqlitePool, _cfg: Config) {
         tokio::time::sleep(Duration::from_secs(60)).await;
 
         loop {
+
+            crate::heartbeat::beat("plugin_updater");
             run_update_check(&pool).await;
             tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
         }

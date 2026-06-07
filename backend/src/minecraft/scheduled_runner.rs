@@ -22,6 +22,8 @@ pub fn spawn_scheduled_task(state: AppState) {
         interval.tick().await; // skip the immediate first tick
 
         loop {
+
+            crate::heartbeat::beat("scheduled");
             interval.tick().await;
             if let Err(e) = tick_once(&state).await {
                 warn!("scheduled: tick error: {e:?}");

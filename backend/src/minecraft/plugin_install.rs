@@ -512,6 +512,7 @@ async fn verify_loaded(
 pub fn spawn_job_runner(pool: SqlitePool, cfg: Config) {
     tokio::spawn(async move {
         loop {
+            crate::heartbeat::beat("plugin_install");
             tokio::time::sleep(Duration::from_secs(5)).await;
 
             let active = match plugin_jobs::list_active(&pool).await {
