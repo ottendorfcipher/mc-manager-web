@@ -23,7 +23,15 @@ pub struct PendingPlayer {
 /// - `"allow"`  → IGN is linked to a site user, or first-ever connection (let them play once)
 /// - `"kick"`   → pending (seen before, not yet linked); kick with a message
 /// - `"ban"`    → explicitly rejected by an admin
-pub async fn record_join(pool: &SqlitePool, ign: &str, uuid: Option<&str>) -> Result<&'static str> {
+/// Record a join attempt. Returns `(action, newly_pending)` where `action` is
+/// the watchdog directive ("allow" | "kick" | "ban") and `newly_pending` is
+/// true only when this call created a brand-new pending record (so the caller
+/// can notify admins exactly once per new player).
+pub async fn record_join(
+    pool: &SqlitePool,
+    ign: &str,
+    uuid: Option<&str>,
+) -> Result<(&'static str, bool)> {
     // 1. Already linked to a site user — always allow.
     let linked: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM player_links WHERE LOWER(ign) = LOWER(?)")
@@ -32,7 +40,7 @@ pub async fn record_join(pool: &SqlitePool, ign: &str, uuid: Option<&str>) -> Re
             .await?;
 
     if linked > 0 {
-        return Ok("allow");
+        return Ok(("allow", false));
     }
 
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -58,7 +66,7 @@ pub async fn record_join(pool: &SqlitePool, ign: &str, uuid: Option<&str>) -> Re
             .bind(&now)
             .execute(pool)
             .await?;
-            Ok("allow")
+            Ok(("allow", true))
         }
         Some(p) => {
             // Bump attempt counter and last_attempted timestamp.
@@ -73,8 +81,8 @@ pub async fn record_join(pool: &SqlitePool, ign: &str, uuid: Option<&str>) -> Re
             .await?;
 
             match p.status.as_str() {
-                "rejected" => Ok("ban"),
-                _ => Ok("kick"), // pending — seen before but not linked
+                "rejected" => Ok(("ban", false)),
+                _ => Ok(("kick", false)), // pending — seen before but not linked
             }
         }
     }
