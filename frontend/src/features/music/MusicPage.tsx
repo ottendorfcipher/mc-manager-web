@@ -5,6 +5,7 @@ import {
   Trash2, ChevronDown, Pencil, Disc3, ImageIcon,
 } from "lucide-react";
 import { api } from "@/api/client";
+import { useEventStream } from "@/hooks/useEventStream";
 import { useAuthStore } from "@/store/auth";
 import { McItemImage } from "@/components/McItemImage";
 import { DiscIcon } from "@/components/DiscIcon";
@@ -57,17 +58,12 @@ export function MusicPage() {
   });
 
   // ── SSE stream for instant state updates ─────────────────────────────────────
+  // Reconnecting EventSource wrapper (capped backoff + clean teardown).
 
-  useEffect(() => {
-    if (!canPlay) return;
-    const es = new EventSource("/api/music/stream", { withCredentials: true });
-    es.onmessage = (e) => {
-      try {
-        qc.setQueryData<MusicState>(["music-state"], JSON.parse(e.data));
-      } catch { /* ignore */ }
-    };
-    return () => es.close();
-  }, [canPlay, qc]);
+  useEventStream<MusicState>(canPlay ? "/api/music/stream" : null, {
+    enabled: canPlay,
+    onMessage: (data) => qc.setQueryData<MusicState>(["music-state"], data),
+  });
 
   // ── Smooth progress-bar counter ──────────────────────────────────────────────
 

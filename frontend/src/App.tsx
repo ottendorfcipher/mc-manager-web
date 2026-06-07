@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
+import { ApiError } from "@/api/client";
+import { toast } from "@/components/Toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Layout } from "@/components/Layout";
 import { KillSwitchBanner } from "@/components/KillSwitchBanner";
@@ -28,6 +30,19 @@ import { OnboardingWizard, isOnboardingComplete, useOnboardingStore } from "@/fe
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
+  // Global safety net: any mutation that fails and does NOT define its own
+  // onError surfaces a default error toast, so failures are never silent.
+  // Mutations with custom error handling keep it (we skip the default below).
+  mutationCache: new MutationCache({
+    onError: (error, _vars, _ctx, mutation) => {
+      if (mutation.options.onError) return;
+      const msg =
+        error instanceof ApiError
+          ? error.message
+          : "Something went wrong. Please try again.";
+      toast.error(msg);
+    },
+  }),
 });
 
 // ── Minimal privacy page ─────────────────────────────────────────────────────
