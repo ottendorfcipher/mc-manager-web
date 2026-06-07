@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useEventStream } from "@/hooks/useEventStream";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Timer, Play, Pause, Square, Trash2, Plus, Users, Waves, Trophy, DoorOpen,
@@ -177,15 +178,9 @@ function CountdownsPanel({
     queryFn:  () => api.get("/events/countdowns/state"),
   });
 
-  useEffect(() => {
-    const es = new EventSource("/api/events/countdowns/stream", { withCredentials: true });
-    es.onmessage = (e) => {
-      try {
-        qc.setQueryData<CountdownState>(["countdown-state"], JSON.parse(e.data));
-      } catch { /* ignore malformed */ }
-    };
-    return () => es.close();
-  }, [qc]);
+  useEventStream<CountdownState>("/api/events/countdowns/stream", {
+    onMessage: (data) => qc.setQueryData<CountdownState>(["countdown-state"], data),
+  });
 
   const active = countdownState?.active ?? null;
   const [localRemaining, setLocalRemaining] = useState(0);

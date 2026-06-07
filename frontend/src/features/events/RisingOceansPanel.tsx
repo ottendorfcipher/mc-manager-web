@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useEventStream } from "@/hooks/useEventStream";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Waves, Play, Pause, X, Trash2, RotateCcw, Check,
@@ -45,16 +46,10 @@ export function RisingOceansPanel({
     refetchInterval: 5_000,
   });
 
-  // ── SSE stream ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const es = new EventSource("/api/events/rising-oceans/stream", { withCredentials: true });
-    es.onmessage = (e) => {
-      try {
-        qc.setQueryData<RisingOceanState>(["rising-oceans-state"], JSON.parse(e.data));
-      } catch { /* ignore parse errors */ }
-    };
-    return () => es.close();
-  }, [qc]);
+  // ── SSE stream (reconnecting) ──────────────────────────────────────────────
+  useEventStream<RisingOceanState>("/api/events/rising-oceans/stream", {
+    onMessage: (data) => qc.setQueryData<RisingOceanState>(["rising-oceans-state"], data),
+  });
 
   const active = roState?.active ?? null;
 
