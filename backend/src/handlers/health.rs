@@ -50,15 +50,24 @@ pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<serde_jso
         .fetch_one(&state.pool)
         .await
     {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({
-                "status": "ready",
-                "db": "ok",
-                "uptime_secs": uptime_secs(),
-                "db_pool": { "connections": state.pool.size(), "idle": state.pool.num_idle() },
-            })),
-        ),
+        Ok(_) => {
+            // Background-runner heartbeat ages (seconds since last loop tick).
+            let runners: serde_json::Map<String, serde_json::Value> =
+                crate::heartbeat::snapshot()
+                    .into_iter()
+                    .map(|(name, age)| (name.to_string(), json!(age)))
+                    .collect();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "ready",
+                    "db": "ok",
+                    "uptime_secs": uptime_secs(),
+                    "db_pool": { "connections": state.pool.size(), "idle": state.pool.num_idle() },
+                    "runner_heartbeat_age_secs": runners,
+                })),
+            )
+        }
         Err(e) => {
             tracing::warn!(error = %e, "readiness probe: database unreachable");
             (
