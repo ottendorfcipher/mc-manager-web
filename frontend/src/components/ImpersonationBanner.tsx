@@ -10,7 +10,6 @@
  *     of how many actions were taken during the session.
  */
 
-import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { LogOut, Eye } from "lucide-react";
 import { useImpersonationStore } from "@/store/auth";

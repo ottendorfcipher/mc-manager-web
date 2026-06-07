@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Wifi, WifiOff, ChevronDown, ChevronUp } from "lucide-react";
+import { WifiOff, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "@/api/client";
 
 // Mirror of backend::gcloud::tailscale::TsDevice.  Kept inline here

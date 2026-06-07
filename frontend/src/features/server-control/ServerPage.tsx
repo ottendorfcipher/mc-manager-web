@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2, Terminal, Save, Megaphone, UserX, ShieldOff, Crown,
-  CrownIcon, Sword, Zap,
+  CrownIcon, Zap,
   Backpack, MapPin, HeartPulse, ChevronsDown, Flame, Snowflake, Droplet, Bed,
   Sun, CloudRain, Bomb, Bug, Timer, Target, Trophy, ScrollText, MessageSquare,
   Globe, Bell, User, Minus, Plus, Lock,
@@ -83,7 +83,6 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   "Social & Notifications": Bell,
 };
 
-type GameruleKey = string;
 
 const TIME_PRESETS = [
   { label: "🌅 Sunrise", ticks: 0 },
@@ -231,7 +230,6 @@ export function ServerPage() {
   const qc = useQueryClient();
   const canControl     = user?.permissions.can_control_server ?? false;
   const canManageWl    = hasPerm("server.whitelist.manage");
-  const canGive        = hasPerm("players.give_items");
 
   // Server status
   const { data: serverStatus } = useQuery<ServerStatus>({

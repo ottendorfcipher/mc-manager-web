@@ -14,7 +14,7 @@
  *     diamond blue, and redstone red. Gauge fills use MC-flavoured colours.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Copy, Check, Users, Clock, Music2,
@@ -113,35 +113,6 @@ function ArcGauge({
   );
 }
 
-/** Horizontal progress bar with label. */
-function StatBar({ label, value, max, color, unit }: {
-  label: string; value: number; max: number; color: string; unit?: string;
-}) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-meta">{label}</span>
-        <span className="font-medium text-[#1C1E27] dark:text-[#EAECF0]">
-          {value}{unit ?? ""}
-          {max !== value && <span className="text-meta font-normal"> / {max}{unit ?? ""}</span>}
-        </span>
-      </div>
-      <div className="h-1.5 rounded-full bg-[#E5E2DE] dark:bg-[#363944] overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${pct}%`, backgroundColor: color }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Skeleton shimmer for loading state. */
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`rounded-lg bg-[#E5E2DE] dark:bg-[#363944] animate-pulse ${className ?? ""}`} />;
-}
-
 /** Mini Minecraft head avatar. */
 function MCHead({ ign, size = 24 }: { ign: string; size?: number }) {
   return (
@@ -224,7 +195,7 @@ function UptimeBadge({ raw }: { raw: string }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
-  const { data: status, isLoading: statusLoading } = useQuery<ServerStatus>({
+  const { data: status } = useQuery<ServerStatus>({
     queryKey:      ["server-status"],
     queryFn:       () => api.get("/server/status"),
     refetchInterval: 15_000,

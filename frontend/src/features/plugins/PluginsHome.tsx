@@ -6,7 +6,6 @@ import { useAuthStore } from "@/store/auth";
 import { InstallFlow } from "./InstallFlow";
 import { InstalledList } from "./InstalledList";
 
-const API = "/api";
 
 const GOAL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   Shield, Home, Coins, Siren, MessageSquare, Gamepad2,
@@ -28,13 +27,6 @@ interface BrowseResponse {
   total: number;
 }
 
-interface PluginGoal {
-  slug: string;
-  title: string;
-  description: string;
-  icon: string;
-  sort_order: number;
-}
 
 async function fetchBrowse(q?: string, goal?: string): Promise<BrowseResponse> {
   const params = new URLSearchParams();
