@@ -24,9 +24,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Gate: backend tests must pass before any artifact is built ───────────────
+  # No release artifact is produced unless `cargo test` is green, so a broken
+  # build can never be checksummed, attested, and deployed.
+  #
+  # NOTE: frontend `typecheck`/`lint` are intentionally NOT gated yet — the repo
+  # has pre-existing `tsc --noEmit` errors and ESLint still uses the legacy
+  # `.eslintrc` format (ESLint 9 needs a flat `eslint.config.js`). Once those are
+  # cleaned up, add `npm run typecheck` + `npm run lint` to this job.
+  test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+
+      - name: Cache cargo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: test-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: test-cargo-
+
+      - name: Show toolchain
+        working-directory: backend
+        run: rustup show && cargo --version
+
+      - name: cargo test (locked)
+        working-directory: backend
+        run: cargo test --locked
+
   # ── Backend: pinned, locked release build ───────────────────────────────────
   backend:
     name: Build backend binary
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,6 +121,7 @@ jobs:
   # ── Frontend: pinned, scriptless build ──────────────────────────────────────
   frontend:
     name: Build frontend bundle
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

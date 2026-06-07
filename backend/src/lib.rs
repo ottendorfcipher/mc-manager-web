@@ -38,6 +38,9 @@ use tower_http::{
 use tracing::Level;
 
 pub fn build_router(state: AppState) -> Router {
+    // Prime the process start clock for the /health uptime field.
+    handlers::health::init();
+
     // Rate limiting: 60 requests per minute per IP for the general API,
     // burst up to 20.  This is intentionally permissive for a private server
     // (all users are trusted staff) — the goal is bot/scanner prevention
@@ -460,5 +463,11 @@ pub fn build_router(state: AppState) -> Router {
         ))
         // Rate limiting: per-IP, 60 req/min burst, 1 req/s refill.
         .layer(GovernorLayer { config: governor_conf })
+        // Health/readiness probes — registered AFTER the layers above so they
+        // skip auth, CORS, rate limiting and the Tailscale guard.  This keeps
+        // them reachable for the deploy script's local `curl /health` and for
+        // uptime monitoring regardless of VPN state or throttling.
+        .route("/health", get(handlers::health::health))
+        .route("/ready", get(handlers::health::ready))
         .with_state(state)
 }

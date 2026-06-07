@@ -20,6 +20,7 @@ pub mod pin_hud;
 pub mod rising_oceans;
 pub mod scheduled_jobs;
 pub mod give_item;
+pub mod health;
 pub mod kill_switch;
 pub mod map_pins;
 pub mod mc_players;
