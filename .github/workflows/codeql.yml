@@ -2,7 +2,13 @@ name: CodeQL
 
 # Static analysis of our OWN (first-party) code — the class of bug no dependency
 # scanner catches: injection, auth mistakes, unsafe deserialization, path
-# traversal, etc. Results appear on the repo Security tab.
+# traversal, etc.
+#
+# NOTE: this private repo has no GitHub Advanced Security, so the code-scanning
+# API (the Security tab) is unavailable — uploading SARIF there fails with
+# "Code scanning is not enabled for this repository". We therefore run the
+# analysis and publish the SARIF as a build artifact for manual review instead
+# of uploading it. (gitleaks remains the active committed-secret control.)
 #
 # Dependency CVEs/policy are handled separately by security-audit.yml; this is
 # strictly about first-party source.
@@ -29,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # upload SARIF results
       actions: read
     strategy:
       fail-fast: false
@@ -53,3 +58,16 @@ jobs:
         uses: github/codeql-action/analyze@1a818fd5f97ed0ee9a823421bd5b171add01227f # v4.36.2
         with:
           category: "/language:${{ matrix.language }}"
+          # No GHAS on this repo → don't upload to the code-scanning API (that
+          # step fails with "Code scanning is not enabled"). Write SARIF locally
+          # and publish it as an artifact below.
+          upload: false
+          output: codeql-results
+
+      - name: Upload CodeQL SARIF artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-${{ matrix.language }}-${{ github.sha }}
+          path: codeql-results
+          if-no-files-found: warn
+          retention-days: 30
