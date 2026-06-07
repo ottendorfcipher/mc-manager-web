@@ -16,11 +16,19 @@ const DIM_MAP = [
   { id: "minecraft:the_end",    label: "End",       icon: Moon,   bmId: "end"        },
 ] as const;
 
-function bluemapUrl(dim: string, x?: number, z?: number, zoom = 4) {
+// Default camera target for the overworld — the visual center of the map when
+// it first loads (no player/pin selected). Other dimensions use BlueMap's own
+// default. BlueMap hash = mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewType
+const DEFAULT_OVERWORLD_CENTER = { x: 1224, y: 67, z: 549, distance: 500 };
+
+function bluemapUrl(dim: string, x?: number, z?: number, distance = 500) {
   const d = DIM_MAP.find((d) => d.id === dim) ?? DIM_MAP[0];
   if (x !== undefined && z !== undefined) {
-    // BlueMap hash: #<mapid>:<x>:<y>:<z>:<zoom>:<rot>:<tilt>
-    return `/map/#${d.bmId}:${x}:64:${z}:${zoom}:0:0`;
+    return `/map/#${d.bmId}:${Math.round(x)}:64:${Math.round(z)}:${distance}:0:0:0:1:flat`;
+  }
+  if (d.bmId === "overworld") {
+    const c = DEFAULT_OVERWORLD_CENTER;
+    return `/map/#${d.bmId}:${c.x}:${c.y}:${c.z}:${c.distance}:0:0:0:1:flat`;
   }
   return `/map/#${d.bmId}`;
 }
