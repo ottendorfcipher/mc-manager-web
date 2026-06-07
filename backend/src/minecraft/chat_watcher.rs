@@ -43,11 +43,15 @@ async fn run_with_reconnect(
     discord: std::sync::Arc<tokio::sync::RwLock<Option<crate::discord::DiscordRelay>>>,
 ) {
     // Compile patterns once for the lifetime of the task.
-    // Paper 1.21 chat: [HH:MM:SS INFO]: <IGN> message
-    let chat_re   = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: <(\w+)> (.+)$").unwrap();
+    // The captured name is the player's DISPLAY name, which may include an alias
+    // prefix and therefore spaces (e.g. "Nick ChaoticLuc"). We capture the whole
+    // thing and recover the real IGN as its last whitespace token. Using `\w+`
+    // here silently dropped every aliased player's chat/join/leave events.
+    // Paper 1.21 chat: [HH:MM:SS INFO]: <DisplayName> message
+    let chat_re   = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: <(.+?)> (.+)$").unwrap();
     // Join / leave events
-    let join_re   = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: (\w+) joined the game$").unwrap();
-    let leave_re  = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: (\w+) left the game$").unwrap();
+    let join_re   = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: (.+) joined the game$").unwrap();
+    let leave_re  = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: (.+) left the game$").unwrap();
     // In-game alias command: /alias <name>  or  /alias clear
     // Paper logs this as: "[HH:MM:SS] [Server thread/INFO]: IGN issued server command: /alias Name"
     let alias_re  = Regex::new(r"^\[[\d:]+\] \[.*?INFO\]: (\w+) issued server command: /alias (.+)$").unwrap();
@@ -119,6 +123,17 @@ async fn tail_once(
     Ok(())
 }
 
+/// Recover the real IGN from a (possibly alias-prefixed) display name.
+/// Minecraft renders the display name as "<prefix> <name>", so the real IGN is
+/// the last whitespace-delimited token: "Nick ChaoticLuc" -> "ChaoticLuc".
+fn last_token(display: &str) -> String {
+    display
+        .rsplit(char::is_whitespace)
+        .find(|s| !s.is_empty())
+        .unwrap_or(display)
+        .to_string()
+}
+
 async fn process_line(
     config:   &Config,
     pool:     &sqlx::SqlitePool,
@@ -132,11 +147,15 @@ async fn process_line(
 ) {
     // (source, author, display_as, content, is_player_chat)
     let result = if let Some(cap) = chat_re.captures(line) {
-        let ign     = cap[1].to_string();
+        let display = cap[1].to_string();          // may be alias-prefixed
         let content = cap[2].to_string();
-        Some(("mc", ign.clone(), ign, content, true))
+        let ign     = last_token(&display);         // real IGN (for avatar lookup)
+        // author = real IGN (stable key + correct mc-heads avatar),
+        // display_as = full display name (what players/Discord should see).
+        Some(("mc", ign, display, content, true))
     } else if let Some(cap) = join_re.captures(line) {
-        let ign = cap[1].to_string();
+        let display = cap[1].to_string();
+        let ign     = last_token(&display);
 
         // Re-apply the player's saved default gamemode.  MC doesn't
         // remember the per-player gamemode across disconnects on a
@@ -176,10 +195,11 @@ async fn process_line(
             }
         });
 
-        Some(("server", ign.clone(), ign.clone(), format!("{ign} joined the game"), false))
+        Some(("server", ign.clone(), display.clone(), format!("{display} joined the game"), false))
     } else if let Some(cap) = leave_re.captures(line) {
-        let ign = cap[1].to_string();
-        Some(("server", ign.clone(), ign.clone(), format!("{ign} left the game"), false))
+        let display = cap[1].to_string();
+        let ign     = last_token(&display);
+        Some(("server", ign, display.clone(), format!("{display} left the game"), false))
     } else if let Some(cap) = alias_re.captures(line) {
         // Player typed /alias <name> or /alias clear in-game.
         // Paper logs unknown commands as issued-server-command regardless of
@@ -256,12 +276,13 @@ async fn process_line(
                 // Relay to Discord (fire-and-forget).
                 let relay_opt = discord.read().await.clone();
                 if let Some(relay) = relay_opt {
-                    let dname    = display_as.clone();
+                    let dname    = display_as.clone();   // shown as the Discord username
+                    let dhead    = author.clone();       // real IGN — for the avatar
                     let dcontent = content.clone();
                     if is_player_chat {
                         // MC player message — show their Minecraft head as the avatar.
                         tokio::spawn(async move {
-                            let avatar = format!("https://mc-heads.net/head/{dname}/64");
+                            let avatar = format!("https://mc-heads.net/head/{dhead}/64");
                             relay.relay(&dname, Some(&avatar), &dcontent).await;
                         });
                     } else {
