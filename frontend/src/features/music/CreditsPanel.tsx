@@ -11,7 +11,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Film, Plus, Trash2, Pencil, Eye, X, ChevronUp, ChevronDown,
-  Bold, Italic, GripVertical, Heading2, AlignLeft, Minus,
+  Bold, Italic, Heading2, AlignLeft, Minus,
 } from "lucide-react";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { api } from "@/api/client";

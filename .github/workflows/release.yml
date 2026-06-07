@@ -24,16 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Gate: backend tests must pass before any artifact is built ───────────────
-  # No release artifact is produced unless `cargo test` is green, so a broken
-  # build can never be checksummed, attested, and deployed.
-  #
-  # NOTE: frontend `typecheck`/`lint` are intentionally NOT gated yet — the repo
-  # has pre-existing `tsc --noEmit` errors and ESLint still uses the legacy
-  # `.eslintrc` format (ESLint 9 needs a flat `eslint.config.js`). Once those are
-  # cleaned up, add `npm run typecheck` + `npm run lint` to this job.
+  # ── Gate: backend tests + frontend typecheck/lint must pass before any build ──
+  # No release artifact is produced unless this job is green, so a broken build
+  # can never be checksummed, attested, and deployed.
   test:
-    name: Backend tests
+    name: Tests & checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,6 +52,25 @@ jobs:
       - name: cargo test (locked)
         working-directory: backend
         run: cargo test --locked
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps (no lifecycle scripts)
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
 
   # ── Backend: pinned, locked release build ───────────────────────────────────
   backend:

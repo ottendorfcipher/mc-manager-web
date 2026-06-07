@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, CheckCircle, AlertCircle, Loader2, RotateCcw, Zap, Package, AlertTriangle } from "lucide-react";
 import { api } from "@/api/client";
@@ -116,14 +116,17 @@ export function InstallFlow({ projectKey, pluginTitle, onClose }: InstallFlowPro
     queryKey: ["plugins/preview", projectKey],
     queryFn:  () => api.get(`/plugins/preview/${encodeURIComponent(projectKey)}`),
     staleTime: 60_000,
-    onSuccess: (data) => {
-      if (data.conflicts.length > 0) {
-        setScreen("conflict");
-      } else {
-        setScreen("confirm_deps");
-      }
-    },
   });
+
+  // TanStack Query v5 removed the query `onSuccess` callback — advance the
+  // screen from a `useEffect` instead. Only auto-advance from the initial
+  // "preview" screen so we never clobber a later step.
+  useEffect(() => {
+    if (!preview) return;
+    setScreen((s) =>
+      s === "preview" ? (preview.conflicts.length > 0 ? "conflict" : "confirm_deps") : s,
+    );
+  }, [preview]);
 
   // ── Start install job ───────────────────────────────────────────────────────
   const installMut = useMutation({
@@ -144,12 +147,15 @@ export function InstallFlow({ projectKey, pluginTitle, onClose }: InstallFlowPro
       if (!state || isTerminalState(state) || state === "restart_pending") return false;
       return 1000;
     },
-    onSuccess: (data) => {
-      if (data.state === "done")            setScreen("done");
-      else if (data.state === "failed")     setScreen("failed");
-      else if (data.state === "restart_pending") setScreen("restart");
-    },
   });
+
+  // v5: react to job-state transitions in an effect (no query onSuccess).
+  useEffect(() => {
+    if (!job) return;
+    if (job.state === "done")                  setScreen("done");
+    else if (job.state === "failed")           setScreen("failed");
+    else if (job.state === "restart_pending")  setScreen("restart");
+  }, [job]);
 
   async function handleRestart() {
     setRestarting(true);
