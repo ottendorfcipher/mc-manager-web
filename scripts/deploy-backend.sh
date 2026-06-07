@@ -86,8 +86,8 @@ say "Uploading verified binary to ${WEB_SERVER}..."
 ssh "${SSH_OPTS[@]}" "${WEB_SERVER}" "mkdir -p ${REMOTE_SRC}"
 rsync -az -e "ssh ${SSH_OPTS[*]}" "$BIN" "$SUM" "${WEB_SERVER}:${REMOTE_SRC}/incoming/"
 
-# ── 5+6. Re-verify on server, then atomic swap ──────────────────────────────────
-say "Re-verifying on server and swapping..."
+# ── 5+6. Re-verify on server, swap, then HEALTH-GATE with auto-rollback ─────────
+say "Re-verifying on server, swapping, and health-checking..."
 ssh "${SSH_OPTS[@]}" "${WEB_SERVER}" bash -s <<EOF
 set -euo pipefail
 cd "${REMOTE_SRC}/incoming"
@@ -96,13 +96,47 @@ act="\$(sha256sum redstonecipher-server | awk '{print \$1}')"
 [ "\$exp" = "\$act" ] || { echo "SERVER checksum mismatch! exp=\$exp act=\$act" >&2; exit 1; }
 echo "    server checksum OK \$act"
 chmod +x redstonecipher-server
+
+# Keep the currently-deployed binary so we can roll back if the new one is unhealthy.
+[ -f "${REMOTE_BIN}" ] && cp -f "${REMOTE_BIN}" "${REMOTE_BIN}.prev" || true
+
 systemctl stop redstonecipher
 cp redstonecipher-server "${REMOTE_BIN}"
 chown redstonecipher:redstonecipher "${REMOTE_BIN}"
 systemctl start redstonecipher
-sleep 1
-systemctl is-active redstonecipher && echo "    service active"
+
+# Health gate: poll the backend's own /health endpoint (port read from the
+# service's .env, default 8080). systemctl "active" only means the process
+# launched — /health confirms it actually serves requests (config parsed, etc.).
+PORT="\$(grep -E '^PORT=' /opt/redstonecipher/.env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d ' "')"
+PORT="\${PORT:-8080}"
+URL="http://127.0.0.1:\${PORT}/health"
+healthy=0
+for i in \$(seq 1 20); do
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 3 "\$URL" >/dev/null 2>&1 && { healthy=1; break; }
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/\${PORT}") 2>/dev/null && { healthy=1; break; }
+  fi
+  sleep 1
+done
+
+if [ "\$healthy" != "1" ]; then
+  echo "    NEW BINARY UNHEALTHY after ~20s at \$URL — rolling back" >&2
+  if [ -f "${REMOTE_BIN}.prev" ]; then
+    systemctl stop redstonecipher || true
+    cp -f "${REMOTE_BIN}.prev" "${REMOTE_BIN}"
+    chown redstonecipher:redstonecipher "${REMOTE_BIN}"
+    systemctl start redstonecipher || true
+    echo "    rolled back to previous binary" >&2
+  fi
+  journalctl -u redstonecipher -n 20 --no-pager >&2 || true
+  exit 1
+fi
+
+echo "    healthy at \$URL"
+rm -f "${REMOTE_BIN}.prev"
 journalctl -u redstonecipher -n 6 --no-pager
 EOF
 
-say "Done — deployed verified binary for ${SHA:0:12}."
+say "Done — deployed + health-verified binary for ${SHA:0:12}."

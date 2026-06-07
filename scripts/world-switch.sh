@@ -38,6 +38,27 @@ LOG="/opt/minecraft/backup.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WORLD-SWITCH: $*" | tee -a "$LOG"; }
 
+# Restore the previous world (saved to storage in step 2) back into the server
+# directory and restart. Used when the target world fails to boot, so a failed
+# switch doesn't leave a broken world on disk with the service down. The DB flag
+# only flips on DONE, so after rollback the DB still points at CURRENT_SLUG.
+rollback_to_current() {
+    log "ROLLBACK: restoring previous world '$CURRENT_SLUG' to the server directory..."
+    for dir in world world_nether world_the_end; do
+        rm -rf "${SERVER_DIR:?}/$dir"
+    done
+    if [[ -d "$WORLDS_DIR/$CURRENT_SLUG/world" ]]; then
+        for dir in world world_nether world_the_end; do
+            if [[ -d "$WORLDS_DIR/$CURRENT_SLUG/$dir" ]]; then
+                rsync -a "$WORLDS_DIR/$CURRENT_SLUG/$dir/" "$SERVER_DIR/$dir/"
+            fi
+        done
+    fi
+    chown -R minecraft:minecraft "$SERVER_DIR" || true
+    systemctl start minecraft || true
+    log "ROLLBACK: restored '$CURRENT_SLUG' and restarted the minecraft service"
+}
+
 log "=== Switching '$CURRENT_SLUG' → '$TARGET_SLUG' ==="
 
 # ── 1. Stop the Minecraft service ─────────────────────────────────────────────
@@ -127,6 +148,7 @@ done
 
 if [[ "$STARTED" != "true" ]]; then
     log "ERROR: Service failed to start after world switch"
+    rollback_to_current
     echo "ERROR:service_failed_to_start"
     exit 1
 fi
