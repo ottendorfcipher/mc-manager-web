@@ -302,6 +302,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         // Audit log
         .route("/admin/audit-log", get(handlers::audit_log::list_global))
+        .route("/admin/audit-log/export", get(handlers::audit_log::export_csv))
         .route("/me/audit-log",    get(handlers::audit_log::list_own))
         // Admin impersonation — view the portal as another user
         .route(

@@ -178,6 +178,59 @@ async fn ready_probe_reports_db_ok() {
 }
 
 #[tokio::test]
+async fn audit_log_filter_and_csv_export() {
+    let (srv, state) = server().await;
+    // Seed a couple of audit rows directly.
+    redstonecipher_server::db::audit::log(&state.pool, "alice@example.com", "create_world", Some("alpha"), None)
+        .await
+        .unwrap();
+    redstonecipher_server::db::audit::log(&state.pool, "bob@example.com", "delete_world", Some("beta"), None)
+        .await
+        .unwrap();
+
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Filter by action → only the matching row.
+    let res = srv
+        .get("/api/admin/audit-log?action=create_world")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let rows: serde_json::Value = res.json();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["actor"], "alice@example.com");
+
+    // CSV export returns text/csv with a header row + the seeded rows.
+    let res = srv
+        .get("/api/admin/audit-log/export")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    assert!(res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("text/csv"));
+    let body = res.text();
+    assert!(body.starts_with("id,created_at,actor,action,target,detail"));
+    assert!(body.contains("create_world"));
+    assert!(body.contains("delete_world"));
+}
+
+#[tokio::test]
+async fn audit_log_export_requires_permission() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie("member@example.com", "member");
+    let res = srv
+        .get("/api/admin/audit-log/export")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn metrics_endpoint_exposes_prometheus_text() {
     let (srv, _) = server().await;
     let res = srv.get("/metrics").await;
