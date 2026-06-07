@@ -3,6 +3,7 @@ pub mod detail;
 pub mod preview;
 pub mod install;
 pub mod installed;
+pub mod missing_deps;
 pub mod jobs;
 pub mod restart;
 pub mod undo;
