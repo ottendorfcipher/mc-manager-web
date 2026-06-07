@@ -110,9 +110,10 @@ export function MusicPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.name.toLowerCase().endsWith(".ogg"),
-    );
+    const files = Array.from(e.dataTransfer.files).filter((f) => {
+      const n = f.name.toLowerCase();
+      return n.endsWith(".ogg") || n.endsWith(".mp3");
+    });
     if (files.length > 0) uploadOggMut.mutate(files);
   }, [uploadOggMut]);
 
@@ -325,12 +326,12 @@ export function MusicPage() {
               role="button"
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") oggFileRef.current?.click(); }}
-              aria-label="Upload OGG audio files"
+              aria-label="Upload OGG or MP3 audio files"
             >
               <input
                 ref={oggFileRef}
                 type="file"
-                accept=".ogg"
+                accept=".ogg,.mp3,audio/ogg,audio/mpeg"
                 multiple
                 className="hidden"
                 onChange={handleFileChange}
@@ -341,16 +342,16 @@ export function MusicPage() {
                     className="w-6 h-6 border-2 border-[#5B9BF0] border-t-transparent rounded-full animate-spin mx-auto block mb-2"
                     aria-hidden
                   />
-                  <p className="text-sm text-[#5B9BF0] font-medium">Uploading…</p>
+                  <p className="text-sm text-[#5B9BF0] font-medium">Uploading &amp; converting…</p>
                 </>
               ) : (
                 <>
                   <Upload className="w-6 h-6 text-meta mx-auto mb-2" aria-hidden />
                   <p className="text-sm text-[#1C1E27] dark:text-[#EAECF0] font-medium">
-                    Drop .ogg files here or click to browse
+                    Drop .ogg or .mp3 files here or click to browse
                   </p>
                   <p className="text-[10px] text-meta mt-1">
-                    Tracks are auto-detected and added to the catalog
+                    .mp3 files are auto-converted to OGG Vorbis · tracks added to the catalog
                   </p>
                 </>
               )}

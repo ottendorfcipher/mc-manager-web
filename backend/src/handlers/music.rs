@@ -308,8 +308,10 @@ pub async fn update_custom_track(
 
 // ── POST /api/music/upload ────────────────────────────────────────────────────
 
-/// Upload one or more `.ogg` files. Each file is stored under the resource-pack
-/// sounds directory, registered as a custom track, and returned in the response.
+/// Upload one or more `.ogg` or `.mp3` files. `.mp3` files are transcoded to
+/// OGG Vorbis (the only codec Minecraft resource packs support) on the server.
+/// Each file is stored under the resource-pack sounds directory, registered as
+/// a custom track, and returned in the response.
 ///
 /// Long files are split losslessly into ~5-minute chunks via ffmpeg (`-c copy`).
 /// Each chunk becomes its own custom track named "Original (1/N)", "(2/N)", …
@@ -345,9 +347,12 @@ pub async fn upload_oggs(
             .map(|s| s.to_string())
             .ok_or_else(|| AppError::BadRequest("Missing filename in upload".into()))?;
 
-        if !original_name.to_lowercase().ends_with(".ogg") {
+        let lower  = original_name.to_lowercase();
+        let is_ogg = lower.ends_with(".ogg");
+        let is_mp3 = lower.ends_with(".mp3");
+        if !is_ogg && !is_mp3 {
             return Err(AppError::BadRequest(
-                format!("'{original_name}' is not an .ogg file")
+                format!("'{original_name}' is not an .ogg or .mp3 file")
             ));
         }
 
@@ -358,19 +363,35 @@ pub async fn upload_oggs(
         // NOT for the on-disk path.  On-disk uses a UUID so the public
         // URL isn't trivially scrapable.
         let base = sanitise_filename(&original_name);
-        let stem = base.trim_end_matches(".ogg");
+        let stem = base.trim_end_matches(".ogg").trim_end_matches(".mp3");
         if stem.is_empty() {
             return Err(AppError::BadRequest("Empty filename after sanitisation".into()));
         }
         let upload_uuid = uuid::Uuid::new_v4().simple().to_string();
         let storage_filename = format!("{upload_uuid}.ogg");
 
-        // Write the upload to disk first so ffmpeg can read it.
+        // The on-disk artifact is ALWAYS OGG Vorbis. .ogg uploads are written
+        // straight through; .mp3 uploads are transcoded to Vorbis via ffmpeg
+        // (a temp .mp3 is written, converted, then removed).
         let raw_path = format!("{UPLOAD_DIR}/{storage_filename}");
-        tokio::fs::write(&raw_path, &bytes).await
-            .map_err(|e| AppError::ExternalCommand(format!("write {raw_path}: {e}")))?;
-        // Memory pressure: drop the buffered upload bytes asap.
-        drop(bytes);
+        if is_mp3 {
+            let tmp_mp3 = format!("{UPLOAD_DIR}/{upload_uuid}.src.mp3");
+            tokio::fs::write(&tmp_mp3, &bytes).await
+                .map_err(|e| AppError::ExternalCommand(format!("write {tmp_mp3}: {e}")))?;
+            drop(bytes);
+            if let Err(e) = run_ffmpeg_to_vorbis(&tmp_mp3, &raw_path).await {
+                let _ = tokio::fs::remove_file(&tmp_mp3).await;
+                return Err(AppError::ExternalCommand(
+                    format!("Failed to convert '{original_name}' to OGG Vorbis: {e}")
+                ));
+            }
+            let _ = tokio::fs::remove_file(&tmp_mp3).await;
+        } else {
+            tokio::fs::write(&raw_path, &bytes).await
+                .map_err(|e| AppError::ExternalCommand(format!("write {raw_path}: {e}")))?;
+            // Memory pressure: drop the buffered upload bytes asap.
+            drop(bytes);
+        }
 
         // Detect duration via ffprobe.
         let duration = match probe_duration_secs(&raw_path).await {
@@ -467,7 +488,7 @@ pub async fn upload_oggs(
     }
 
     if created.is_empty() {
-        return Err(AppError::BadRequest("No .ogg files in upload".into()));
+        return Err(AppError::BadRequest("No .ogg or .mp3 files in upload".into()));
     }
 
     // Auto-rebuild the server resource pack to include the new tracks.
@@ -528,6 +549,35 @@ async fn run_ffmpeg_split(
             "-i",  input,
             "-t",  &duration.to_string(),
             "-c",  "copy",
+            output,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    Ok(())
+}
+
+/// Transcode any audio input (e.g. an uploaded `.mp3`) to OGG **Vorbis**.
+///
+/// Minecraft resource packs only support Vorbis-in-Ogg — NOT Opus — so the
+/// audio codec is pinned to `libvorbis`. `-q:a 5` is ~160 kbps VBR, transparent
+/// for game music. `-vn` drops any embedded cover-art video stream so ffmpeg
+/// doesn't choke trying to copy it into the Ogg container.
+async fn run_ffmpeg_to_vorbis(
+    input:  &str,
+    output: &str,
+) -> std::result::Result<(), String> {
+    let out = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel", "error",
+            "-i", input,
+            "-vn",
+            "-c:a", "libvorbis",
+            "-q:a", "5",
             output,
         ])
         .output()
