@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Send, MessageSquare, Lock, Globe, ChevronUp, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
@@ -118,7 +118,7 @@ export function ChatPage() {
 
   // ── Merge older + history + live, deduplicated and sorted ─────────────────────────────
 
-  const allMessages: ChatMessage[] = (() => {
+  const allMessages: ChatMessage[] = useMemo(() => {
     const seen = new Set<number>();
     const merged = [...olderMessages, ...history, ...liveMessages].filter((m) => {
       if (seen.has(m.id)) return false;
@@ -126,7 +126,7 @@ export function ChatPage() {
       return true;
     });
     return merged.sort((a, b) => a.id - b.id);
-  })();
+  }, [olderMessages, history, liveMessages]);
 
   // Auto-scroll to bottom on new live messages only (not when loading earlier history).
   const prevLiveCount = useRef(liveMessages.length);

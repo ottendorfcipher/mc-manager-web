@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Music2, SkipForward, Square, X, Search, Play, Pause, Upload,
@@ -134,11 +134,14 @@ export function MusicPage() {
   // ── Catalog search ────────────────────────────────────────────────────────────
 
   const [search, setSearch] = useState("");
-  const filtered = tracks.filter(
-    (t) =>
-      t.display_name.toLowerCase().includes(search.toLowerCase()) ||
-      t.artist.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return tracks.filter(
+      (t) =>
+        t.display_name.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q),
+    );
+  }, [tracks, search]);
 
   // ── Queue mutations ──────────────────────────────────────────────────────────
 
@@ -166,8 +169,8 @@ export function MusicPage() {
 
   const queue         = musicState?.queue ?? [];
   const pct           = np ? Math.min((elapsed / np.duration_secs) * 100, 100) : 0;
-  const customTracks  = tracks.filter((t) => t.is_custom);
-  const vanillaTracks = tracks.filter((t) => !t.is_custom);
+  const customTracks  = useMemo(() => tracks.filter((t) => t.is_custom), [tracks]);
+  const vanillaTracks = useMemo(() => tracks.filter((t) => !t.is_custom), [tracks]);
   const [showVanilla, setShowVanilla] = useState(false);
 
   // ── Render ───────────────────────────────────────────────────────────────────
