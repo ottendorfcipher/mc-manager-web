@@ -54,6 +54,10 @@ fn test_cfg() -> Config {
         tailscale_api_key: None,
         tailscale_tailnet: "test-tailnet".into(),
         site_url: "https://example.com".into(),
+        discord_bot_token: None,
+        discord_webhook_url: None,
+        discord_channel_id: None,
+        settings_enc_key: [0u8; 32],
     }
 }
 
@@ -71,7 +75,8 @@ async fn test_state() -> AppState {
         .await
         .expect("migrations failed");
 
-    AppState::new(pool, test_cfg())
+    // No Discord configured in tests.
+    AppState::new(pool, test_cfg(), None)
 }
 
 /// Build an `AppState` with a custom config (used when test needs specific
@@ -83,13 +88,32 @@ async fn test_state_with_cfg(cfg: Config) -> AppState {
         .await
         .expect("in-memory SQLite failed");
     sqlx::migrate!("./migrations").run(&pool).await.expect("migrations failed");
-    AppState::new(pool, cfg)
+    AppState::new(pool, cfg, None)
+}
+
+/// Inject a stub peer address so the rate-limiter (`GovernorLayer`) can extract
+/// a key.  Production serves the router via `into_make_service_with_connect_info`,
+/// which populates `ConnectInfo<SocketAddr>`; axum-test's mock transport does
+/// not set up a connection, so we add it here.
+async fn stub_connect_info(
+    mut req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use std::net::SocketAddr;
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    next.run(req).await
+}
+
+/// `build_router` + the test-only connect-info shim.
+fn test_router(state: AppState) -> axum::Router {
+    build_router(state).layer(axum::middleware::from_fn(stub_connect_info))
 }
 
 /// Build a `TestServer` from a fresh in-memory state.
 async fn server() -> (TestServer, AppState) {
     let state = test_state().await;
-    let app = build_router(state.clone());
+    let app = test_router(state.clone());
     let srv = TestServer::new(app).expect("TestServer::new failed");
     (srv, state)
 }
@@ -128,6 +152,57 @@ async fn unauthenticated_backup_list_returns_401() {
     let (srv, _) = server().await;
     let res = srv.get("/api/backups").await;
     assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+// ── Health / readiness probe tests ────────────────────────────────────────────
+
+#[tokio::test]
+async fn health_probe_is_unauthenticated_and_ok() {
+    let (srv, _) = server().await;
+    let res = srv.get("/health").await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "ok");
+    assert!(body["version"].is_string());
+    assert!(body["uptime_secs"].is_number());
+}
+
+#[tokio::test]
+async fn ready_probe_reports_db_ok() {
+    let (srv, _) = server().await;
+    let res = srv.get("/ready").await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "ready");
+    assert_eq!(body["db"], "ok");
+}
+
+// ── Input validation gating tests ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn set_gamerule_rejects_malformed_name() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    // A name with a space / metacharacters must be rejected at the boundary
+    // (400) before any console command is constructed.
+    let res = srv
+        .post("/api/world/gamerule/evil;%20op%20@a")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "value": "true" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn set_gamerule_rejects_non_boolean_non_integer_value() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .post("/api/world/gamerule/keepInventory")
+        .add_header(header::COOKIE, cookie)
+        .json(&serde_json::json!({ "value": "maybe; say pwned" }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
@@ -1025,7 +1100,7 @@ async fn player_joined_rejects_empty_ign() {
     // Set up state with a real watchdog token so we can get past auth.
     let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
     let state = test_state_with_cfg(cfg).await;
-    let app = build_router(state);
+    let app = test_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv
@@ -1040,7 +1115,7 @@ async fn player_joined_rejects_empty_ign() {
 async fn player_joined_first_ever_returns_allow() {
     let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
     let state = test_state_with_cfg(cfg).await;
-    let app = build_router(state);
+    let app = test_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv
@@ -1057,7 +1132,7 @@ async fn player_joined_first_ever_returns_allow() {
 async fn player_joined_second_join_returns_kick() {
     let cfg = Config { watchdog_token: Some("test_watchdog_secret".into()), ..test_cfg() };
     let state = test_state_with_cfg(cfg).await;
-    let app = build_router(state);
+    let app = test_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     // First join — allow
@@ -1095,7 +1170,7 @@ async fn player_joined_linked_player_always_allowed() {
     .execute(&state.pool)
     .await
     .unwrap();
-    let app = build_router(state);
+    let app = test_router(state);
     let srv = axum_test::TestServer::new(app).unwrap();
 
     let res = srv

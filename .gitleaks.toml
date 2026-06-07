@@ -22,7 +22,13 @@ paths = [
 ]
 
 # Obvious placeholder tokens used in examples/docs — never real secrets.
+# Also: GitHub Actions cache keys in our workflows use tool-version prefixes
+# (e.g. `key: cargo-deny-bin-0.19.8-…`, `restore-keys: test-cargo-`) which the
+# generic-api-key rule flags as high-entropy values next to the word "key".
+# These are deterministic cache identifiers, never credentials.
 regexes = [
     '''(?i)(your[-_]?(api[-_]?key|token|secret|password)|changeme|placeholder|example|xxx+|<[^>]+>)''',
     '''sk-proj-xxxxx''',
+    '''cargo-[a-z]+-bin-[0-9][0-9.]*''',
+    '''(test|release)-cargo-''',
 ]
