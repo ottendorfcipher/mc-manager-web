@@ -60,6 +60,8 @@ pub fn spawn_music_zone_task(cfg: Config, pool: SqlitePool, credits_active: Acti
         let mut ticks_since_refresh: u64 = SNAPSHOT_REFRESH_SECS; // force refresh on first tick
 
         loop {
+
+            crate::heartbeat::beat("music_zone");
             interval.tick().await;
             ticks_since_refresh += TICK_SECS;
 

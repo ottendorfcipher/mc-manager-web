@@ -99,6 +99,8 @@ pub fn spawn_bounty_task(
         interval.tick().await; // skip immediate first tick
 
         loop {
+
+            crate::heartbeat::beat("bounty_runner");
             interval.tick().await;
 
             let action = {

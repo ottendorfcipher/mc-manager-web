@@ -10,6 +10,7 @@ pub mod db;
 pub mod discord;
 pub mod error;
 pub mod gcloud;
+pub mod heartbeat;
 pub mod handlers;
 pub mod middleware;
 pub mod minecraft;

@@ -207,6 +207,8 @@ pub fn spawn_player_task(
         interval.tick().await;
 
         loop {
+
+            crate::heartbeat::beat("music_player");
             interval.tick().await;
 
             let should_advance = {
