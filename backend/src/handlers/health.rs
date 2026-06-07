@@ -30,16 +30,21 @@ pub fn init() {
     let _ = start();
 }
 
+/// Seconds since the process started serving.
+pub fn uptime_secs() -> u64 {
+    start().elapsed().as_secs()
+}
+
 /// GET /health — liveness.
 pub async fn health() -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
-        "uptime_secs": start().elapsed().as_secs(),
+        "uptime_secs": uptime_secs(),
     }))
 }
 
-/// GET /ready — readiness (checks DB connectivity).
+/// GET /ready — readiness (checks DB connectivity; reports pool stats).
 pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
     match sqlx::query_scalar::<_, i64>("SELECT 1")
         .fetch_one(&state.pool)
@@ -47,7 +52,12 @@ pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<serde_jso
     {
         Ok(_) => (
             StatusCode::OK,
-            Json(json!({ "status": "ready", "db": "ok" })),
+            Json(json!({
+                "status": "ready",
+                "db": "ok",
+                "uptime_secs": uptime_secs(),
+                "db_pool": { "connections": state.pool.size(), "idle": state.pool.num_idle() },
+            })),
         ),
         Err(e) => {
             tracing::warn!(error = %e, "readiness probe: database unreachable");
