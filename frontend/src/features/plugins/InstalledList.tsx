@@ -47,7 +47,9 @@ function StatusBadge({ status }: { status: PluginStatus }) {
   );
 }
 
-export function InstalledList({ readOnly = false }: { readOnly?: boolean } = {}) {
+export function InstalledList(
+  { readOnly = false, embedded = false }: { readOnly?: boolean; embedded?: boolean } = {},
+) {
   const qc = useQueryClient();
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [feedback, setFeedback]           = useState<string | null>(null);
@@ -92,12 +94,14 @@ export function InstalledList({ readOnly = false }: { readOnly?: boolean } = {})
   const updateCount = plugins?.filter((p) => p.update_available !== 0).length ?? 0;
 
   return (
-    <div className="page space-y-4">
+    <div className={embedded ? "space-y-4" : "page space-y-4"}>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">
-            Installed add-ons
-          </h1>
+          {!embedded && (
+            <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">
+              Installed add-ons
+            </h1>
+          )}
           <p className="text-sm text-meta mt-1">
             {plugins?.length ?? 0} add-on{plugins?.length !== 1 ? "s" : ""} on your server
             {readOnly && " · view only"}

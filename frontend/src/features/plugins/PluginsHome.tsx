@@ -115,10 +115,44 @@ export function PluginsHome() {
     return <InstalledList readOnly />;
   }
 
-  return <PluginsBrowser />;
+  return <PluginsManager />;
 }
 
-function PluginsBrowser() {
+// ── Manager view: Browse / Installed tabs ─────────────────────────────────────
+
+function PluginsManager() {
+  const [tab, setTab] = useState<"browse" | "installed">("browse");
+
+  return (
+    <div className="page space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Add-ons</h1>
+        <p className="text-sm text-meta mt-1">Browse, install, and manage add-ons for your server.</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 rounded-xl bg-[#F0EDE9] dark:bg-[#2A2D38] w-fit">
+        {([["browse", "Browse"], ["installed", "Installed"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              tab === key
+                ? "bg-white dark:bg-[#1C1E27] text-[#1C1E27] dark:text-[#EAECF0] shadow-sm"
+                : "text-meta hover:text-[#1C1E27] dark:hover:text-[#EAECF0]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "browse" ? <PluginsBrowser embedded /> : <InstalledList embedded />}
+    </div>
+  );
+}
+
+function PluginsBrowser({ embedded = false }: { embedded?: boolean }) {
   const [search, setSearch]         = useState("");
   const [activeGoal, setActiveGoal] = useState<string | null>(null);
   const [installKey,   setInstallKey]   = useState<string | null>(null);
@@ -136,11 +170,13 @@ function PluginsBrowser() {
   }
 
   return (
-    <div className="page space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Add-ons</h1>
-        <p className="text-sm text-meta mt-1">Browse and install add-ons for your server.</p>
-      </div>
+    <div className={embedded ? "space-y-6" : "page space-y-6"}>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold text-[#1C1E27] dark:text-[#EAECF0]">Add-ons</h1>
+          <p className="text-sm text-meta mt-1">Browse and install add-ons for your server.</p>
+        </div>
+      )}
 
       {/* Goal grid */}
       {!search && (
