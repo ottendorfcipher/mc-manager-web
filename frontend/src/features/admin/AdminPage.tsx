@@ -1653,12 +1653,35 @@ function fmtTime(iso: string): string {
 
 function AuditLogTab() {
   const qc = useQueryClient();
+  const [action, setAction] = useState("");
+  const [actor,  setActor]  = useState("");
+  const [from,   setFrom]   = useState("");
+  const [to,     setTo]     = useState("");
+
+  // Build the query string from the active filters. Date inputs are YYYY-MM-DD;
+  // expand them to inclusive UTC day bounds (created_at is stored as UTC ISO).
+  const params = new URLSearchParams({ limit: "500" });
+  if (action) params.set("action", action.trim());
+  if (actor)  params.set("actor",  actor.trim());
+  if (from)   params.set("from",   `${from}T00:00:00Z`);
+  if (to)     params.set("to",     `${to}T23:59:59Z`);
+  const query = params.toString();
 
   const { data: entries = [], isLoading } = useQuery<AuditEntry[]>({
-    queryKey: ["audit-log"],
-    queryFn:  () => api.get("/admin/audit-log?limit=200"),
+    queryKey: ["audit-log", query],
+    queryFn:  () => api.get(`/admin/audit-log?${query}`),
     staleTime: 30_000,
   });
+
+  const exportParams = new URLSearchParams(params);
+  exportParams.delete("limit");
+  const csvHref = `/api/admin/audit-log/export?${exportParams.toString()}`;
+  const hasFilters = !!(action || actor || from || to);
+
+  const inputCls =
+    "px-2.5 py-1.5 text-sm rounded-lg border border-[#D9D5D0] dark:border-[#363944] " +
+    "bg-white dark:bg-[#1C1E27] text-[#1C1E27] dark:text-[#EAECF0] " +
+    "focus:outline-none focus:ring-2 focus:ring-[#5B9BF0]/40";
 
   return (
     <div className="space-y-4">
@@ -1669,14 +1692,65 @@ function AuditLogTab() {
             All security-relevant actions taken by team members.
           </p>
         </div>
-        <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["audit-log"] })}
-          className="icon-btn"
-          aria-label="Refresh audit log"
-          title="Refresh"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={csvHref}
+            className="btn-secondary text-sm whitespace-nowrap"
+            title="Download the filtered log as CSV"
+          >
+            Export CSV
+          </a>
+          <button
+            onClick={() => qc.invalidateQueries({ queryKey: ["audit-log"] })}
+            className="icon-btn"
+            aria-label="Refresh audit log"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold">Action</span>
+          <input
+            list="audit-actions"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            placeholder="any"
+            className={inputCls + " w-40"}
+          />
+          <datalist id="audit-actions">
+            {Object.keys(ACTION_LABELS).map((a) => <option key={a} value={a} />)}
+          </datalist>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold">Who</span>
+          <input
+            value={actor}
+            onChange={(e) => setActor(e.target.value)}
+            placeholder="email contains…"
+            className={inputCls + " w-44"}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold">From</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-meta font-semibold">To</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+        </label>
+        {hasFilters && (
+          <button
+            onClick={() => { setAction(""); setActor(""); setFrom(""); setTo(""); }}
+            className="btn-secondary text-sm"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {isLoading ? (
