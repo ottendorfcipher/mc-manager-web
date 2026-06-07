@@ -53,6 +53,14 @@ jobs:
         working-directory: backend
         run: cargo test --locked
 
+      - name: ts-rs bindings are committed + up to date
+        # cargo test regenerates backend/bindings via ts-rs; fail if the
+        # committed bindings drift from the Rust types (the frontend mirrors
+        # them, so drift is a silent source of type bugs).
+        run: |
+          git diff --exit-code -- backend/bindings \
+            || { echo "::error::ts-rs bindings drifted — run 'cargo test' in backend/ and commit backend/bindings/"; exit 1; }
+
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
