@@ -50,7 +50,19 @@ pub async fn player_joined(
         return Err(AppError::BadRequest("ign is required".into()));
     }
 
-    let action = pending_players::record_join(&state.pool, &ign, body.uuid.as_deref()).await?;
+    let (action, newly_pending) =
+        pending_players::record_join(&state.pool, &ign, body.uuid.as_deref()).await?;
+
+    // A brand-new pending player just appeared — email the admins (fire-and-
+    // forget so a slow mail API never delays the watchdog response; no-op when
+    // RESEND_API_KEY is unset).
+    if newly_pending {
+        let state2 = state.clone();
+        let ign2 = ign.clone();
+        tokio::spawn(async move {
+            crate::notify::admins_new_pending(&state2, &ign2).await;
+        });
+    }
 
     Ok(Json(PlayerJoinedResponse { action }))
 }

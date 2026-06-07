@@ -13,6 +13,7 @@ pub mod gcloud;
 pub mod handlers;
 pub mod middleware;
 pub mod minecraft;
+pub mod notify;
 pub mod state;
 pub mod validation;
 
