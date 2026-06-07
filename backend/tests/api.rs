@@ -290,6 +290,29 @@ async fn set_gamerule_rejects_non_boolean_non_integer_value() {
     assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn global_search_finds_players_and_gates_users() {
+    let (srv, state) = server().await;
+    redstonecipher_server::db::player_snapshots::upsert(
+        &state.pool, "uuid-1", "SearchableSteve",
+        0.0, 64.0, 0.0, 0.0, "minecraft:overworld", "[]", 20.0,
+    )
+    .await
+    .unwrap();
+
+    // A member (no users.view) sees the player hit but no user hits.
+    let cookie = session_cookie("member@example.com", "member");
+    let res = srv
+        .get("/api/search?q=Searchable")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let hits: serde_json::Value = res.json();
+    let arr = hits.as_array().unwrap();
+    assert!(arr.iter().any(|h| h["kind"] == "player" && h["label"] == "SearchableSteve"));
+    assert!(arr.iter().all(|h| h["kind"] != "user"), "member must not see user hits");
+}
+
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
 
 #[tokio::test]

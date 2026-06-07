@@ -8,6 +8,7 @@ import {
 import { RestartPendingChip } from "@/components/RestartPendingChip";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { NowPlayingWidget } from "@/components/NowPlayingWidget";
+import { CommandPalette } from "@/components/CommandPalette";
 import { useAuthStore, useThemeStore, useNavPrefsStore } from "@/store/auth";
 import { useChatUnread, useNavigationHotkeys } from "@/hooks/useHotkeys";
 import { useOnboardingStore } from "@/features/onboarding/OnboardingWizard";
@@ -356,6 +357,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Persistent preview player — stays mounted across route changes */}
       <NowPlayingWidget />
+
+      {/* Global Cmd/Ctrl+K search palette */}
+      <CommandPalette />
     </div>
   );
 }
