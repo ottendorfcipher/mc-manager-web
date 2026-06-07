@@ -1,13 +1,17 @@
 //! Fire-and-forget per-player scrolling credits playback.
 //!
+//! Renders as cohesive, CENTERED, upward-scrolling credits (like an end-of-movie
+//! roll) rather than a title-flash + chat-corner hybrid. Minecraft titles support
+//! multi-line text components (`\n`), so each frame is a single `title` made of a
+//! fixed-height window of lines; advancing the window one line per step makes the
+//! whole block scroll upward in the center of the screen.
+//!
 //! Each playback is a self-contained `tokio::spawn` that:
-//!   1. Applies darkness + slowness effects (if freeze_player).
-//!   2. Clears chat with blank tellraw lines.
-//!   3. Iterates through credit lines at the configured scroll speed:
-//!      - heading → `title` command (large centered text)
-//!      - line    → `tellraw` (chat scroll)
-//!      - blank   → empty tellraw spacer
-//!   4. Cleans up effects when done.
+//!   1. Applies darkness (dims the world) + slowness 255 (freeze), if enabled.
+//!   2. Sets a persistent title timing (fade 0 / long stay / fade 0) so frames
+//!      swap instantly with no flicker.
+//!   3. Slides a centered N-line window across the (blank-padded) credit lines.
+//!   4. Clears the title and effects when done.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -20,7 +24,6 @@ use crate::{
     config::Config,
     db::credits::{CreditLine, ScrollingCredits},
     gcloud::ssh,
-    minecraft::console,
 };
 
 /// Set of `(zone_id, player_ign)` pairs with credits currently playing.
@@ -57,130 +60,125 @@ pub fn spawn_credits_playback(
     });
 }
 
+/// Number of credit lines visible at once in the centered window.
+const WINDOW: usize = 5;
+
 async fn run_playback(
     cfg: &Config,
     ign: &str,
     credits: &ScrollingCredits,
 ) -> anyhow::Result<()> {
-    let sel = format!("@p[name={}]", ign);
-    let interval = Duration::from_millis(credits.scroll_speed_ms.max(200) as u64);
+    // `@a[..,limit=1]` targets the named player reliably from the console in any
+    // dimension (`@p` sorts by distance from the executor at world origin).
+    let sel  = format!("@a[name={ign},limit=1]");
+    let step = Duration::from_millis(credits.scroll_speed_ms.clamp(300, 5000) as u64);
 
-    let lines: Vec<CreditLine> = serde_json::from_str(&credits.lines_json)
-        .unwrap_or_default();
+    let lines: Vec<CreditLine> =
+        serde_json::from_str(&credits.lines_json).unwrap_or_default();
     if lines.is_empty() {
         return Ok(());
     }
 
-    tracing::info!("credits[{}]: starting for {ign} ({} lines)", credits.name, lines.len());
+    // Render every credit line, padded with WINDOW blank lines above and below so
+    // the first line scrolls in from the bottom and the last scrolls fully off
+    // the top. Every window slice therefore has exactly WINDOW entries, keeping
+    // the block a constant height (so it stays centered while content moves up).
+    let mut display: Vec<RenderLine> = Vec::with_capacity(lines.len() + WINDOW * 2);
+    for _ in 0..WINDOW { display.push(RenderLine::blank()); }
+    for l in &lines { display.push(RenderLine::from(l)); }
+    for _ in 0..WINDOW { display.push(RenderLine::blank()); }
 
-    // ── 1. Setup: clear chat + apply effects ─────────────────────────────
+    let steps = display.len() - WINDOW + 1;
+    // Effects must outlast the whole roll (+buffer) in case cleanup is missed.
+    let total_secs = (steps as u64 * step.as_millis() as u64) / 1000 + 5;
+
+    tracing::info!(
+        "credits[{}]: starting for {ign} ({} lines, {steps} frames, ~{total_secs}s)",
+        credits.name, lines.len(),
+    );
+
+    // ── Setup: freeze + darken, persistent title timing ──────────────────────
     let mut setup: Vec<String> = Vec::new();
-
-    // Push old chat off screen with blank lines.
-    for _ in 0..20 {
-        setup.push(format!("tellraw {sel} \"\""));
-    }
-
     if credits.freeze_player == 1 {
-        setup.push(format!("effect give {sel} minecraft:darkness 9999 0 true"));
-        setup.push(format!("effect give {sel} minecraft:slowness 9999 255 true"));
+        // darkness dims the world so the centered text pops; slowness 255 freezes.
+        setup.push(format!("effect give {sel} minecraft:darkness {total_secs} 0 true"));
+        setup.push(format!("effect give {sel} minecraft:slowness {total_secs} 255 true"));
     }
-
-    // Set title timing: 0.5s fade-in, 3s stay, 0.5s fade-out.
-    setup.push(format!("title {sel} times 10 60 10"));
-
+    // fadeIn 0 / fadeOut 0 with a long stay → re-issuing `title ... title` each
+    // frame swaps the text instantly with no fade flicker.
+    setup.push(format!("title {sel} times 0 {} 0", total_secs * 20 + 40));
     let _ = ssh::fifo_batch(cfg, &setup).await;
 
-    // Brief pause to let effects settle before first line.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
 
-    // ── 2. Playback: iterate through lines ───────────────────────────────
-    // Batch consecutive non-heading lines to reduce SSH calls.
-    let mut batch: Vec<String> = Vec::new();
-
-    for line in &lines {
-        match line.line_type.as_str() {
-            "heading" => {
-                // Flush any pending batch first.
-                if !batch.is_empty() {
-                    let _ = ssh::fifo_batch(cfg, &batch).await;
-                    batch.clear();
-                }
-
-                let json = format_text_json(
-                    line.text.as_deref().unwrap_or(""),
-                    &line.color,
-                    line.bold,
-                    line.italic,
-                );
-                let cmds = vec![
-                    format!("title {sel} times 10 60 10"),
-                    format!("title {sel} title {json}"),
-                ];
-                let _ = ssh::fifo_batch(cfg, &cmds).await;
-
-                // Headings pause for 2× interval.
-                tokio::time::sleep(interval * 2).await;
-            }
-            "line" => {
-                let json = format_text_json(
-                    line.text.as_deref().unwrap_or(""),
-                    &line.color,
-                    line.bold,
-                    line.italic,
-                );
-                batch.push(format!("tellraw {sel} {json}"));
-
-                // Flush batch every 3 lines or send immediately.
-                if batch.len() >= 3 {
-                    let _ = ssh::fifo_batch(cfg, &batch).await;
-                    batch.clear();
-                }
-                tokio::time::sleep(interval).await;
-            }
-            "blank" => {
-                batch.push(format!("tellraw {sel} \"\""));
-                if batch.len() >= 3 {
-                    let _ = ssh::fifo_batch(cfg, &batch).await;
-                    batch.clear();
-                }
-                tokio::time::sleep(interval).await;
-            }
-            _ => {}
-        }
+    // ── Scroll: slide the centered window across the padded display ───────────
+    for i in 0..steps {
+        let component = build_window_component(&display[i..i + WINDOW]);
+        let _ = ssh::fifo_command(cfg, &format!("title {sel} title {component}")).await;
+        tokio::time::sleep(step).await;
     }
 
-    // Flush remaining batch.
-    if !batch.is_empty() {
-        let _ = ssh::fifo_batch(cfg, &batch).await;
-    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // Brief pause at the end before cleanup.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // ── 3. Cleanup: remove effects ───────────────────────────────────────
+    // ── Cleanup ──────────────────────────────────────────────────────────────
+    let mut cleanup = vec![format!("title {sel} clear")];
     if credits.freeze_player == 1 {
-        let cleanup = vec![
-            format!("effect clear {sel} minecraft:darkness"),
-            format!("effect clear {sel} minecraft:slowness"),
-            format!("title {sel} clear"),
-        ];
-        let _ = ssh::fifo_batch(cfg, &cleanup).await;
-    } else {
-        let _ = console::send(cfg, &format!("title {sel} clear")).await;
+        cleanup.push(format!("effect clear {sel} minecraft:darkness"));
+        cleanup.push(format!("effect clear {sel} minecraft:slowness"));
     }
+    let _ = ssh::fifo_batch(cfg, &cleanup).await;
 
     tracing::info!("credits[{}]: finished for {ign}", credits.name);
     Ok(())
 }
 
-/// Build a Minecraft JSON text component.
-fn format_text_json(text: &str, color: &str, bold: bool, italic: bool) -> String {
-    serde_json::json!({
-        "text": text,
-        "color": color,
-        "bold": bold,
-        "italic": italic,
-    })
-    .to_string()
+/// A single rendered line for the centered title block.
+struct RenderLine {
+    text:   String,
+    color:  String,
+    bold:   bool,
+    italic: bool,
+}
+
+impl RenderLine {
+    fn blank() -> Self {
+        Self { text: String::new(), color: "white".into(), bold: false, italic: false }
+    }
+}
+
+impl From<&CreditLine> for RenderLine {
+    fn from(l: &CreditLine) -> Self {
+        match l.line_type.as_str() {
+            "blank" => RenderLine::blank(),
+            _ => RenderLine {
+                text:   l.text.clone().unwrap_or_default(),
+                color:  if l.color.trim().is_empty() { "white".into() } else { l.color.clone() },
+                bold:   l.bold,
+                italic: l.italic,
+            },
+        }
+    }
+}
+
+/// Build one centered, multi-line title component from a window of lines.
+/// Lines are joined with `\n` (newline after every line except the last) so the
+/// block stays a fixed height and scrolls upward as a unit between frames.
+fn build_window_component(window: &[RenderLine]) -> String {
+    let extra: Vec<serde_json::Value> = window
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let mut text = r.text.clone();
+            if i + 1 < window.len() {
+                text.push('\n');
+            }
+            serde_json::json!({
+                "text":   text,
+                "color":  r.color,
+                "bold":   r.bold,
+                "italic": r.italic,
+            })
+        })
+        .collect();
+    serde_json::json!({ "text": "", "extra": extra }).to_string()
 }

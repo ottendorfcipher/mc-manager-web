@@ -176,12 +176,12 @@ async fn write_bluemap_players(cfg: &Config, snapshots: &[RawSnapshot]) {
 /// Returns 0 on any error or if the server is offline.  This is used to
 /// gate save-all flushes so we don't spam the MC log when nobody is online.
 async fn count_online_players(cfg: &Config) -> u32 {
-    // Use mcrcon via SSH to get the player count.  The `list` command
-    // outputs "There are N of a max M players online: ..."
-    let script = format!(
-        "mcrcon -H 127.0.0.1 -P 25575 -p \"$(grep ^rcon.password {}/server.properties | cut -d= -f2)\" list 2>/dev/null | grep -oP '(?<=There are )\\d+' || echo 0",
-        cfg.mc_server_dir
-    );
+    // Cheap online check via established TCP connections on the MC port, instead
+    // of an RCON `list`. Two position-polling runners call this every few seconds
+    // to decide whether to skip the expensive snapshot read — doing it over RCON
+    // churned a connection (and spammed the server log) every ~6s even with
+    // nobody online. `ss` involves no RCON/Java and no log noise.
+    let script = "ss -tn state established 2>/dev/null | grep -c ':25565 ' || echo 0".to_string();
     let out = ssh::run(&cfg, &script).await;
     match out {
         Ok((stdout, _)) => stdout.trim().parse::<u32>().unwrap_or(0),
