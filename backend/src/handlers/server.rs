@@ -101,6 +101,9 @@ pub async fn send_console(
     if !actor.can_control_server() {
         return Err(AppError::Forbidden("control_server required".into()));
     }
+    // Raw console access is intentional (admin-only), but cap the length so a
+    // malformed client can't push an unbounded payload at the FIFO.
+    crate::validation::validate_text(&body.command, "command", 1024)?;
     let applied = console::send(&state.config, &body.command).await?;
     audit::log(
         &state.pool,
@@ -142,13 +145,24 @@ pub async fn set_gamerule(
         return Err(AppError::Forbidden("control_server required".into()));
     }
     // `difficulty` is a special case: MC uses `/difficulty <level>` not `/gamerule`.
-    let applied = if rule == "difficulty" {
-        crate::gcloud::ssh::fifo_command(&state.config, &format!("difficulty {}", body.value)).await?
+    // Validate (and normalise) both the rule name and value before they reach
+    // the console command, and persist the normalised forms.
+    let (stored_rule, stored_value, applied) = if rule == "difficulty" {
+        let level = crate::validation::validate_difficulty(&body.value)?;
+        let applied = crate::gcloud::ssh::fifo_command(
+            &state.config,
+            &format!("difficulty {level}"),
+        )
+        .await?;
+        ("difficulty".to_string(), level.to_string(), applied)
     } else {
-        console::set_gamerule(&state.config, &rule, &body.value).await?
+        let name = crate::validation::validate_gamerule_name(&rule)?;
+        let value = crate::validation::validate_gamerule_value(&body.value)?;
+        let applied = console::set_gamerule(&state.config, name, value).await?;
+        (name.to_string(), value.to_string(), applied)
     };
     // Persist so the UI can reflect the correct value on next load.
-    let _ = world_gamerules::upsert(&state.pool, &rule, &body.value, &actor.email).await;
+    let _ = world_gamerules::upsert(&state.pool, &stored_rule, &stored_value, &actor.email).await;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }
 
@@ -228,9 +242,10 @@ pub async fn whitelist_action(
     Json(body): Json<PlayerTargetBody>,
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.whitelist.manage")?;
+    let player = crate::validation::validate_ign(&body.player)?;
     let cmd = match action.as_str() {
-        "add" => format!("whitelist add {}", body.player),
-        "remove" => format!("whitelist remove {}", body.player),
+        "add" => format!("whitelist add {player}"),
+        "remove" => format!("whitelist remove {player}"),
         _ => {
             return Err(AppError::BadRequest(format!(
                 "Unknown whitelist action: {action}"
@@ -259,9 +274,10 @@ pub async fn op_action(
     Json(body): Json<PlayerTargetBody>,
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.op.manage")?;
+    let player = crate::validation::validate_ign(&body.player)?;
     let cmd = match action.as_str() {
-        "op" => format!("op {}", body.player),
-        "deop" => format!("deop {}", body.player),
+        "op" => format!("op {player}"),
+        "deop" => format!("deop {player}"),
         _ => return Err(AppError::BadRequest(format!("Unknown op action: {action}"))),
     };
     let applied = console::send(&state.config, &cmd).await?;
@@ -278,9 +294,13 @@ pub async fn kick_player(
     Json(body): Json<PlayerTargetBody>,
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.kick")?;
+    let player = crate::validation::validate_ign(&body.player)?;
+    if let Some(r) = body.reason.as_deref() {
+        crate::validation::validate_text(r, "reason", 256)?;
+    }
     let cmd = match body.reason.as_deref() {
-        Some(r) => format!("kick {} {r}", body.player),
-        None => format!("kick {}", body.player),
+        Some(r) => format!("kick {player} {r}"),
+        None => format!("kick {player}"),
     };
     let applied = console::send(&state.config, &cmd).await?;
     audit::log(
@@ -304,12 +324,16 @@ pub async fn ban_action(
     Json(body): Json<PlayerTargetBody>,
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.ban.manage")?;
+    let player = crate::validation::validate_ign(&body.player)?;
+    if let Some(r) = body.reason.as_deref() {
+        crate::validation::validate_text(r, "reason", 256)?;
+    }
     let cmd = match action.as_str() {
         "ban" => match body.reason.as_deref() {
-            Some(r) => format!("ban {} {r}", body.player),
-            None => format!("ban {}", body.player),
+            Some(r) => format!("ban {player} {r}"),
+            None => format!("ban {player}"),
         },
-        "pardon" => format!("pardon {}", body.player),
+        "pardon" => format!("pardon {player}"),
         _ => {
             return Err(AppError::BadRequest(format!(
                 "Unknown ban action: {action}"
@@ -342,6 +366,7 @@ pub async fn announce(
     Json(body): Json<AnnounceBody>,
 ) -> Result<Json<serde_json::Value>> {
     crate::auth::middleware::require_perm(&actor, "server.announce")?;
+    crate::validation::validate_text(&body.message, "message", 512)?;
     let applied = console::send(&state.config, &format!("say {}", body.message)).await?;
     audit::log(
         &state.pool,
