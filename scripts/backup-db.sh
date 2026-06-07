@@ -79,14 +79,20 @@ if ! sqlite3 "${DB_PATH}" ".backup '${BACKUP_FILE}'"; then
 fi
 
 [[ -f "${BACKUP_FILE}" ]] || die "Backup file was not created: ${BACKUP_FILE}"
+# A zero-byte file passes `-f` but is a useless backup — fail loudly.
+[[ -s "${BACKUP_FILE}" ]] || { rm -f "${BACKUP_FILE}"; die "Backup file is empty: ${BACKUP_FILE}"; }
 
 BACKUP_SIZE=$(stat -c%s "${BACKUP_FILE}" 2>/dev/null || stat -f%z "${BACKUP_FILE}")
 log "Backup created: ${BACKUP_FILE} (${BACKUP_SIZE} bytes)"
 
-# Quick integrity check on the backup copy.
+# Integrity check on the backup copy. A corrupt backup is worse than no backup
+# (it gives false confidence), so this is FATAL: remove the bad file and exit
+# non-zero so the cron surfaces it instead of silently "succeeding".
 if ! sqlite3 "${BACKUP_FILE}" "PRAGMA integrity_check;" | grep -q "^ok$"; then
-    log "WARNING: integrity_check on backup returned non-ok — backup may be corrupt"
+    rm -f "${BACKUP_FILE}"
+    die "integrity_check FAILED — corrupt backup removed: ${BACKUP_FILE}"
 fi
+log "Backup integrity verified (ok)"
 
 # ── 2. Prune local backups older than RETENTION_DAYS ─────────────────────────
 
@@ -119,14 +125,27 @@ if [[ -f "${SSH_KEY}" ]]; then
             exit 0
         }
 
-    if rsync -az \
-        -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS} -o BatchMode=yes -o ConnectTimeout=15" \
-        "${BACKUP_FILE}" \
-        "${MC_HOST}:${MC_BACKUP_DIR}/"; then
+    # Retry the offsite copy with backoff so a momentary Tailscale blip doesn't
+    # silently skip the only offsite copy. Still non-fatal after all attempts —
+    # the local backup is intact regardless.
+    RSYNC_OK=false
+    for attempt in 1 2 3; do
+        if rsync -az \
+            -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${KNOWN_HOSTS} -o BatchMode=yes -o ConnectTimeout=15" \
+            "${BACKUP_FILE}" \
+            "${MC_HOST}:${MC_BACKUP_DIR}/"; then
+            RSYNC_OK=true
+            break
+        fi
+        if [[ "${attempt}" -lt 3 ]]; then
+            log "WARNING: offsite rsync attempt ${attempt}/3 failed — retrying in $((attempt * 5))s"
+            sleep $((attempt * 5))
+        fi
+    done
+    if [[ "${RSYNC_OK}" == "true" ]]; then
         log "Offsite copy uploaded: ${MC_HOST}:${MC_BACKUP_DIR}/$(basename "${BACKUP_FILE}")"
     else
-        log "WARNING: rsync to mc-server-1 failed — local backup is intact, offsite copy missing"
-        # Non-fatal: local backup succeeded; offsite failure shouldn't abort the job.
+        log "WARNING: rsync to mc-server-1 failed after 3 attempts — local backup is intact, offsite copy missing"
     fi
 
     # Prune remote copies older than RETENTION_DAYS too.
