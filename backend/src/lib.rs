@@ -383,6 +383,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/plugins/preview/:key",     get(handlers::plugins::preview::preview))
         .route("/plugins/install",          post(handlers::plugins::install::install))
         .route("/plugins/installed",        get(handlers::plugins::installed::list))
+        .route("/plugins/missing-deps",     get(handlers::plugins::missing_deps::list))
         .route("/plugins/installed/:filename", delete(handlers::plugins::installed::remove))
         .route("/plugins/jobs",             get(handlers::plugins::jobs::list_jobs))
         .route("/plugins/jobs/:id",         get(handlers::plugins::jobs::get_job))
