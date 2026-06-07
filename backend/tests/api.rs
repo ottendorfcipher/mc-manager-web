@@ -231,6 +231,25 @@ async fn audit_log_export_requires_permission() {
 }
 
 #[tokio::test]
+async fn record_join_flags_new_pending_once() {
+    let state = test_state().await;
+    // First-ever join: allowed AND flagged as newly pending (→ notify admins).
+    let (a1, new1) =
+        redstonecipher_server::db::pending_players::record_join(&state.pool, "Newbie", None)
+            .await
+            .unwrap();
+    assert_eq!(a1, "allow");
+    assert!(new1, "first join should be flagged newly_pending");
+    // Second join: kicked (already pending), NOT flagged again.
+    let (a2, new2) =
+        redstonecipher_server::db::pending_players::record_join(&state.pool, "Newbie", None)
+            .await
+            .unwrap();
+    assert_eq!(a2, "kick");
+    assert!(!new2, "repeat join must not re-flag newly_pending");
+}
+
+#[tokio::test]
 async fn metrics_endpoint_exposes_prometheus_text() {
     let (srv, _) = server().await;
     let res = srv.get("/metrics").await;
