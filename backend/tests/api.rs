@@ -177,6 +177,19 @@ async fn ready_probe_reports_db_ok() {
     assert_eq!(body["db"], "ok");
 }
 
+#[tokio::test]
+async fn metrics_endpoint_exposes_prometheus_text() {
+    let (srv, _) = server().await;
+    let res = srv.get("/metrics").await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
+    // Prometheus exposition format with our gauges present.
+    assert!(body.contains("redstonecipher_uptime_seconds"));
+    assert!(body.contains("redstonecipher_db_pool_connections"));
+    assert!(body.contains("redstonecipher_sse_subscribers{channel=\"chat\"}"));
+    assert!(body.contains("# TYPE redstonecipher_event_active gauge"));
+}
+
 // ── Input validation gating tests ─────────────────────────────────────────────
 
 #[tokio::test]
