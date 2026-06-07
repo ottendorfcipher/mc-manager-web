@@ -60,6 +60,8 @@ async fn run_with_reconnect(
     const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
     loop {
+
+        crate::heartbeat::beat("chat_watcher");
         match tail_once(&config, &pool, &tx, &chat_re, &join_re, &leave_re, &alias_re, &discord).await {
             // (config is threaded into tail_once and process_line so the
             //  join handler can re-apply each player's saved gamemode.)

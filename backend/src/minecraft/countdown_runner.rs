@@ -117,6 +117,8 @@ pub fn spawn_countdown_task(
         interval.tick().await;
 
         loop {
+
+            crate::heartbeat::beat("countdown_runner");
             interval.tick().await;
 
             let guard = active.lock().await;

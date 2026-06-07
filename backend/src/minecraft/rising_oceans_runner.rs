@@ -162,6 +162,8 @@ pub fn spawn_rising_oceans_task(
         interval.tick().await; // skip the immediate first tick
 
         loop {
+
+            crate::heartbeat::beat("rising_oceans");
             interval.tick().await;
 
             // ── Compute next action under the lock (no I/O while locked) ───

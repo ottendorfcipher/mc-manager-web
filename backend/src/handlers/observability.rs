@@ -91,6 +91,18 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         ));
     }
 
+    // Background-runner heartbeats — seconds since each runner last completed a
+    // loop iteration. Event runners (countdown/rising/bounty) only beat while
+    // active, so their age grows while idle; the always-on runners (chat_watcher,
+    // music_zone, scheduled, pin_hud) should stay low.
+    out.push_str("# HELP redstonecipher_runner_heartbeat_age_seconds Seconds since a background runner last beat.\n");
+    out.push_str("# TYPE redstonecipher_runner_heartbeat_age_seconds gauge\n");
+    for (runner, age) in crate::heartbeat::snapshot() {
+        out.push_str(&format!(
+            "redstonecipher_runner_heartbeat_age_seconds{{runner=\"{runner}\"}} {age}\n"
+        ));
+    }
+
     (
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
         out,

@@ -72,6 +72,8 @@ pub fn spawn_pin_hud_task(cfg: Config, pool: SqlitePool) {
         let mut ticks_since_refresh: u64 = SNAPSHOT_REFRESH_SECS; // force refresh on first tick
 
         loop {
+
+            crate::heartbeat::beat("pin_hud_runner");
             interval.tick().await;
             ticks_since_refresh += TICK_SECS;
 
