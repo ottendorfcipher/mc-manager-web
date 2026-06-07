@@ -188,7 +188,9 @@ pub async fn skip(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
-    let _ = music::stop_all(&state.config).await;
+    if let Err(e) = music::stop_all(&state.config).await {
+        tracing::warn!(error = %e, "music skip: stop_all failed (continuing to next track)");
+    }
     music::start_next(&state.config, &state.pool, &state.music_current, &state.music_tx).await;
 
     Ok(StatusCode::NO_CONTENT)
@@ -203,7 +205,9 @@ pub async fn stop(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
-    let _ = music::stop_all(&state.config).await;
+    if let Err(e) = music::stop_all(&state.config).await {
+        tracing::warn!(error = %e, "music stop: stop_all failed (clearing queue anyway)");
+    }
 
     music_queue::clear(&state.pool).await?;
 

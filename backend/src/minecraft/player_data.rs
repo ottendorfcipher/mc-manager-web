@@ -157,13 +157,15 @@ async fn write_bluemap_players(cfg: &Config, snapshots: &[RawSnapshot]) {
         let dir = format!("{}/maps/{}/live", cfg.map_tiles_dir, map_id);
         let path = format!("{}/players.json", dir);
 
-        if let Err(e) = std::fs::create_dir_all(&dir) {
+        // Async I/O: this runs inside the player-snapshot runner (~5s cadence);
+        // blocking std::fs here would stall the tokio worker.
+        if let Err(e) = tokio::fs::create_dir_all(&dir).await {
             if !BLUEMAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 tracing::warn!("bluemap live dir: {e} (further warnings suppressed)");
             }
             continue;
         }
-        if let Err(e) = std::fs::write(&path, payload.to_string()) {
+        if let Err(e) = tokio::fs::write(&path, payload.to_string()).await {
             if !BLUEMAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 tracing::warn!("bluemap players.json write: {e} (further warnings suppressed)");
             }

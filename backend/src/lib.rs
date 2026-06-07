@@ -55,6 +55,18 @@ pub fn build_router(state: AppState) -> Router {
             .unwrap(),
     );
 
+    // Tighter per-endpoint limiter for the most abuse-sensitive routes (raw
+    // console execution, large OGG uploads). Applied IN ADDITION to the global
+    // limiter, so both must allow the request.
+    let sensitive_governor = std::sync::Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(15)
+            .use_headers()
+            .finish()
+            .unwrap(),
+    );
+
     let api = Router::new()
         // Auth
         .route("/me", get(handlers::auth::me))
@@ -110,7 +122,11 @@ pub fn build_router(state: AppState) -> Router {
             "/server/service/:action",
             post(handlers::server::service_action),
         )
-        .route("/console", post(handlers::server::send_console))
+        .route(
+            "/console",
+            post(handlers::server::send_console)
+                .layer(GovernorLayer { config: sensitive_governor.clone() }),
+        )
         // Granular Minecraft server commands
         .route("/server/whitelist", get(handlers::server::list_whitelist))
         .route(
@@ -229,8 +245,11 @@ pub fn build_router(state: AppState) -> Router {
         // long uploads aren't rejected by Axum's 2 MiB default.
         .route(
             "/music/upload",
-            post(handlers::music::upload_oggs)
-                .layer(axum::extract::DefaultBodyLimit::max(512 * 1024 * 1024)),
+            post(handlers::music::upload_oggs).layer(
+                tower::ServiceBuilder::new()
+                    .layer(GovernorLayer { config: sensitive_governor.clone() })
+                    .layer(axum::extract::DefaultBodyLimit::max(512 * 1024 * 1024)),
+            ),
         )
         // Music zones — region-triggered per-player playback
         .route("/music/zones",      get(handlers::music_zones::list)

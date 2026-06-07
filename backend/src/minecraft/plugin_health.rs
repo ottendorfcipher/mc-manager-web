@@ -136,12 +136,10 @@ pub async fn process_log_line(pool: &SqlitePool, line: &str) {
             _               => "unknown",
         };
 
-        // Try to find plugin by declared_name first, then filename.
-        let plugins = installed_plugins::list(pool).await.unwrap_or_default();
-        for plugin in &plugins {
-            let matches = plugin.declared_name.as_deref() == Some(&name)
-                || plugin.filename == name;
-            if matches {
+        // Find the plugin by declared_name (preferred) or filename in a single
+        // indexed query, rather than loading every plugin and scanning.
+        match installed_plugins::find_by_name(pool, &name).await {
+            Ok(Some(plugin)) => {
                 if let Err(e) = installed_plugins::set_health(pool, &plugin.filename, new_status).await {
                     warn!("plugin_health: set_health failed for {}: {e}", plugin.filename);
                 }
@@ -152,11 +150,15 @@ pub async fn process_log_line(pool: &SqlitePool, line: &str) {
                     &detail,
                     Some(raw),
                 ).await;
-                return;
+            }
+            Ok(None) => {
+                // No matching installed plugin — log the event unlinked.
+                let _ = plugin_health::insert_event(pool, None, &kind, &detail, Some(raw)).await;
+            }
+            Err(e) => {
+                warn!("plugin_health: find_by_name({name}) failed: {e}");
+                let _ = plugin_health::insert_event(pool, None, &kind, &detail, Some(raw)).await;
             }
         }
-
-        // If no match found, still log the event without filename linkage.
-        let _ = plugin_health::insert_event(pool, None, &kind, &detail, Some(raw)).await;
     }
 }
