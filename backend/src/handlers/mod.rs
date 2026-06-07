@@ -33,6 +33,7 @@ pub mod player_data;
 pub mod player_stats;
 pub mod properties;
 pub mod roles;
+pub mod search;
 pub mod server;
 pub mod onboarding;
 pub mod tailscale;
