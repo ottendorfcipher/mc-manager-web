@@ -469,5 +469,6 @@ pub fn build_router(state: AppState) -> Router {
         // uptime monitoring regardless of VPN state or throttling.
         .route("/health", get(handlers::health::health))
         .route("/ready", get(handlers::health::ready))
+        .route("/metrics", get(handlers::observability::metrics))
         .with_state(state)
 }

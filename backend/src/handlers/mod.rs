@@ -26,6 +26,7 @@ pub mod map_pins;
 pub mod mc_players;
 pub mod metrics;
 pub mod music;
+pub mod observability;
 pub mod pending_players;
 pub mod permissions;
 pub mod player_data;
