@@ -15,7 +15,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Clock, Plus, Trash2, Pencil, Play, X, Power, AlertCircle, CheckCircle2,
+  Clock, Plus, Trash2, Play, Power, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { api } from "@/api/client";
 import type { ScheduledJob } from "@/types";

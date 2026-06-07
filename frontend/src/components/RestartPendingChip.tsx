@@ -1,4 +1,3 @@
-import React from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Zap, Loader2 } from "lucide-react";
 
