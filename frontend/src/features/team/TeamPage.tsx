@@ -14,7 +14,7 @@
  *  • Recognition > recall: MC head avatars + name, not just text.
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   X, RefreshCw, UserMinus, MapPin, MapPinOff, Compass, Tag,
@@ -65,7 +65,6 @@ function useCoordDisplay(ign: string, canAccess: boolean) {
   return { data, isLoading, toggle: (v: boolean) => toggleMut.mutate(v), isPending: toggleMut.isPending };
 }
 
-const GAMEMODES: Gamemode[] = ["survival", "creative", "adventure", "spectator"];
 const GM_LABEL: Record<Gamemode, string> = { survival: "Survival", creative: "Creative", adventure: "Adventure", spectator: "Spectator" };
 const GM_COLOR: Record<Gamemode, string> = {
   survival:  "text-[#36B37E]",
@@ -105,7 +104,7 @@ function AliasEditor({ ign }: { ign: string }) {
   useEffect(() => { if (draft === null && data !== undefined) setDraft(currentAlias ?? ""); }, [data]); // eslint-disable-line
 
   const setMut = useMutation({
-    mutationFn: (alias: string) => api.put(`/players/${encodeURIComponent(ign)}/alias`, { alias }),
+    mutationFn: (alias: string) => api.put<AliasResponse>(`/players/${encodeURIComponent(ign)}/alias`, { alias }),
     onSuccess: (res: AliasResponse) => { qc.setQueryData(["alias", ign], res); toast.success(`Alias set to "${res.alias}"`); },
     onError: () => toast.error("Failed to set alias"),
   });

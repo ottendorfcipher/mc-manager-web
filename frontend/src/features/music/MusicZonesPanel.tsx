@@ -30,11 +30,6 @@ const INPUT = [
 ].join(" ");
 const LBL = "block text-[10px] font-medium text-meta uppercase tracking-wider mb-1";
 
-const DIMENSIONS = [
-  { value: "minecraft:overworld", label: "Overworld"  },
-  { value: "minecraft:the_nether", label: "The Nether" },
-  { value: "minecraft:the_end",    label: "The End"    },
-];
 
 function fmtCooldown(secs: number): string {
   if (secs === 0)   return "no cooldown";
