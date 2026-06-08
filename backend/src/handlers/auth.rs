@@ -73,6 +73,7 @@ pub struct CallbackParams {
 pub async fn callback(
     State(state): State<AppState>,
     jar: CookieJar,
+    headers: axum::http::HeaderMap,
     Query(params): Query<CallbackParams>,
 ) -> Response {
     // The user clicked "Cancel" on Google's consent screen.
@@ -139,6 +140,27 @@ pub async fn callback(
             return AppError::Internal(e).into_response();
         }
     };
+
+    // Record the sign-in for the "recent sign-ins" view (best-effort, off the
+    // hot path). IP comes from nginx's forwarding headers.
+    {
+        let ua = headers
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.chars().take(256).collect::<String>());
+        let ip = headers
+            .get("x-forwarded-for")
+            .or_else(|| headers.get("x-real-ip"))
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.split(',').next().unwrap_or("").trim().to_string());
+        let pool = state.pool.clone();
+        let email = guser.email.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::db::login_events::record(&pool, &email, ip.as_deref(), ua.as_deref()).await {
+                tracing::warn!(error = %e, "failed to record login event");
+            }
+        });
+    }
 
     // `__session` is the only cookie Firebase Hosting forwards through Cloud
     // Run rewrites.  All other names are stripped on both requests and responses.

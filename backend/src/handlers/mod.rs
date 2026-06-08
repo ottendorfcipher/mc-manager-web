@@ -38,6 +38,7 @@ pub mod properties;
 pub mod roles;
 pub mod search;
 pub mod server;
+pub mod sessions;
 pub mod onboarding;
 pub mod tailscale;
 pub mod users;
