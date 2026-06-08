@@ -10,6 +10,7 @@ import { PermissionsPage } from "./PermissionsPage";
 import { RolesTab } from "./RolesTab";
 import { UserOverridePanel } from "./UserOverridePanel";
 import { NotificationPrefsCard } from "./NotificationPrefsCard";
+import { SessionsCard } from "./SessionsCard";
 import type { User, PlayerLink, McPlayer, RoleRecord, PendingPlayer, BlueMapSettings, TailscaleInviteResult, DiscordSettings } from "@/types";
 import { WorldsTab }    from "./WorldsTab";
 import { InvitePortal } from "./InvitePortal";
@@ -297,6 +298,7 @@ function IntegrationsTab() {
       <DiscordSettingsPanel />
       <ModrinthSettingsPanel />
       <NotificationPrefsCard />
+      <SessionsCard />
       <NavigationPrefsPanel />
     </div>
   );
