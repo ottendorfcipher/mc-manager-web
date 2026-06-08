@@ -129,6 +129,7 @@ pub async fn start_next(
             // enqueue from seeing an idle state and firing a duplicate playsound.
             let mut guard = current.lock().await;
             let _ = play_all(cfg, &next.sound_id).await;
+            crate::db::playlists::record_play(pool, &next.sound_id, &next.display_name).await;
             *guard = Some(CurrentTrack {
                 queue_id:      next.id,
                 sound_id:      next.sound_id,

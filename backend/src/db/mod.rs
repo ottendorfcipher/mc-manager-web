@@ -24,6 +24,7 @@ pub mod permissions;
 pub mod player_sessions;
 pub mod player_snapshots;
 pub mod players;
+pub mod playlists;
 pub mod prefs;
 pub mod roles;
 pub mod scheduled_jobs;
