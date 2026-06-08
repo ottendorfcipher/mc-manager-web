@@ -42,6 +42,12 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102 via serenity Discord gateway only; no patch on 0.102 line" },
     { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102 via serenity Discord gateway only; no patch on 0.102 line" },
     { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102 CRL panic via serenity; we never parse CRLs; no patch on 0.102 line" },
+    # rsa Marvin timing attack. `rsa` is present in Cargo.lock ONLY via sqlx's
+    # `mysql` feature, which we do not enable (the backend is SQLite-only).
+    # `cargo tree -i rsa` prints nothing across all targets — it never enters the
+    # built graph, so it is neither compiled nor exercised. No upstream fix
+    # exists. Re-evaluate if we ever enable a sqlx MySQL backend.
+    { id = "RUSTSEC-2023-0071", reason = "rsa via sqlx unused mysql feature; never in built graph (cargo tree -i rsa is empty); no upstream fix" },
 ]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────
