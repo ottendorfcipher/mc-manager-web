@@ -21,6 +21,7 @@ pub mod rising_oceans;
 pub mod scheduled_jobs;
 pub mod give_item;
 pub mod health;
+pub mod insights;
 pub mod kill_switch;
 pub mod map_pins;
 pub mod mc_players;

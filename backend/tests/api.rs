@@ -313,6 +313,40 @@ async fn global_search_finds_players_and_gates_users() {
     assert!(arr.iter().all(|h| h["kind"] != "user"), "member must not see user hits");
 }
 
+#[tokio::test]
+async fn activity_insights_tracks_sessions() {
+    let (srv, state) = server().await;
+    // Simulate a join + leave.
+    redstonecipher_server::db::player_sessions::start(&state.pool, "Grinder").await.unwrap();
+    redstonecipher_server::db::player_sessions::end(&state.pool, "Grinder").await.unwrap();
+    // A second open session (still online).
+    redstonecipher_server::db::player_sessions::start(&state.pool, "Grinder").await.unwrap();
+
+    let cookie = session_cookie("member@example.com", "member");
+    let res = srv
+        .get("/api/players/insights?days=7")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["days"], 7);
+    assert_eq!(body["total_sessions"], 2);
+    let players = body["players"].as_array().unwrap();
+    assert!(players.iter().any(|p| p["ign"] == "Grinder" && p["sessions"] == 2));
+    assert!(body["peak_hours"].is_array());
+}
+
+#[tokio::test]
+async fn activity_insights_requires_permission() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie("nobody@example.com", "user"); // no nav.players
+    let res = srv
+        .get("/api/players/insights")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
 
 #[tokio::test]
