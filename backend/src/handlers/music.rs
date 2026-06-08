@@ -137,6 +137,7 @@ pub async fn enqueue(
     if current_guard.is_none() {
         // Nothing playing — start immediately.
         let _ = music::play_all(&state.config, &body.sound_id).await;
+        crate::db::playlists::record_play(&state.pool, &body.sound_id, &display_name).await;
         *current_guard = Some(CurrentTrack {
             queue_id:      0,
             sound_id:      body.sound_id.clone(),

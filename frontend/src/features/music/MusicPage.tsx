@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api } from "@/api/client";
 import { useEventStream } from "@/hooks/useEventStream";
+import { PlaylistsPanel } from "./PlaylistsPanel";
 import { useAuthStore } from "@/store/auth";
 import { McItemImage } from "@/components/McItemImage";
 import { DiscIcon } from "@/components/DiscIcon";
@@ -199,6 +200,8 @@ export function MusicPage() {
 
       {canPlay && (
         <>
+          <PlaylistsPanel canManage={canPlay} />
+
           {/* ── Now Playing ── */}
           <div className="card space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
