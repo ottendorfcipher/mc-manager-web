@@ -328,6 +328,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/admin/audit-log", get(handlers::audit_log::list_global))
         .route("/admin/audit-log/export", get(handlers::audit_log::export_csv))
         .route("/me/audit-log",    get(handlers::audit_log::list_own))
+        .route(
+            "/me/notification-prefs",
+            get(handlers::notification_prefs::get).put(handlers::notification_prefs::put),
+        )
         // Admin impersonation — view the portal as another user
         .route(
             "/admin/impersonation/validate",

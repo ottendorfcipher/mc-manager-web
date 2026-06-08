@@ -347,6 +347,39 @@ async fn activity_insights_requires_permission() {
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
 
+#[tokio::test]
+async fn notification_prefs_default_on_and_roundtrip() {
+    let (srv, _) = server().await;
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+
+    // Defaults: all categories on.
+    let res = srv
+        .get("/api/me/notification-prefs")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let p: serde_json::Value = res.json();
+    assert_eq!(p["pending_player"], true);
+    assert_eq!(p["world_switch"], true);
+    assert_eq!(p["kill_switch"], true);
+
+    // Disable one, then read it back.
+    let res = srv
+        .put("/api/me/notification-prefs")
+        .add_header(header::COOKIE, cookie.clone())
+        .json(&serde_json::json!({ "pending_player": false, "world_switch": true, "kill_switch": false }))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let res = srv
+        .get("/api/me/notification-prefs")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    let p: serde_json::Value = res.json();
+    assert_eq!(p["pending_player"], false);
+    assert_eq!(p["kill_switch"], false);
+    assert_eq!(p["world_switch"], true);
+}
+
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
 
 #[tokio::test]
