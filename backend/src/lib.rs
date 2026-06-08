@@ -201,6 +201,7 @@ pub fn build_router(state: AppState) -> Router {
             post(handlers::pending_players::approve),
         )
         // Player snapshots (inventory + location)
+        .route("/players/insights", get(handlers::insights::get))
         .route("/players/snapshots", get(handlers::player_data::list))
         .route("/players/locations", get(handlers::player_data::locations))
         .route(

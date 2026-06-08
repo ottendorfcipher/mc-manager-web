@@ -25,6 +25,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useMetrics } from "@/hooks/useMetrics";
 import { EventStatusCard } from "./EventStatusCard";
+import { ActivityInsightsCard } from "./ActivityInsightsCard";
 import type { ServerStatus, McPlayer, PlayerSnapshot, MusicState } from "@/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -334,6 +335,9 @@ export function DashboardPage() {
 
       {/* ── Event status (members see active/scheduled; admins manage in Events) ── */}
       <EventStatusCard />
+
+      {/* ── Player activity insights (playtime + peak hours) ─────────────────── */}
+      <ActivityInsightsCard />
 
       {/* ── Performance gauges ───────────────────────────────────────────────── */}
       {metrics ? (
