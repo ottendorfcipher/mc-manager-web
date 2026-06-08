@@ -670,6 +670,28 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
     return items;
   }, [category, query]);
 
+  // ── Virtualized 4-column grid (dependency-free fixed-height windowing) ───────
+  // The catalog is ~450 items; render only the visible rows + overscan. Rows are
+  // a fixed height (items use a fixed height + line-clamp) so offsets are exact.
+  const GRID_COLS = 4;
+  const ROW_H = 78; // 72px item + 6px vertical stride
+  const OVERSCAN = 4;
+  const rows = useMemo(() => {
+    const out: MCItem[][] = [];
+    for (let i = 0; i < filtered.length; i += GRID_COLS) out.push(filtered.slice(i, i + GRID_COLS));
+    return out;
+  }, [filtered]);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(420);
+  useEffect(() => {
+    const el = scrollParentRef.current;
+    if (el) setViewportH(el.clientHeight);
+  }, [filtered.length]);
+  const firstRow = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const lastRow  = Math.min(rows.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN);
+  const visibleRows = rows.slice(firstRow, lastRow);
+
   const adjustCount = (delta: number) =>
     setCount((c) => Math.max(1, Math.min(64, c + delta)));
 
@@ -789,12 +811,14 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
           ))}
         </div>
 
-        {/* ── Item grid (scrollable) ── */}
+        {/* ── Item grid (virtualized, scrollable) ── */}
         <div
+          ref={scrollParentRef}
           role="tabpanel"
           id={categoryPanelId(category)}
           aria-label={`${category} items`}
           className="flex-1 overflow-y-auto px-3 min-h-0"
+          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
         >
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-meta">
@@ -802,30 +826,41 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
               <p className="text-sm">No items match "{query}"</p>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-1.5 pb-2">
-              {filtered.map((item) => {
-                const isSelected = selected?.id === item.id;
+            <div style={{ height: rows.length * ROW_H, position: "relative" }}>
+              {visibleRows.map((row, i) => {
+                const rowIndex = firstRow + i;
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelected(isSelected ? null : item)}
-                    title={item.name}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg text-center
-                                transition-all border-2 group ${
-                      isSelected
-                        ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]"
-                        : "border-transparent hover:border-[#D9D5D0] dark:hover:border-[#363944] hover:bg-[#F7F5F2] dark:hover:bg-[#2A2D38]"
-                    }`}
+                  <div
+                    key={rowIndex}
+                    className="grid grid-cols-4 gap-1.5"
+                    style={{ position: "absolute", top: rowIndex * ROW_H, left: 0, width: "100%" }}
                   >
-                    <ItemIcon id={item.id} size={32} />
-                    <span className={`text-xs leading-tight break-words w-full font-medium ${
-                      isSelected
-                        ? "text-[#5B9BF0]"
-                        : "text-[#6B6E78] dark:text-[#A8AEBB]"
-                    }`}>
-                      {item.name}
-                    </span>
-                  </button>
+                    {row.map((item) => {
+                      const isSelected = selected?.id === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => setSelected(isSelected ? null : item)}
+                          title={item.name}
+                          className={`h-[72px] flex flex-col items-center justify-center gap-1 p-2 rounded-lg text-center
+                                      transition-all border-2 group ${
+                            isSelected
+                              ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]"
+                              : "border-transparent hover:border-[#D9D5D0] dark:hover:border-[#363944] hover:bg-[#F7F5F2] dark:hover:bg-[#2A2D38]"
+                          }`}
+                        >
+                          <ItemIcon id={item.id} size={32} />
+                          <span className={`text-xs leading-tight break-words w-full font-medium line-clamp-2 ${
+                            isSelected
+                              ? "text-[#5B9BF0]"
+                              : "text-[#6B6E78] dark:text-[#A8AEBB]"
+                          }`}>
+                            {item.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
