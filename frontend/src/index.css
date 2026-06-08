@@ -219,6 +219,19 @@
  * `!important` is justified here because it defends user preference
  * against any future utility class that might re-enable motion. */
 @media (prefers-reduced-motion: reduce) {
+  /* Honour the OS-level "reduce motion" setting app-wide: near-instant
+     transitions/animations and no smooth scroll. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Loading spinners convey state (not decoration) — keep them spinning. */
+  .animate-spin {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
   .mc-block {
     animation: none !important;
     display: none !important;
