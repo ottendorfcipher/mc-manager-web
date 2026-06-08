@@ -18,6 +18,7 @@ import {
   Clock, Plus, Trash2, Play, Power, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { api } from "@/api/client";
+import { EventCalendar } from "./EventCalendar";
 import type { ScheduledJob } from "@/types";
 
 const INPUT = [
@@ -117,6 +118,9 @@ export function AutomationsPage() {
           onSubmit={(b) => createMut.mutate(b)}
         />
       )}
+
+      {/* Upcoming scheduled runs at a glance */}
+      <EventCalendar />
 
       <div className="space-y-2">
         {jobs.length === 0 && !creating && (

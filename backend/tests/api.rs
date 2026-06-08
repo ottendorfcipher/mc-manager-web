@@ -380,6 +380,24 @@ async fn notification_prefs_default_on_and_roundtrip() {
     assert_eq!(p["world_switch"], true);
 }
 
+#[tokio::test]
+async fn events_calendar_gating() {
+    let (srv, _) = server().await;
+    // member has events.status.view → 200 (empty list, no jobs seeded).
+    let res = srv
+        .get("/api/events/calendar?days=14")
+        .add_header(header::COOKIE, session_cookie("m@example.com", "member"))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    assert!(res.json::<serde_json::Value>().is_array());
+    // a role without the perm → 403.
+    let res = srv
+        .get("/api/events/calendar")
+        .add_header(header::COOKIE, session_cookie("nobody@example.com", "nonexistent_role"))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+}
+
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
 
 #[tokio::test]

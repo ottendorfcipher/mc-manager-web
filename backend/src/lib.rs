@@ -355,6 +355,7 @@ pub fn build_router(state: AppState) -> Router {
             get(handlers::events::list).post(handlers::events::create),
         )
         .route("/events/summary",               get(handlers::events::summary))
+        .route("/events/calendar",              get(handlers::event_calendar::calendar))
         .route("/events/countdowns/state",      get(handlers::events::get_state))
         .route("/events/countdowns/stream",      get(handlers::events::stream))
         .route("/events/countdowns/:id/start",   post(handlers::events::start))
