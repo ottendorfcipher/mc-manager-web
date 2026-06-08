@@ -13,6 +13,7 @@ pub mod backups;
 pub mod chat;
 pub mod kill_switch;
 pub mod lobbies;
+pub mod login_events;
 pub mod map_pins;
 pub mod music_queue;
 pub mod music_zones;

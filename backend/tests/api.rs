@@ -398,6 +398,38 @@ async fn events_calendar_gating() {
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
 
+#[tokio::test]
+async fn sessions_list_and_revoke_all() {
+    let (srv, state) = server().await;
+    // Seed a couple of login events for the admin.
+    redstonecipher_server::db::login_events::record(&state.pool, ADMIN_EMAIL, Some("1.2.3.4"), Some("Firefox"))
+        .await
+        .unwrap();
+
+    let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
+    let res = srv
+        .get("/api/me/sessions")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let rows: serde_json::Value = res.json();
+    assert!(rows.as_array().unwrap().iter().any(|r| r["ip"] == "1.2.3.4"));
+
+    // revoke-all sets the cutoff to now; a JWT minted moments ago has iat < now,
+    // so the very same cookie should now be rejected.
+    let res = srv
+        .post("/api/me/sessions/revoke-all")
+        .add_header(header::COOKIE, cookie.clone())
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    // The next request with the (now-stale) token is unauthenticated.
+    let res = srv
+        .get("/api/me/sessions")
+        .add_header(header::COOKIE, cookie)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+}
+
 // ── Kill-switch handler tests ─────────────────────────────────────────────────
 
 #[tokio::test]
