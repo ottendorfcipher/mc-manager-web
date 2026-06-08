@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useMutation } from "@tanstack/react-query";
 import { X, Minus, Plus, Package, CheckCircle2, Loader2, ChevronRight } from "lucide-react";
@@ -670,6 +671,22 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
     return items;
   }, [category, query]);
 
+  // ── Virtualized 4-column grid ────────────────────────────────────────────────
+  // The catalog is ~450 items; render only the visible rows.
+  const GRID_COLS = 4;
+  const rows = useMemo(() => {
+    const out: MCItem[][] = [];
+    for (let i = 0; i < filtered.length; i += GRID_COLS) out.push(filtered.slice(i, i + GRID_COLS));
+    return out;
+  }, [filtered]);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 76,
+    overscan: 6,
+  });
+
   const adjustCount = (delta: number) =>
     setCount((c) => Math.max(1, Math.min(64, c + delta)));
 
@@ -789,8 +806,9 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
           ))}
         </div>
 
-        {/* ── Item grid (scrollable) ── */}
+        {/* ── Item grid (virtualized, scrollable) ── */}
         <div
+          ref={scrollParentRef}
           role="tabpanel"
           id={categoryPanelId(category)}
           aria-label={`${category} items`}
@@ -802,32 +820,48 @@ export function ItemGiveDrawer({ ign, uuid, online, onClose }: Props) {
               <p className="text-sm">No items match "{query}"</p>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-1.5 pb-2">
-              {filtered.map((item) => {
-                const isSelected = selected?.id === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelected(isSelected ? null : item)}
-                    title={item.name}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg text-center
-                                transition-all border-2 group ${
-                      isSelected
-                        ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]"
-                        : "border-transparent hover:border-[#D9D5D0] dark:hover:border-[#363944] hover:bg-[#F7F5F2] dark:hover:bg-[#2A2D38]"
-                    }`}
-                  >
-                    <ItemIcon id={item.id} size={32} />
-                    <span className={`text-xs leading-tight break-words w-full font-medium ${
-                      isSelected
-                        ? "text-[#5B9BF0]"
-                        : "text-[#6B6E78] dark:text-[#A8AEBB]"
-                    }`}>
-                      {item.name}
-                    </span>
-                  </button>
-                );
-              })}
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }} className="pb-2">
+              {rowVirtualizer.getVirtualItems().map((vRow) => (
+                <div
+                  key={vRow.key}
+                  data-index={vRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="grid grid-cols-4 gap-1.5"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${vRow.start}px)`,
+                  }}
+                >
+                  {rows[vRow.index].map((item) => {
+                    const isSelected = selected?.id === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setSelected(isSelected ? null : item)}
+                        title={item.name}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-lg text-center
+                                    transition-all border-2 group ${
+                          isSelected
+                            ? "border-[#5B9BF0] bg-[#EFF6FF] dark:bg-[#1E3A5F]"
+                            : "border-transparent hover:border-[#D9D5D0] dark:hover:border-[#363944] hover:bg-[#F7F5F2] dark:hover:bg-[#2A2D38]"
+                        }`}
+                      >
+                        <ItemIcon id={item.id} size={32} />
+                        <span className={`text-xs leading-tight break-words w-full font-medium ${
+                          isSelected
+                            ? "text-[#5B9BF0]"
+                            : "text-[#6B6E78] dark:text-[#A8AEBB]"
+                        }`}>
+                          {item.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>
