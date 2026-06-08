@@ -32,6 +32,24 @@ pub async fn engage(
         &format!("manual:{}", actor.email),
     )
     .await?;
+
+    // Notify opted-in admins (fire-and-forget; no-op without RESEND_API_KEY).
+    {
+        let state2 = state.clone();
+        let who = crate::notify::html_escape(&actor.email);
+        let reason = crate::notify::html_escape(&body.reason);
+        tokio::spawn(async move {
+            let site = state2.config.site_url.trim_end_matches('/').to_string();
+            let subject = "redstoneCipher kill switch ENGAGED".to_string();
+            let html = format!(
+                "<p>The global kill switch was <strong>engaged</strong> by {who}.</p>\
+                 <p>Reason: {reason}</p><p><a href=\"{site}/\">Open redstoneCipher →</a></p>"
+            );
+            let text = format!("Kill switch engaged by {who}. Reason: {reason}");
+            crate::notify::notify_admins(&state2, "kill_switch", &subject, &html, &text).await;
+        });
+    }
+
     Ok(Json(kill_switch::status(&state.pool).await?))
 }
 

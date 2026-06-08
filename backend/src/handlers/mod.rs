@@ -15,6 +15,7 @@ pub mod coord_display;
 pub mod events;
 pub mod lobbies;
 pub mod music_zones;
+pub mod notification_prefs;
 pub mod parties;
 pub mod pin_hud;
 pub mod rising_oceans;
