@@ -126,6 +126,11 @@ jobs:
 
       - name: Attest build provenance (binary)
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        # Build attestations require GitHub Advanced Security, which this private
+        # repo doesn't have — don't let the unavailable attestation block the
+        # artifact. The SHA-256 checksum (verified on the server) is the primary
+        # integrity control. Re-enable hard-fail if GHAS is added.
+        continue-on-error: true
         with:
           subject-path: backend/target/release/redstonecipher-server
 
@@ -179,6 +184,9 @@ jobs:
 
       - name: Attest build provenance (dist)
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        # See the backend job — no GHAS on this private repo; per-file SHA-256
+        # (verified on deploy) is the integrity control. Best-effort attestation.
+        continue-on-error: true
         with:
           subject-path: frontend/dist.sha256
 
