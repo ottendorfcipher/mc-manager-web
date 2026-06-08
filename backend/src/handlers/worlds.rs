@@ -166,6 +166,25 @@ pub async fn activate(
         None,
     )
     .await?;
+
+    // Notify opted-in admins that the active world changed (fire-and-forget).
+    {
+        let state2 = state.clone();
+        let from = crate::notify::html_escape(&current.slug);
+        let to = crate::notify::html_escape(&target.slug);
+        let who = crate::notify::html_escape(&actor.email);
+        tokio::spawn(async move {
+            let site = state2.config.site_url.trim_end_matches('/').to_string();
+            let subject = format!("World switched: {from} → {to}");
+            let html = format!(
+                "<p>The active Minecraft world was switched from <strong>{from}</strong> to \
+                 <strong>{to}</strong> by {who}.</p><p><a href=\"{site}/admin\">Open admin →</a></p>"
+            );
+            let text = format!("World switched {from} → {to} by {who}.");
+            crate::notify::notify_admins(&state2, "world_switch", &subject, &html, &text).await;
+        });
+    }
+
     Ok(StatusCode::ACCEPTED)
 }
 
