@@ -102,6 +102,11 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let real_email = claims.sub.clone();
         let real_role  = claims.role.clone();
+
+        // Reject tokens issued before a "sign out everywhere" cutoff for this user.
+        if claims.iat < crate::db::login_events::tokens_valid_after(&state.pool, &real_email).await {
+            return Err(AppError::Unauthenticated);
+        }
         let real_level = crate::db::roles::level_for(&state.pool, &real_role)
             .await
             .min(255) as u8;

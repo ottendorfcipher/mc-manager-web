@@ -332,6 +332,8 @@ pub fn build_router(state: AppState) -> Router {
             "/me/notification-prefs",
             get(handlers::notification_prefs::get).put(handlers::notification_prefs::put),
         )
+        .route("/me/sessions", get(handlers::sessions::list))
+        .route("/me/sessions/revoke-all", post(handlers::sessions::revoke_all))
         // Admin impersonation — view the portal as another user
         .route(
             "/admin/impersonation/validate",
