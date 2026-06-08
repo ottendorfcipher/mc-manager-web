@@ -197,10 +197,16 @@ async fn process_line(
             }
         });
 
+        if let Err(e) = crate::db::player_sessions::start(pool, &ign).await {
+            warn!("chat_watcher: session start failed for {ign}: {e}");
+        }
         Some(("server", ign.clone(), display.clone(), format!("{display} joined the game"), false))
     } else if let Some(cap) = leave_re.captures(line) {
         let display = cap[1].to_string();
         let ign     = last_token(&display);
+        if let Err(e) = crate::db::player_sessions::end(pool, &ign).await {
+            warn!("chat_watcher: session end failed for {ign}: {e}");
+        }
         Some(("server", ign, display.clone(), format!("{display} left the game"), false))
     } else if let Some(cap) = alias_re.captures(line) {
         // Player typed /alias <name> or /alias clear in-game.
