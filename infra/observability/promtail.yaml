@@ -1,0 +1,40 @@
+# Promtail config: ship the redstoneCipher backend + nginx journald logs to
+# Loki for centralised, searchable log aggregation. The backend already emits
+# structured (JSON) logs via the `tracing` subscriber.
+#
+# Install promtail on the web server, set LOKI_URL (or edit below), and run it
+# as a systemd service. See docs/MONITORING.md.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  # Point this at your Loki instance (local or remote).
+  - url: ${LOKI_URL:-http://127.0.0.1:3100/loki/api/v1/push}
+
+scrape_configs:
+  - job_name: redstonecipher-journal
+    journal:
+      max_age: 12h
+      labels:
+        job: redstonecipher
+      matches: _SYSTEMD_UNIT=redstonecipher.service
+    relabel_configs:
+      - source_labels: ["__journal__systemd_unit"]
+        target_label: unit
+      - source_labels: ["__journal_priority_keyword"]
+        target_label: level
+
+  - job_name: nginx-journal
+    journal:
+      max_age: 12h
+      labels:
+        job: nginx
+      matches: _SYSTEMD_UNIT=nginx.service
+    relabel_configs:
+      - source_labels: ["__journal__systemd_unit"]
+        target_label: unit
