@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/api/client";
 import {
   Server, Users, HardDrive, Settings, Activity,
   Sun, Moon, Monitor, LogOut, Pickaxe, ShieldCheck, Map, MessageSquare,
@@ -45,6 +47,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const openWizard = useOnboardingStore((s) => s.openWizard);
   const [moreOpen, setMoreOpen] = useState(false);
   const chatUnread = useChatUnread((s) => s.count);
+
+  // Plugin "update available" count → badge on the Plugins nav item. Only
+  // managers can act on updates, so only they fetch it (shared cache key with
+  // the InstalledList page).
+  const canManagePlugins = hasPerm("plugins.manage");
+  const { data: installedPlugins } = useQuery<{ update_available: number }[]>({
+    queryKey:        ["plugins/installed"],
+    queryFn:         () => api.get("/plugins/installed"),
+    enabled:         canManagePlugins,
+    staleTime:       30_000,
+    refetchInterval: 60_000,
+  });
+  const pluginUpdates = installedPlugins?.filter((p) => p.update_available !== 0).length ?? 0;
+
+  // Badge count for a given nav destination (0 = no badge).
+  const badgeFor = (to: string): number =>
+    to === "/chat" ? chatUnread : to === "/plugins" ? pluginUpdates : 0;
 
   // Register navigation keyboard shortcuts (active on every authenticated page)
   useNavigationHotkeys();
@@ -108,10 +127,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <span className="relative flex-shrink-0">
                 <Icon className="w-4 h-4" aria-hidden />
-                {/* Unread badge on Chat icon */}
-                {to === "/chat" && chatUnread > 0 && (
-                  <span className="nav-badge" aria-label={`${chatUnread} unread message${chatUnread !== 1 ? "s" : ""}` }>
-                    {chatUnread > 9 ? "9+" : chatUnread}
+                {/* Badge: chat unread, or plugin updates available */}
+                {badgeFor(to) > 0 && (
+                  <span
+                    className="nav-badge"
+                    aria-label={to === "/chat"
+                      ? `${chatUnread} unread message${chatUnread !== 1 ? "s" : ""}`
+                      : `${pluginUpdates} plugin update${pluginUpdates !== 1 ? "s" : ""} available`}
+                  >
+                    {badgeFor(to) > 9 ? "9+" : badgeFor(to)}
                   </span>
                 )}
               </span>
@@ -208,7 +232,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             key={to}
             to={to}
             end={to === "/"}
-            aria-label={to === "/chat" && chatUnread > 0 ? `Chat — ${chatUnread} unread` : label}
+            aria-label={badgeFor(to) > 0
+              ? `${label} — ${badgeFor(to)} ${to === "/plugins" ? "update" : "unread"}${badgeFor(to) !== 1 ? "s" : ""}`
+              : label}
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center justify-center gap-0.5
                min-h-[56px] px-1 py-2 text-[10px] font-medium transition-colors ${
@@ -220,9 +246,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <span className="relative">
               <Icon className="w-5 h-5" aria-hidden />
-              {to === "/chat" && chatUnread > 0 && (
+              {badgeFor(to) > 0 && (
                 <span className="nav-badge" aria-hidden>
-                  {chatUnread > 9 ? "9+" : chatUnread}
+                  {badgeFor(to) > 9 ? "9+" : badgeFor(to)}
                 </span>
               )}
             </span>
