@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, User, MapPin, CalendarClock, Users, CornerDownLeft, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface SearchHit {
   kind: string; // player | pin | event | user
@@ -29,6 +30,7 @@ export function CommandPalette() {
   const [loading, setLoading] = useState(false);
   const [active, setActive]   = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const trapRef  = useFocusTrap(open, () => setOpen(false));
 
   // ── Global open shortcut (Cmd/Ctrl+K) ───────────────────────────────────────
   useEffect(() => {
@@ -91,6 +93,7 @@ export function CommandPalette() {
     <>
       <div className="fixed inset-0 bg-black/50 z-[120]" aria-hidden onClick={() => setOpen(false)} />
       <div
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-label="Search"
