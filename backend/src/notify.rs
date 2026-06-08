@@ -55,25 +55,6 @@ pub async fn send_email(
 /// approval. No-op when email isn't configured. Fire-and-forget — designed to
 /// be `tokio::spawn`ed so it never delays the watchdog response.
 pub async fn admins_new_pending(state: &AppState, ign: &str) {
-    if state.config.resend_api_key.is_none() {
-        return; // email not configured — nothing to do
-    }
-
-    let admins = match users::list(&state.pool).await {
-        Ok(list) => list
-            .into_iter()
-            .filter(|u| users::role_level(&u.role) >= 3)
-            .map(|u| u.email)
-            .collect::<Vec<_>>(),
-        Err(e) => {
-            tracing::warn!(error = %e, "notify: could not load admin list");
-            return;
-        }
-    };
-    if admins.is_empty() {
-        return;
-    }
-
     let ign_safe = html_escape(ign);
     let site = state.config.site_url.trim_end_matches('/');
     let subject = format!("New player waiting for approval: {ign_safe}");
@@ -85,16 +66,53 @@ pub async fn admins_new_pending(state: &AppState, ign: &str) {
     let text = format!(
         "{ign_safe} just connected and is waiting for approval.\n\nReview at {site}/admin"
     );
+    notify_admins(state, "pending_player", &subject, &html, &text).await;
+}
 
-    if let Err(e) = send_email(&state.config, &state.http, &admins, &subject, &html, &text).await {
-        tracing::warn!(error = %e, ign = %ign, "notify: admins_new_pending email failed");
+/// Email every admin (role ≥ admin) who has the given notification `category`
+/// enabled in their preferences. No-op when email isn't configured. Designed to
+/// be `tokio::spawn`ed so it never delays the triggering action.
+pub async fn notify_admins(
+    state: &AppState,
+    category: &'static str,
+    subject: &str,
+    html: &str,
+    text: &str,
+) {
+    if state.config.resend_api_key.is_none() {
+        return; // email not configured — nothing to do
+    }
+
+    let users = match users::list(&state.pool).await {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::warn!(error = %e, "notify: could not load admin list");
+            return;
+        }
+    };
+
+    let mut recipients: Vec<String> = Vec::new();
+    for u in users.into_iter().filter(|u| users::role_level(&u.role) >= 3) {
+        let prefs = crate::db::notification_prefs::get(&state.pool, &u.email)
+            .await
+            .unwrap_or_default();
+        if prefs.enabled(category) {
+            recipients.push(u.email);
+        }
+    }
+    if recipients.is_empty() {
+        return;
+    }
+
+    if let Err(e) = send_email(&state.config, &state.http, &recipients, subject, html, text).await {
+        tracing::warn!(error = %e, category, "notify: notify_admins email failed");
     } else {
-        tracing::info!(ign = %ign, recipients = admins.len(), "notify: emailed admins about new pending player");
+        tracing::info!(category, recipients = recipients.len(), "notify: emailed admins");
     }
 }
 
 /// Minimal HTML escaping for interpolated values.
-fn html_escape(s: &str) -> String {
+pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

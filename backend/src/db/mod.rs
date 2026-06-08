@@ -16,6 +16,7 @@ pub mod lobbies;
 pub mod map_pins;
 pub mod music_queue;
 pub mod music_zones;
+pub mod notification_prefs;
 pub mod parties;
 pub mod pending_players;
 pub mod permissions;
