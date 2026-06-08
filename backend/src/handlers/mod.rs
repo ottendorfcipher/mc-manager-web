@@ -13,6 +13,7 @@ pub mod budget;
 pub mod chat;
 pub mod coord_display;
 pub mod events;
+pub mod event_calendar;
 pub mod lobbies;
 pub mod music_zones;
 pub mod notification_prefs;
