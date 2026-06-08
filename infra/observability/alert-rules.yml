@@ -1,0 +1,35 @@
+# Prometheus alerting rules for the redstoneCipher backend, built on the gauges
+# exposed at /metrics. Load via Prometheus `rule_files:` and route through
+# Alertmanager (email/Slack/PagerDuty). See docs/MONITORING.md.
+
+groups:
+  - name: redstonecipher
+    rules:
+      # The backend stopped being scraped — process down or /metrics unreachable.
+      - alert: BackendDown
+        expr: up{job="redstonecipher-backend"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "redstoneCipher backend is down"
+          description: "Prometheus can't scrape /metrics for >2m."
+
+      # An always-on background runner stopped beating. The event runners only
+      # beat while active, so alert on the continuous ones only.
+      - alert: RunnerStalled
+        expr: |
+          redstonecipher_runner_heartbeat_age_seconds{runner=~"chat_watcher|music_zone|scheduled|pin_hud"} > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Background runner {{ $labels.runner }} stalled"
+          description: "No heartbeat from {{ $labels.runner }} for >5m — it may have panicked or hung."
+
+      # SQLite pool fully saturated (no idle connections) for a sustained period.
+      - alert: DbPoolSaturated
+        expr: redstonecipher_db_pool_idle == 0 and redstonecipher_db_pool_connections >= 5
+        for: 3m
+        labels: { severity: warning }
+        annotations:
+          summary: "SQLite connection pool saturated"
+          description: "No idle DB connections for >3m — requests may be queuing on the pool."
