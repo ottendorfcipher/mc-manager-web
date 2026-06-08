@@ -19,6 +19,7 @@ pub mod music_zones;
 pub mod parties;
 pub mod pending_players;
 pub mod permissions;
+pub mod player_sessions;
 pub mod player_snapshots;
 pub mod players;
 pub mod prefs;
