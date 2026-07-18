@@ -168,7 +168,7 @@ async fn finish_login(
     // rewrites, so the session always uses that name.
     let session_cookie = Cookie::build((JWT_COOKIE, token))
         .http_only(true)
-        .secure(true)
+        .secure(state.config.cookie_secure)
         .same_site(SameSite::Lax) // Lax allows the redirect after OAuth
         .path("/")
         .max_age(time::Duration::hours(8))

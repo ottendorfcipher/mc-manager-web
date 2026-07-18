@@ -1,0 +1,62 @@
+# redstoneCipher, full stack in one command.
+#
+# 1. cp .env.example .env  and fill in JWT_SECRET, GOOGLE_CLIENT_ID/SECRET,
+#    BOOTSTRAP_ADMIN_EMAIL. For a plain-HTTP local run also set:
+#      SITE_URL=http://localhost:8080
+#      REDIRECT_URI=http://localhost:8080/auth/callback   (register this in Google)
+#      COOKIE_SECURE=false
+# 2. docker compose up --build
+# 3. Open http://localhost:8080 and sign in.
+#
+# The backend controls the mc service over SSH. Keys are generated on first run
+# and shared through the `keys` volume, so no manual key setup is needed.
+name: redstonecipher
+
+services:
+  mc:
+    build:
+      context: .
+      dockerfile: docker/mc/Dockerfile
+    environment:
+      PAPER_VERSION: "1.21.11"
+      MC_MAX_MEMORY: "2G"
+    ports:
+      - "25565:25565"   # Minecraft (port 22 stays internal)
+    volumes:
+      - mcdata:/opt/minecraft
+      - keys:/keys
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:///opt/redstonecipher/data/mc-manager.db
+      TAILSCALE_IP: mc            # the backend SSHes to root@mc
+    volumes:
+      - db:/opt/redstonecipher/data
+      - map:/opt/redstonecipher/www/map
+      - keys:/keys
+    depends_on:
+      - mc
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+    volumes:
+      - map:/srv/map:ro          # BlueMap tiles written by the backend
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db:
+  keys:
+  map:
+  mcdata:

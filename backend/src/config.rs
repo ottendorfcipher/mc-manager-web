@@ -65,6 +65,10 @@ pub struct Config {
     pub site_url: String,
     /// Sender for outbound email (Resend). Set via `EMAIL_FROM`.
     pub email_from: String,
+    /// Whether the session cookie carries the `Secure` attribute. Set via
+    /// `COOKIE_SECURE`. Keep `true` in production; set `false` only for a local
+    /// plain-HTTP run, where browsers would otherwise drop a Secure cookie.
+    pub cookie_secure: bool,
     // ── Discord bridge ─────────────────────────────────────────────────────────
     /// Discord bot token, webhook URL, and channel ID from env vars.
     /// These override any values stored in the database (useful for
@@ -130,6 +134,7 @@ impl Config {
             tailscale_tailnet: env_or("TAILSCALE_TAILNET", "your-tailnet"),
             site_url: env_or("SITE_URL", "http://localhost:8787"),
             email_from: env_or("EMAIL_FROM", "redstoneCipher <onboarding@example.com>"),
+            cookie_secure: env_parse("COOKIE_SECURE", true),
             discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),

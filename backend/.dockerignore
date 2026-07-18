@@ -1,0 +1,6 @@
+target/
+bindings/
+tests/
+.env
+*.db
+*.db-*

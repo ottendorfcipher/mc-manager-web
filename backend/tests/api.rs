@@ -61,6 +61,7 @@ fn test_cfg() -> Config {
         tailscale_tailnet: "test-tailnet".into(),
         site_url: "http://localhost:8787".into(),
         email_from: "redstoneCipher <onboarding@example.com>".into(),
+        cookie_secure: true,
         discord_bot_token: None,
         discord_webhook_url: None,
         discord_channel_id: None,
