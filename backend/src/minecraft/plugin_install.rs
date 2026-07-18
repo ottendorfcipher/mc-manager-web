@@ -266,7 +266,7 @@ async fn download_jars(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("redstoneCipher/1.0 (admin@example.com)")
+        .user_agent("redstoneCipher/1.0 (self-hosted Minecraft manager)")
         .build()?;
 
     for (url, filename) in &downloads {

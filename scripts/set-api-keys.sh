@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-WEB_SERVER="root@203.0.113.10"
+WEB_SERVER="root@your-web-server"
 ENV_FILE="/opt/redstonecipher/.env"
 
 echo ""
@@ -50,8 +50,8 @@ TS_NET=$(prompt_secret "TAILSCALE_TAILNET  (email or tailnet slug)")
 
 echo ""
 echo "── Site URL (appears in email invite links) ─────────────────"
-SITE_URL=$(prompt_secret "SITE_URL [https://example.com]")
-SITE_URL="${SITE_URL:-https://example.com}"
+SITE_URL=$(prompt_secret "SITE_URL [https://your-domain.com]")
+SITE_URL="${SITE_URL:-https://your-domain.com}"
 
 # ── Confirm ───────────────────────────────────────────────────────────────────
 echo ""

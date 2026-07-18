@@ -12,6 +12,13 @@ pub struct Config {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub redirect_uri: String,
+    /// Email address seeded as the first `global_admin` on startup. Set via
+    /// `BOOTSTRAP_ADMIN_EMAIL`. When `None`, no account is auto-promoted and the
+    /// first admin must be added another way.
+    pub bootstrap_admin_email: Option<String>,
+    /// Browser origins allowed to call the API with credentials. Set via
+    /// `CORS_ORIGINS` (comma separated). Defaults to `SITE_URL`.
+    pub cors_origins: Vec<String>,
     /// Shared secret for the Pub/Sub budget webhook. When `None` the webhook
     /// endpoint returns 404, keeping the surface area small in dev.
     pub budget_webhook_token: Option<String>,
@@ -44,8 +51,10 @@ pub struct Config {
     pub tailscale_api_key: Option<String>,
     /// Tailscale tailnet identifier (e.g. "example.com" or admin email).
     pub tailscale_tailnet: String,
-    /// Public base URL of this site — used in invite email links.
+    /// Public base URL of this site, used in invite email links.
     pub site_url: String,
+    /// Sender for outbound email (Resend). Set via `EMAIL_FROM`.
+    pub email_from: String,
     // ── Discord bridge ─────────────────────────────────────────────────────────
     /// Discord bot token, webhook URL, and channel ID from env vars.
     /// These override any values stored in the database (useful for
@@ -73,7 +82,11 @@ impl Config {
             jwt_secret: require_env("JWT_SECRET"),
             google_client_id: require_env("GOOGLE_CLIENT_ID"),
             google_client_secret: require_env("GOOGLE_CLIENT_SECRET"),
-            redirect_uri: env_or("REDIRECT_URI", "https://example.com/auth/callback"),
+            redirect_uri: env_or("REDIRECT_URI", "http://localhost:8787/auth/callback"),
+            bootstrap_admin_email: std::env::var("BOOTSTRAP_ADMIN_EMAIL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            cors_origins: parse_cors_origins(),
             budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -83,8 +96,8 @@ impl Config {
             )),
             gcp_project: env_or("GCP_PROJECT", "example-project"),
             gcp_zone: env_or("GCP_ZONE", "us-central1-a"),
-            gcp_instance: env_or("GCP_INSTANCE", "mc-server-spot"),
-            tailscale_ip: env_or("TAILSCALE_IP", "100.64.0.3"),
+            gcp_instance: env_or("GCP_INSTANCE", "mc-server"),
+            tailscale_ip: env_or("TAILSCALE_IP", "127.0.0.1"),
             mc_backup_dir: env_or("MC_BACKUP_DIR", "/opt/minecraft/backups/daily"),
             mc_server_dir: env_or("MC_SERVER_DIR", "/opt/minecraft/server"),
             mc_scripts_dir: env_or("MC_SCRIPTS_DIR", "/opt/minecraft/scripts"),
@@ -101,7 +114,8 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             tailscale_tailnet: env_or("TAILSCALE_TAILNET", "your-tailnet"),
-            site_url: env_or("SITE_URL", "https://example.com"),
+            site_url: env_or("SITE_URL", "http://localhost:8787"),
+            email_from: env_or("EMAIL_FROM", "redstoneCipher <onboarding@example.com>"),
             discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -122,7 +136,23 @@ impl Config {
 }
 
 fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| "/Users/user".to_string())
+    std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())
+}
+
+/// Parse `CORS_ORIGINS` (comma separated) into a list of allowed origins.
+/// Falls back to `SITE_URL` when unset so a single-origin deploy needs no extra
+/// configuration.
+fn parse_cors_origins() -> Vec<String> {
+    let raw = std::env::var("CORS_ORIGINS").unwrap_or_default();
+    let mut origins: Vec<String> = raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if origins.is_empty() {
+        origins.push(env_or("SITE_URL", "http://localhost:8787"));
+    }
+    origins
 }
 
 fn require_env(key: &str) -> String {

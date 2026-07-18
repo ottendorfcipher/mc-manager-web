@@ -3,13 +3,14 @@ import react from "@vitejs/plugin-react";
 import fs from "fs";
 import path from "path";
 
-// mkcert-signed cert for example.com + localhost. Regenerate with:
-//   mkcert -cert-file frontend/certs/example.com.pem \
-//          -key-file  frontend/certs/example.com-key.pem \
-//          example.com localhost 127.0.0.1 ::1
+// Optional local HTTPS via an mkcert-signed cert. When the files below are
+// absent, the dev server falls back to HTTP. Generate them with:
+//   mkcert -cert-file frontend/certs/localhost.pem \
+//          -key-file  frontend/certs/localhost-key.pem \
+//          localhost 127.0.0.1 ::1
 const certDir = path.resolve(__dirname, "./certs");
-const certPath = path.join(certDir, "example.com.pem");
-const keyPath  = path.join(certDir, "example.com-key.pem");
+const certPath = path.join(certDir, "localhost.pem");
+const keyPath  = path.join(certDir, "localhost-key.pem");
 const httpsOpts =
   fs.existsSync(certPath) && fs.existsSync(keyPath)
     ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
@@ -30,15 +31,12 @@ export default defineConfig({
   },
   server: {
     // Dual-stack: `::` with V6ONLY off accepts both IPv4 and IPv6 so
-    // https://127.0.0.1:5173, https://localhost:5173 (->::1), and
-    // https://example.com (pf rdr on lo0) all reach us.
+    // https://127.0.0.1:5173 and https://localhost:5173 both reach us.
     host: "::",
     port: 5173,
     strictPort: true,                  // fail fast instead of silently hopping ports
     https: httpsOpts,
-    // With /etc/hosts mapping example.com → 127.0.0.1, Vite would reject
-    // the Host header by default; whitelist it here.
-    allowedHosts: ["example.com", "localhost", "127.0.0.1"],
+    allowedHosts: ["localhost", "127.0.0.1"],
     proxy: {
       "/api":  { target: "http://localhost:8787", changeOrigin: true },
       "/auth": { target: "http://localhost:8787", changeOrigin: true },

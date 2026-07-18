@@ -39,6 +39,19 @@ use tower_http::{
 };
 use tracing::Level;
 
+/// Builds the CORS allow-origin list from config, always including the local
+/// Vite dev server so `npm run dev` works out of the box.
+fn cors_layer_origins(cfg: &crate::config::Config) -> Vec<axum::http::HeaderValue> {
+    let mut origins: Vec<axum::http::HeaderValue> =
+        cfg.cors_origins.iter().filter_map(|o| o.parse().ok()).collect();
+    for dev in ["https://localhost:5173", "http://localhost:5173"] {
+        if let Ok(value) = dev.parse() {
+            origins.push(value);
+        }
+    }
+    origins
+}
+
 pub fn build_router(state: AppState) -> Router {
     // Prime the process start clock for the /health uptime field.
     handlers::health::init();
@@ -465,20 +478,13 @@ pub fn build_router(state: AppState) -> Router {
                 .on_response(DefaultOnResponse::new().level(Level::DEBUG))
                 .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
         )
-        // CORS — only the production origin and localhost dev server may call the API.
-        // `allow_credentials(true)` is required for the session cookie to be sent
-        // cross-origin (e.g. Vite dev proxy on a different port).  With credentials
-        // enabled, `allow_origin(Any)` is forbidden by the CORS spec — we must
-        // enumerate origins explicitly.
+        // CORS. Origins come from config (CORS_ORIGINS, or SITE_URL) plus the
+        // local Vite dev server. allow_credentials(true) is required for the
+        // session cookie to be sent cross-origin, and the CORS spec forbids
+        // allow_origin(Any) with credentials, so origins are enumerated.
         .layer(
             CorsLayer::new()
-                .allow_origin([
-                    "https://example.com".parse().unwrap(),
-                    "https://www.example.com".parse().unwrap(),
-                    // Local dev — Vite proxy; never reaches production
-                    "https://localhost:5173".parse().unwrap(),
-                    "http://localhost:5173".parse().unwrap(),
-                ])
+                .allow_origin(cors_layer_origins(&state.config))
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::header::AUTHORIZATION,

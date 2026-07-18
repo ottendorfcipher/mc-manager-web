@@ -17,7 +17,7 @@ const ERROR_COPY: Record<string, { title: string; detail: string }> = {
   token_exchange: {
     title: "Google couldn't verify this app",
     detail:
-      "Google rejected the redirect URI the backend sent. Open the GCP Console → APIs & Services → Credentials → your OAuth 2.0 Client ID, and make sure the URI matching your backend's REDIRECT_URI is listed under Authorized redirect URIs (e.g. https://example.com/auth/callback for the HTTPS setup, or http://localhost:5173/auth/callback for plain dev).",
+      "Google rejected the redirect URI the backend sent. In the Google Cloud Console, open your OAuth 2.0 Client ID and add the URI that matches your backend's REDIRECT_URI under Authorized redirect URIs. For example https://your-domain.com/auth/callback in production, or http://localhost:5173/auth/callback in local dev.",
   },
   not_invited: {
     title: "Access not granted",

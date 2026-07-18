@@ -26,7 +26,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WEB_SERVER="root@203.0.113.10"
+WEB_SERVER="root@your-web-server"
 REMOTE_SRC="/opt/redstonecipher/backend"
 REMOTE_BIN="/opt/redstonecipher/redstonecipher-server"
 SSH_OPTS=(-o ServerAliveInterval=30 -o ServerAliveCountMax=5)
@@ -61,7 +61,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 # ── 1. Download the CI artifact for this commit ─────────────────────────────────
 say "Downloading backend artifact for commit ${SHA:0:12}..."
-gh run download --repo ottendorfcipher/mc-manager-web --name "backend-${SHA}" --dir "$TMP" \
+gh run download --repo your-org/redstonecipher --name "backend-${SHA}" --dir "$TMP" \
   || die "No artifact 'backend-${SHA}'. Has the Release Build workflow finished for this commit?"
 
 BIN="$TMP/redstonecipher-server"
@@ -77,7 +77,7 @@ printf "    OK %s\n" "$ACTUAL"
 
 # ── 3. Verify build provenance (best-effort; warns if unavailable) ──────────────
 say "Verifying build provenance attestation..."
-gh attestation verify "$BIN" --repo ottendorfcipher/mc-manager-web \
+gh attestation verify "$BIN" --repo your-org/redstonecipher \
   && printf "    provenance OK\n" \
   || printf "\033[0;33m    ⚠ provenance not verified (continuing — checksum already verified)\033[0m\n"
 

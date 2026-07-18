@@ -3,9 +3,44 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
+use std::sync::OnceLock;
+
 use crate::error::{AppError, Result};
 
-pub const GLOBAL_ADMIN: &str = "admin@example.com";
+/// The protected `global_admin` email, seeded from `BOOTSTRAP_ADMIN_EMAIL` at
+/// startup. Empty when none is configured.
+static GLOBAL_ADMIN_EMAIL: OnceLock<String> = OnceLock::new();
+
+/// Records the protected global-admin email. Call once at startup. Later calls
+/// are ignored, which keeps tests running in a shared process stable.
+pub fn set_global_admin(email: Option<String>) {
+    let _ = GLOBAL_ADMIN_EMAIL.set(email.unwrap_or_default());
+}
+
+/// Returns the protected global-admin email, or `""` when none is configured.
+/// An empty value never matches a real email, so protections simply do not
+/// apply until an admin is set.
+pub fn global_admin() -> &'static str {
+    GLOBAL_ADMIN_EMAIL.get().map(String::as_str).unwrap_or("")
+}
+
+/// Seeds the configured bootstrap admin as `global_admin` if it is not already
+/// present. Idempotent and safe to call on every startup.
+pub async fn seed_bootstrap_admin(pool: &SqlitePool, email: &str) -> Result<()> {
+    if email.is_empty() {
+        return Ok(());
+    }
+    let display = email.split('@').next().unwrap_or("admin");
+    sqlx::query(
+        "INSERT OR IGNORE INTO users (email, role, display_name, added_by)
+         VALUES (?, 'global_admin', ?, 'system')",
+    )
+    .bind(email)
+    .bind(display)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
 #[ts(export)]
@@ -85,7 +120,7 @@ pub async fn create(pool: &SqlitePool, actor: &str, req: CreateUser) -> Result<U
 }
 
 pub async fn update_role(pool: &SqlitePool, email: &str, new_role: &str) -> Result<()> {
-    if email == GLOBAL_ADMIN {
+    if email == global_admin() {
         return Err(AppError::Forbidden("Global admin role is permanent".into()));
     }
     sqlx::query("UPDATE users SET role = ? WHERE email = ?")
@@ -144,7 +179,7 @@ pub async fn update_google_identity(
 }
 
 pub async fn remove(pool: &SqlitePool, email: &str) -> Result<()> {
-    if email == GLOBAL_ADMIN {
+    if email == global_admin() {
         return Err(AppError::Forbidden("Global admin cannot be removed".into()));
     }
     sqlx::query("DELETE FROM users WHERE email = ?")

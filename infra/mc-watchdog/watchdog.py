@@ -12,7 +12,7 @@ Decision → FIFO command:
   ban    → kick <ign> <rejection-message>
 
 Environment variables (all optional except WATCHDOG_TOKEN):
-  BACKEND_URL    https://example.com
+  BACKEND_URL    https://your-domain.com
   WATCHDOG_TOKEN shared secret matching WATCHDOG_TOKEN on the backend
   MC_LOG_PATH    /opt/minecraft/server/logs/latest.log
   MC_FIFO_PATH   /opt/minecraft/console.fifo
@@ -29,7 +29,7 @@ import urllib.request
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-BACKEND_URL = os.environ.get("BACKEND_URL", "https://example.com").rstrip("/")
+BACKEND_URL = os.environ.get("BACKEND_URL", "https://your-domain.com").rstrip("/")
 TOKEN       = os.environ.get("WATCHDOG_TOKEN", "")
 LOG_PATH    = os.environ.get("MC_LOG_PATH",  "/opt/minecraft/server/logs/latest.log")
 FIFO_PATH   = os.environ.get("MC_FIFO_PATH", "/opt/minecraft/console.fifo")
@@ -43,11 +43,11 @@ JOIN_RE = re.compile(r"^\[[\d:]+\] \[.*?INFO\]: (\w+) joined the game")
 # Kick messages
 MSG_PENDING = (
     "You are not yet approved to play here. "
-    "Ask a server admin to approve your account at example.com."
+    "Ask a server admin to approve your account at your-domain.com."
 )
 MSG_DENIED = (
     "Your access has been denied. "
-    "Contact a server admin at example.com if you think this is wrong."
+    "Contact a server admin at your-domain.com if you think this is wrong."
 )
 
 # ── Logging ────────────────────────────────────────────────────────────────────

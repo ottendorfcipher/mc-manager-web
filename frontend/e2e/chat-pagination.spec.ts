@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const ME = {
-  email: "admin@example.com",
+  email: "admin@example.test",
   role: "global_admin",
   display_name: "Nicholas",
   avatar_url: null,
@@ -25,7 +25,7 @@ function makeMsgs(count: number, maxId: number) {
     return {
       id,
       source:     "web",
-      author:     "admin@example.com",
+      author:     "admin@example.test",
       display_as: "Nicholas",
       content:    `Msg#${id}`,
       sent_at:    new Date(Date.UTC(2026, 3, 14, 12, 0, id)).toISOString(),

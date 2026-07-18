@@ -392,8 +392,7 @@ async fn send_invite_email(
     };
 
     let payload = json!({
-        "from":     "redstoneCipher <onboarding@example.com>",
-        "reply_to": ["onboarding@example.com"],
+        "from":     cfg.email_from.as_str(),
         "to":       [to_email],
         "subject":  subject,
         "html":     html,
@@ -673,8 +672,7 @@ async fn send_tailscale_email(
     );
 
     let payload = json!({
-        "from":     "redstoneCipher <onboarding@example.com>",
-        "reply_to": ["onboarding@example.com"],
+        "from":     cfg.email_from.as_str(),
         "to":       [to_email],
         "subject":  subject,
         "html":     html,

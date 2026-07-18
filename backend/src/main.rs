@@ -222,6 +222,15 @@ async fn main() -> anyhow::Result<()> {
     // Spawn the plugin update checker (every 6 hours).
     lib::minecraft::plugin_updater::spawn_plugin_updater(state.pool.clone(), cfg.clone());
 
+    // Record and seed the bootstrap admin (BOOTSTRAP_ADMIN_EMAIL) so the first
+    // deploy belongs to whoever configured it.
+    lib::db::users::set_global_admin(cfg.bootstrap_admin_email.clone());
+    if let Some(email) = cfg.bootstrap_admin_email.as_deref() {
+        if let Err(e) = lib::db::users::seed_bootstrap_admin(&state.pool, email).await {
+            tracing::warn!("bootstrap admin seed failed: {e}");
+        }
+    }
+
     // Seed the default plugin goals if the table is empty.
     if let Err(e) = lib::db::plugin_goals::seed_goals_if_empty(&state.pool).await {
         tracing::warn!("plugin_goals seed failed: {e}");

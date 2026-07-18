@@ -20,7 +20,7 @@
 #   RETENTION_DAYS    14
 #   SSH_KEY           /opt/redstonecipher/mc_ssh_key
 #   KNOWN_HOSTS       /opt/redstonecipher/mc_known_hosts
-#   MC_HOST           root@100.64.0.2   (mc-server-1 Tailscale IP)
+#   MC_HOST           root@your-mc-server   (mc-server-1 Tailscale IP)
 #   MC_BACKUP_DIR     /opt/minecraft/backups/db-snapshots
 
 set -euo pipefail
@@ -32,7 +32,7 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/redstonecipher/data/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 SSH_KEY="${SSH_KEY:-/opt/redstonecipher/mc_ssh_key}"
 KNOWN_HOSTS="${KNOWN_HOSTS:-/opt/redstonecipher/mc_known_hosts}"
-MC_HOST="${MC_HOST:-root@100.64.0.2}"
+MC_HOST="${MC_HOST:-root@your-mc-server}"
 MC_BACKUP_DIR="${MC_BACKUP_DIR:-/opt/minecraft/backups/db-snapshots}"
 LOCK_FILE="/tmp/redstonecipher-backup-db.lock"
 

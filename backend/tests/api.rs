@@ -23,7 +23,7 @@ use std::path::PathBuf;
 // ── Test fixture ─────────────────────────────────────────────────────────────
 
 const TEST_JWT_SECRET: &str = "test_secret_for_integration_tests_only_64chars_00000000000000000";
-const ADMIN_EMAIL: &str = "admin@example.com"; // seeded global_admin
+const ADMIN_EMAIL: &str = "admin@example.test"; // seeded global_admin (BOOTSTRAP_ADMIN_EMAIL)
 
 /// Returns a fully-populated `Config` suitable for integration tests.
 /// All optional credentials are `None`; the test can override specific fields
@@ -36,7 +36,9 @@ fn test_cfg() -> Config {
         jwt_secret: TEST_JWT_SECRET.into(),
         google_client_id: "test".into(),
         google_client_secret: "test".into(),
-        redirect_uri: "https://example.com/auth/callback".into(),
+        redirect_uri: "http://localhost:8787/auth/callback".into(),
+        bootstrap_admin_email: Some(ADMIN_EMAIL.into()),
+        cors_origins: vec!["http://localhost:8787".into()],
         budget_webhook_token: Some("test_budget_token".into()),
         gcloud_bin: PathBuf::from("/usr/bin/false"),
         gcp_project: "test-project".into(),
@@ -53,7 +55,8 @@ fn test_cfg() -> Config {
         resend_api_key: None,
         tailscale_api_key: None,
         tailscale_tailnet: "test-tailnet".into(),
-        site_url: "https://example.com".into(),
+        site_url: "http://localhost:8787".into(),
+        email_from: "redstoneCipher <onboarding@example.com>".into(),
         discord_bot_token: None,
         discord_webhook_url: None,
         discord_channel_id: None,
@@ -75,6 +78,8 @@ async fn test_state() -> AppState {
         .await
         .expect("migrations failed");
 
+    seed_test_admin(&pool).await;
+
     // No Discord configured in tests.
     AppState::new(pool, test_cfg(), None)
 }
@@ -88,7 +93,17 @@ async fn test_state_with_cfg(cfg: Config) -> AppState {
         .await
         .expect("in-memory SQLite failed");
     sqlx::migrate!("./migrations").run(&pool).await.expect("migrations failed");
+    seed_test_admin(&pool).await;
     AppState::new(pool, cfg, None)
+}
+
+/// Seed the protected global admin used by the test suite (the migration no
+/// longer hardcodes one; production seeds from BOOTSTRAP_ADMIN_EMAIL).
+async fn seed_test_admin(pool: &sqlx::SqlitePool) {
+    redstonecipher_server::db::users::set_global_admin(Some(ADMIN_EMAIL.into()));
+    redstonecipher_server::db::users::seed_bootstrap_admin(pool, ADMIN_EMAIL)
+        .await
+        .expect("seed bootstrap admin");
 }
 
 /// Inject a stub peer address so the rate-limiter (`GovernorLayer`) can extract
@@ -1200,7 +1215,7 @@ async fn override_invalid_key_rejected() {
     let (srv, _) = server().await;
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
     let res = srv
-        .post("/api/users/admin@example.com/permission-overrides")
+        .post(&format!("/api/users/{ADMIN_EMAIL}/permission-overrides"))
         .add_header(header::COOKIE, cookie)
         .json(&serde_json::json!({ "permission_key": "nonexistent.key.xyz" }))
         .await;

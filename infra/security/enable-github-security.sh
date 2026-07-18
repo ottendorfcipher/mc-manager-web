@@ -11,7 +11,7 @@
 #
 # Requires: gh CLI authenticated with admin on the repo.
 set -euo pipefail
-REPO="${1:-ottendorfcipher/mc-manager-web}"
+REPO="${1:-your-org/redstonecipher}"
 
 echo "==> Enabling secret scanning + push protection on ${REPO}..."
 gh api -X PATCH "repos/${REPO}" \

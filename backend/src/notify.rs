@@ -8,8 +8,6 @@ use serde_json::json;
 
 use crate::{config::Config, db::users, state::AppState};
 
-const FROM: &str = "redstoneCipher <onboarding@example.com>";
-
 /// Send one email to a set of recipients via Resend. Returns `Err` with a
 /// human-readable message on failure; callers log it rather than propagate.
 pub async fn send_email(
@@ -26,8 +24,7 @@ pub async fn send_email(
         .ok_or("RESEND_API_KEY is not configured")?;
 
     let payload = json!({
-        "from":     FROM,
-        "reply_to": ["onboarding@example.com"],
+        "from":     cfg.email_from.as_str(),
         "to":       to,
         "subject":  subject,
         "html":     html,

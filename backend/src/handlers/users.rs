@@ -42,7 +42,7 @@ pub async fn invite(
         .ok_or_else(|| AppError::BadRequest(format!("Role '{}' does not exist", body.role)))?;
 
     // Level gate: cannot invite to a role equal to or above your own.
-    if target_role.level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
+    if target_role.level >= actor.level() as i64 && actor.email != users::global_admin() {
         return Err(AppError::Forbidden(format!(
             "Cannot assign role '{}' (level {}) — your level is {}. \
              You can only invite users to roles strictly below your own.",
@@ -85,7 +85,7 @@ pub async fn update(
 
     // DB-backed level check: works for both system and custom roles.
     let target_level = roles::level_for(&state.pool, &target.role).await;
-    if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
+    if target_level >= actor.level() as i64 && actor.email != users::global_admin() {
         return Err(AppError::Forbidden(
             "Cannot modify a user with equal or higher role".into(),
         ));
@@ -95,7 +95,7 @@ pub async fn update(
         let new_role_data = roles::get(&state.pool, new_role)
             .await?
             .ok_or_else(|| AppError::BadRequest(format!("Role '{new_role}' does not exist")))?;
-        if new_role_data.level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
+        if new_role_data.level >= actor.level() as i64 && actor.email != users::global_admin() {
             return Err(AppError::Forbidden(
                 "Cannot assign role equal to or above your own".into(),
             ));
@@ -122,7 +122,7 @@ pub async fn remove(
         .ok_or_else(|| AppError::NotFound(format!("{email} not found")))?;
 
     let target_level = roles::level_for(&state.pool, &target.role).await;
-    if target_level >= actor.level() as i64 && actor.email != users::GLOBAL_ADMIN {
+    if target_level >= actor.level() as i64 && actor.email != users::global_admin() {
         return Err(AppError::Forbidden(
             "Cannot remove a user with equal or higher role".into(),
         ));

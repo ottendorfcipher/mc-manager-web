@@ -1,11 +1,11 @@
 #!/bin/bash
 # mc-player-watchdog — enforces the Tailscale admission queue.
-# Tails latest.log, calls example.com on every join, kicks unapproved players.
+# Tails latest.log, calls your-domain.com on every join, kicks unapproved players.
 # On allowed joins, applies the stored per-player gamemode via RCON.
 
 # Config comes from the environment (systemd EnvironmentFile=/etc/mc-watchdog.env).
 # NEVER hardcode the token in source — see infra/mc-watchdog/watchdog.env.example.
-BACKEND="${BACKEND_URL:-https://example.com}"
+BACKEND="${BACKEND_URL:-https://your-domain.com}"
 TOKEN="${WATCHDOG_TOKEN:?WATCHDOG_TOKEN must be set in /etc/mc-watchdog.env (openssl rand -hex 32, must match backend)}"
 LOG="${MC_LOG_PATH:-/opt/minecraft/server/logs/latest.log}"
 
@@ -63,7 +63,7 @@ tail -F "$LOG" 2>/dev/null | while IFS= read -r line; do
                 ;;
             kick)
                 sleep 1
-                kick_player "$IGN" "Your first visit has been logged. Ask a team member to approve you at example.com"
+                kick_player "$IGN" "Your first visit has been logged. Ask a team member to approve you at your-domain.com"
                 logger -t mc-watchdog "KICK (pending): $IGN"
                 ;;
             ban)

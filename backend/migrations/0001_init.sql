@@ -13,9 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
     last_login   TEXT
 );
 
--- The permanent global admin is seeded here so it survives a fresh DB
-INSERT OR IGNORE INTO users (email, role, display_name, added_by)
-VALUES ('admin@example.com', 'global_admin', 'Nicholas', 'system');
+-- The first global_admin is seeded at startup from BOOTSTRAP_ADMIN_EMAIL
+-- (see backend/src/db/users.rs::seed_bootstrap_admin), not hardcoded here, so a
+-- fresh install belongs to whoever deploys it.
 
 CREATE TABLE IF NOT EXISTS player_links (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -17,7 +17,7 @@ use crate::{
         },
         middleware::{issue_jwt, AuthUser, JWT_COOKIE},
     },
-    db::{users, users::GLOBAL_ADMIN},
+    db::users,
     error::{AppError, Result},
     state::AppState,
 };
@@ -116,7 +116,9 @@ pub async fn callback(
     };
     let role = match user {
         Some(ref u) => u.role.clone(),
-        None if guser.email == GLOBAL_ADMIN => "global_admin".to_string(),
+        None if !users::global_admin().is_empty() && guser.email == users::global_admin() => {
+            "global_admin".to_string()
+        }
         None => return login_error(err_code::NOT_INVITED),
     };
 

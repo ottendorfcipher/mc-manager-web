@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AppError, Result};
 
 const BASE_URL: &str = "https://api.modrinth.com/v2";
-const USER_AGENT: &str = "redstoneCipher/1.0 (admin@example.com)";
+const USER_AGENT: &str = "redstoneCipher/1.0 (self-hosted Minecraft manager)";
 // Broad MC version for search facets — includes recent 1.21 variants.
 const _MC_VERSION: &str = "1.21.4";
 

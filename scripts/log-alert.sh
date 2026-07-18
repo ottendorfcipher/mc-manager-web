@@ -16,14 +16,14 @@
 #   THRESHOLD        5               (errors in WINDOW before alerting)
 #   RESEND_API_KEY   (unset → no email, just logs + exit code)
 #   ALERT_EMAIL      (recipient; required for email)
-#   ALERT_FROM       redstoneCipher <onboarding@example.com>
+#   ALERT_FROM       redstoneCipher <onboarding@your-domain.com>
 
 set -euo pipefail
 
 UNIT="${UNIT:-redstonecipher.service}"
 WINDOW="${WINDOW:-5min}"
 THRESHOLD="${THRESHOLD:-5}"
-ALERT_FROM="${ALERT_FROM:-redstoneCipher <onboarding@example.com>}"
+ALERT_FROM="${ALERT_FROM:-redstoneCipher <onboarding@your-domain.com>}"
 
 log() { echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [log-alert] $*"; }
 

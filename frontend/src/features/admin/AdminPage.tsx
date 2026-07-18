@@ -638,7 +638,7 @@ function UsersTab() {
   const canEdit = (u: User) =>
     u.email !== me?.email &&
     (ROLE_LEVELS[u.role] ?? 0) < myLevel &&
-    u.email !== "admin@example.com";
+    u.role !== "global_admin";
 
   const roleMap = new Map(apiRoles.map((r) => [r.name, r]));
 

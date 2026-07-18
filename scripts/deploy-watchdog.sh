@@ -13,15 +13,15 @@
 #
 # Required env vars:
 #   MC_SERVER_HOST   SSH destination for mc-server-1
-#                    (e.g. root@100.64.0.3 or root@<gcp-external-ip>)
+#                    (e.g. root@your-mc-server or root@<gcp-external-ip>)
 #
 # Optional env vars:
 #   WATCHDOG_TOKEN   pre-set token (will be prompted for if not provided)
 #   SSH_KEY          path to SSH private key (default: ~/.ssh/id_rsa)
-#   BACKEND_URL      backend base URL (default: https://example.com)
+#   BACKEND_URL      backend base URL (default: https://your-domain.com)
 #
 # Example:
-#   MC_SERVER_HOST=root@100.64.0.3 bash scripts/deploy-watchdog.sh
+#   MC_SERVER_HOST=root@your-mc-server bash scripts/deploy-watchdog.sh
 
 set -euo pipefail
 
@@ -37,11 +37,11 @@ die()  { printf "\n\033[0;31mERROR: %s\033[0m\n" "$*" >&2; exit 1; }
 
 MC_SERVER_HOST="${MC_SERVER_HOST:-}"
 if [[ -z "${MC_SERVER_HOST}" ]]; then
-    die "MC_SERVER_HOST is required. Example: MC_SERVER_HOST=root@100.64.0.3 $0"
+    die "MC_SERVER_HOST is required. Example: MC_SERVER_HOST=root@your-mc-server $0"
 fi
 
 SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_rsa}"
-BACKEND_URL="${BACKEND_URL:-https://example.com}"
+BACKEND_URL="${BACKEND_URL:-https://your-domain.com}"
 
 if [[ -z "${WATCHDOG_TOKEN:-}" ]]; then
     read -rsp "  Enter WATCHDOG_TOKEN (must match the backend secret): " WATCHDOG_TOKEN
@@ -191,7 +191,7 @@ cat <<EOF
   Environment:      /etc/mc-watchdog.env  (mode 600)
 
   Monitor logs:     ssh ${MC_SERVER_HOST} journalctl -u mc-watchdog -f
-  Pending queue:    https://example.com  → Admin → Pending Players
+  Pending queue:    https://your-domain.com  → Admin → Pending Players
 
   Next steps:
     1. Add WATCHDOG_TOKEN to the backend .env / Cloud Run secret:

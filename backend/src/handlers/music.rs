@@ -729,7 +729,12 @@ pub async fn delete_track_image(
 // `PACK_URL_HOST` is built into the URLs we write to server.properties.
 
 const PACK_BASE_DIR:      &str  = "/opt/redstonecipher/www/packs";
-const PACK_URL_HOST:      &str  = "https://example.com";
+/// Public host used in resource-pack URLs written to server.properties.
+/// Reads `SITE_URL` so a self-hosted install serves packs from its own domain.
+fn pack_url_host() -> &'static str {
+    static HOST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HOST.get_or_init(|| std::env::var("SITE_URL").unwrap_or_else(|_| "http://localhost:8787".into()))
+}
 const PACK_FILENAME:      &str  = "resource-pack.zip";
 const PACK_SESSIONS_KEEP: usize = 3;
 
@@ -757,7 +762,7 @@ impl PackSession {
     fn dir(&self)  -> String { format!("{PACK_BASE_DIR}/{}", self.uuid) }
     /// Absolute path of the pack zip on the web server's filesystem.
     pub fn path(&self) -> String { format!("{}/{PACK_FILENAME}", self.dir()) }
-    fn url(&self)  -> String { format!("{PACK_URL_HOST}/packs/{}/{PACK_FILENAME}", self.uuid) }
+    fn url(&self)  -> String { format!("{}/packs/{}/{PACK_FILENAME}", pack_url_host(), self.uuid) }
 }
 
 /// Resolve the currently-active session by reading the `resource-pack`
@@ -773,7 +778,7 @@ pub async fn current_pack_session(
     if raw.trim().is_empty() { return None; }
     // server.properties stores `\:` as the escape — Properties format.
     let clean  = raw.replace("\\:", ":");
-    let prefix = format!("{PACK_URL_HOST}/packs/");
+    let prefix = format!("{}/packs/", pack_url_host());
     let suffix = format!("/{PACK_FILENAME}");
     let uuid   = clean.strip_prefix(&prefix)?.strip_suffix(&suffix)?.to_string();
     Some(PackSession { uuid })

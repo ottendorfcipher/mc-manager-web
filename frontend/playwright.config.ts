@@ -8,7 +8,7 @@ import path from "path";
 // causing __dirname to point to the wrong location.
 // path.resolve() uses the Node.js process cwd, which Playwright sets to the
 // directory containing playwright.config.ts when discovered automatically.
-const certPath = path.resolve("certs/example.com.pem");
+const certPath = path.resolve("certs/localhost.pem");
 const BASE_URL = fs.existsSync(certPath) ? "https://localhost:5173" : "http://localhost:5173";
 
 export default defineConfig({

@@ -19,7 +19,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WEB_SERVER="root@203.0.113.10"
+WEB_SERVER="root@your-web-server"
 REMOTE_DIR="/opt/redstonecipher/www"
 SSH_OPTS=(-o ServerAliveInterval=30 -o ServerAliveCountMax=5)
 
@@ -35,11 +35,11 @@ if [[ "${1:-}" == "--from-ci" ]]; then
   SHA="${2:-$(git -C "$REPO_ROOT" rev-parse HEAD)}"
   TMP="$(mktemp -d)"; CLEANUP="$TMP"
   say "Downloading frontend artifact for commit ${SHA:0:12}..."
-  gh run download --repo ottendorfcipher/mc-manager-web --name "frontend-${SHA}" --dir "$TMP" \
+  gh run download --repo your-org/redstonecipher --name "frontend-${SHA}" --dir "$TMP" \
     || die "No artifact 'frontend-${SHA}'. Has the Release Build workflow finished?"
 
   say "Verifying provenance attestation..."
-  gh attestation verify "$TMP/dist.sha256" --repo ottendorfcipher/mc-manager-web \
+  gh attestation verify "$TMP/dist.sha256" --repo your-org/redstonecipher \
     && printf "    provenance OK\n" \
     || printf "\033[0;33m    ⚠ provenance not verified (continuing — file checksums verified next)\033[0m\n"
 

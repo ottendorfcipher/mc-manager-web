@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/test-live-endpoints.sh
 #
-# Comprehensive live endpoint tests for example.com.
+# Comprehensive live endpoint tests for your-domain.com.
 # Runs without an authenticated session, validating:
 #   - Security headers
 #   - Auth flow error handling
@@ -13,7 +13,7 @@
 
 set -uo pipefail
 
-FIREBASE="${1:-https://example.com}"
+FIREBASE="${1:-https://your-domain.com}"
 
 PASS=0
 FAIL=0
@@ -128,9 +128,9 @@ else
   fail "GET /auth/login → expected 303 to accounts.google.com, got HTTP $STATUS_LOGIN loc=$GOOGLE_LOC"
 fi
 
-# /auth/login redirect_uri must point to example.com
-if echo "$GOOGLE_LOC" | grep -q "redirect_uri=https%3A%2F%2Fexample.com%2Fauth%2Fcallback"; then
-  ok "redirect_uri = https://example.com/auth/callback ✓"
+# /auth/login redirect_uri must point to your-domain.com
+if echo "$GOOGLE_LOC" | grep -q "redirect_uri=https%3A%2F%2Fyour-domain.com%2Fauth%2Fcallback"; then
+  ok "redirect_uri = https://your-domain.com/auth/callback ✓"
 else
   fail "redirect_uri missing or wrong: $GOOGLE_LOC"
 fi

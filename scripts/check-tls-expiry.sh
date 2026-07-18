@@ -11,14 +11,14 @@
 #                >> /var/log/redstonecipher-tls.log 2>&1
 #
 # Environment overrides (safe defaults):
-#   DOMAIN           example.com
+#   DOMAIN           your-domain.com
 #   CERT_PATH        /etc/letsencrypt/live/$DOMAIN/cert.pem
 #   THRESHOLD_DAYS   21
 #   ALERT_CMD        (optional) shell command run with the message on its $1
 
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-example.com}"
+DOMAIN="${DOMAIN:-your-domain.com}"
 CERT_PATH="${CERT_PATH:-/etc/letsencrypt/live/${DOMAIN}/cert.pem}"
 THRESHOLD_DAYS="${THRESHOLD_DAYS:-21}"
 

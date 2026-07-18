@@ -3,7 +3,7 @@
 # Values are passed via stdin to avoid shell escaping issues with special characters.
 set -euo pipefail
 
-SERVER="root@203.0.113.10"
+SERVER="root@your-web-server"
 ENV_FILE="/opt/redstonecipher/.env"
 
 echo ""
@@ -51,4 +51,4 @@ EOF
 
 echo "Restarting service..."
 ssh "$SERVER" "systemctl restart redstonecipher && sleep 2 && systemctl is-active redstonecipher"
-echo "Done. Try logging in at https://example.com"
+echo "Done. Try logging in at https://your-domain.com"
