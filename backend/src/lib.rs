@@ -459,8 +459,11 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/auth/login", get(handlers::auth::login))
+        .route("/auth/login/cloudflare", get(handlers::auth::login_cloudflare))
         .route("/auth/callback", get(handlers::auth::callback))
+        .route("/auth/callback/cloudflare", get(handlers::auth::callback_cloudflare))
         .route("/auth/logout", get(handlers::auth::logout))
+        .route("/auth/providers", get(handlers::auth::providers))
         .route("/internal/budget-alert", post(handlers::budget::webhook))
         .route(
             "/internal/player-joined",

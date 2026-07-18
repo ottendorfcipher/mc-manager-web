@@ -19,6 +19,16 @@ pub struct Config {
     /// Browser origins allowed to call the API with credentials. Set via
     /// `CORS_ORIGINS` (comma separated). Defaults to `SITE_URL`.
     pub cors_origins: Vec<String>,
+    // ── Cloudflare Access (Zero Trust) OIDC login ──────────────────────────────
+    /// Cloudflare team name, either short ("myteam") or full
+    /// ("myteam.cloudflareaccess.com"). All three cloudflare_* values must be
+    /// set to enable the "Sign in with Cloudflare" button.
+    pub cloudflare_team_domain: Option<String>,
+    pub cloudflare_client_id: Option<String>,
+    pub cloudflare_client_secret: Option<String>,
+    /// Override for the Cloudflare OIDC callback URL. Defaults to
+    /// `{site_url}/auth/callback/cloudflare`.
+    pub cloudflare_redirect_uri: Option<String>,
     /// Shared secret for the Pub/Sub budget webhook. When `None` the webhook
     /// endpoint returns 404, keeping the surface area small in dev.
     pub budget_webhook_token: Option<String>,
@@ -87,6 +97,10 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             cors_origins: parse_cors_origins(),
+            cloudflare_team_domain: opt_env("CLOUDFLARE_TEAM_DOMAIN"),
+            cloudflare_client_id: opt_env("CLOUDFLARE_CLIENT_ID"),
+            cloudflare_client_secret: opt_env("CLOUDFLARE_CLIENT_SECRET"),
+            cloudflare_redirect_uri: opt_env("CLOUDFLARE_REDIRECT_URI"),
             budget_webhook_token: std::env::var("BUDGET_WEBHOOK_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -135,8 +149,30 @@ impl Config {
     }
 }
 
+impl Config {
+    /// True when Cloudflare Access OIDC login is fully configured.
+    pub fn cloudflare_enabled(&self) -> bool {
+        self.cloudflare_team_domain.is_some()
+            && self.cloudflare_client_id.is_some()
+            && self.cloudflare_client_secret.is_some()
+    }
+
+    /// The Cloudflare OIDC callback URL. Uses `CLOUDFLARE_REDIRECT_URI` when set,
+    /// otherwise derives it from `SITE_URL`.
+    pub fn cloudflare_redirect_uri(&self) -> String {
+        self.cloudflare_redirect_uri.clone().unwrap_or_else(|| {
+            format!("{}/auth/callback/cloudflare", self.site_url.trim_end_matches('/'))
+        })
+    }
+}
+
 fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/root".to_string())
+}
+
+/// Read an optional env var, treating empty strings as unset.
+fn opt_env(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
 /// Parse `CORS_ORIGINS` (comma separated) into a list of allowed origins.

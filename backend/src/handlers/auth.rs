@@ -106,8 +106,29 @@ pub async fn callback(
         }
     };
 
-    // Authorise: must exist in DB (or be the permanent global admin)
-    let user = match users::get(&state.pool, &guser.email).await {
+    finish_login(
+        &state,
+        jar,
+        headers,
+        &guser.email,
+        Some(&guser.sub),
+        guser.picture.as_deref(),
+    )
+    .await
+}
+
+/// Shared tail of every login flow: authorize the email against the invite
+/// list, refresh the user's identity, issue the session cookie, and redirect.
+async fn finish_login(
+    state: &AppState,
+    jar: CookieJar,
+    headers: axum::http::HeaderMap,
+    email: &str,
+    sub: Option<&str>,
+    avatar: Option<&str>,
+) -> Response {
+    // Authorize: must exist in the DB, or be the configured global admin.
+    let user = match users::get(&state.pool, email).await {
         Ok(u) => u,
         Err(e) => {
             tracing::error!(error = %e, "DB lookup failed during callback");
@@ -116,26 +137,24 @@ pub async fn callback(
     };
     let role = match user {
         Some(ref u) => u.role.clone(),
-        None if !users::global_admin().is_empty() && guser.email == users::global_admin() => {
+        None if !users::global_admin().is_empty() && email == users::global_admin() => {
             "global_admin".to_string()
         }
         None => return login_error(err_code::NOT_INVITED),
     };
 
-    // Upsert Google identity (sub, avatar) and last_login
-    if let Err(e) = users::update_google_identity(
-        &state.pool,
-        &guser.email,
-        &guser.sub,
-        guser.picture.as_deref(),
-    )
-    .await
-    {
-        tracing::error!(error = %e, "Failed to update Google identity");
+    // Refresh identity. Google carries a subject id and avatar; other providers
+    // just touch last_login.
+    let identity = match sub {
+        Some(s) => users::update_google_identity(&state.pool, email, s, avatar).await,
+        None => users::update_last_login(&state.pool, email).await,
+    };
+    if let Err(e) = identity {
+        tracing::error!(error = %e, "Failed to update user identity");
         return AppError::from(e).into_response();
     }
 
-    let token = match issue_jwt(&guser.email, &role, &state.config.jwt_secret) {
+    let token = match issue_jwt(email, &role, &state.config.jwt_secret) {
         Ok(t) => t,
         Err(e) => {
             tracing::error!(error = %e, "Failed to issue JWT");
@@ -143,38 +162,110 @@ pub async fn callback(
         }
     };
 
-    // Record the sign-in for the "recent sign-ins" view (best-effort, off the
-    // hot path). IP comes from nginx's forwarding headers.
-    {
-        let ua = headers
-            .get(axum::http::header::USER_AGENT)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.chars().take(256).collect::<String>());
-        let ip = headers
-            .get("x-forwarded-for")
-            .or_else(|| headers.get("x-real-ip"))
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.split(',').next().unwrap_or("").trim().to_string());
-        let pool = state.pool.clone();
-        let email = guser.email.clone();
-        tokio::spawn(async move {
-            if let Err(e) = crate::db::login_events::record(&pool, &email, ip.as_deref(), ua.as_deref()).await {
-                tracing::warn!(error = %e, "failed to record login event");
-            }
-        });
-    }
+    record_login_event(state, headers, email);
 
-    // `__session` is the only cookie Firebase Hosting forwards through Cloud
-    // Run rewrites.  All other names are stripped on both requests and responses.
+    // `__session` is the only cookie some hosting layers forward through
+    // rewrites, so the session always uses that name.
     let session_cookie = Cookie::build((JWT_COOKIE, token))
         .http_only(true)
         .secure(true)
-        .same_site(SameSite::Lax) // Lax allows redirect after OAuth
+        .same_site(SameSite::Lax) // Lax allows the redirect after OAuth
         .path("/")
         .max_age(time::Duration::hours(8))
         .build();
 
     (jar.add(session_cookie), Redirect::to("/")).into_response()
+}
+
+/// Record a sign-in for the "recent sign-ins" view. Best-effort, off the hot
+/// path. The client IP comes from the reverse proxy's forwarding headers.
+fn record_login_event(state: &AppState, headers: axum::http::HeaderMap, email: &str) {
+    let ua = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.chars().take(256).collect::<String>());
+    let ip = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("").trim().to_string());
+    let pool = state.pool.clone();
+    let email = email.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = crate::db::login_events::record(&pool, &email, ip.as_deref(), ua.as_deref()).await {
+            tracing::warn!(error = %e, "failed to record login event");
+        }
+    });
+}
+
+// ── Cloudflare Access OIDC ───────────────────────────────────────────────────
+
+/// GET /auth/login/cloudflare — redirect the browser to Cloudflare Access.
+pub async fn login_cloudflare(State(state): State<AppState>) -> Response {
+    if !state.config.cloudflare_enabled() {
+        return login_error(err_code::OAUTH_DENIED);
+    }
+    // Reuse the signed-state machinery for CSRF. Cloudflare is a confidential
+    // client (no PKCE), so a random nonce fills the verifier slot.
+    let nonce = generate_pkce().state;
+    let state_jwt = match encode_oauth_state(&nonce, &state.config.jwt_secret) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to encode Cloudflare OAuth state");
+            return login_error(err_code::STATE_MISMATCH);
+        }
+    };
+    match crate::auth::cloudflare::authorization_url(&state.config, &state_jwt) {
+        Some(url) => Redirect::to(&url).into_response(),
+        None => login_error(err_code::OAUTH_DENIED),
+    }
+}
+
+/// GET /auth/callback/cloudflare — exchange the code, then finish the session.
+pub async fn callback_cloudflare(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<CallbackParams>,
+) -> Response {
+    if params.error.is_some() {
+        return login_error(err_code::OAUTH_DENIED);
+    }
+    let (code, state_jwt) = match (params.code, params.state) {
+        (Some(c), Some(s)) => (c, s),
+        _ => return login_error(err_code::STATE_MISMATCH),
+    };
+    // Verify the state signature for CSRF. The nonce value itself is unused.
+    if let Err(e) = decode_oauth_state(&state_jwt, &state.config.jwt_secret) {
+        tracing::warn!(error = %e, "Cloudflare OAuth state JWT invalid");
+        return login_error(err_code::STATE_MISMATCH);
+    }
+    let cfuser =
+        match crate::auth::cloudflare::exchange_code(&state.config, &code, &state.http).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(error = %e, "Cloudflare token exchange failed");
+                return login_error(err_code::TOKEN_EXCHANGE);
+            }
+        };
+    finish_login(&state, jar, headers, &cfuser.email, None, None).await
+}
+
+/// Which login providers are configured. Public, so the login page can decide
+/// which buttons to show.
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ProvidersResponse {
+    pub google: bool,
+    pub cloudflare: bool,
+}
+
+/// GET /auth/providers
+pub async fn providers(State(state): State<AppState>) -> Json<ProvidersResponse> {
+    Json(ProvidersResponse {
+        google: true,
+        cloudflare: state.config.cloudflare_enabled(),
+    })
 }
 
 /// GET /auth/logout — clears the session cookie and redirects to /login

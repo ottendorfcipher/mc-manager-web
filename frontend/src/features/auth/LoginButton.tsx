@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
 /**
  * Google sign-in CTA.
@@ -16,12 +16,26 @@ import { useRef, useState } from "react";
 export function LoginButton({
   soundOn,
   onBeforeNavigate,
+  href = "/auth/login",
+  label = "Continue with Google",
+  icon,
+  variant = "primary",
+  testId = "login-cta",
 }: {
   soundOn: boolean;
   onBeforeNavigate?: () => void;
+  href?: string;
+  label?: string;
+  icon?: ReactNode;
+  variant?: "primary" | "secondary";
+  testId?: string;
 }) {
   const [pending, setPending] = useState(false);
   const ref = useRef<HTMLAnchorElement | null>(null);
+  const buttonClass =
+    variant === "primary"
+      ? "btn-primary w-full flex items-center justify-center gap-2 mc-cta"
+      : "btn-secondary w-full flex items-center justify-center gap-2";
 
   // We deliberately DO NOT auto-focus the CTA — the skip-link must remain
   // the first tab stop for screen-reader users (NN/g accessibility heuristic).
@@ -45,24 +59,24 @@ export function LoginButton({
   return (
     <a
       ref={ref}
-      href="/auth/login"
+      href={href}
       onClick={handleClick}
-      className="btn-primary w-full flex items-center justify-center gap-2 mc-cta"
+      className={buttonClass}
       aria-busy={pending}
-      data-testid="login-cta"
+      data-testid={testId}
     >
       {pending ? (
         <>
           <span
-            className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+            className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
             aria-hidden
           />
           <span>Signing you in…</span>
         </>
       ) : (
         <>
-          <GoogleGlyph />
-          <span>Continue with Google</span>
+          {icon ?? <GoogleGlyph />}
+          <span>{label}</span>
         </>
       )}
     </a>
@@ -76,6 +90,17 @@ function GoogleGlyph() {
       <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
       <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
       <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+    </svg>
+  );
+}
+
+export function CloudflareGlyph() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M16.7 16.5H6.9a3.4 3.4 0 0 1-.5-6.72 4.7 4.7 0 0 1 8.86-1.4 3.15 3.15 0 0 1 4.34 2.98 3.35 3.35 0 0 1-2.9 5.14z"
+        fill="#F38020"
+      />
     </svg>
   );
 }

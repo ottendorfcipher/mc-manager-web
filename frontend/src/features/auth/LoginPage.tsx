@@ -4,10 +4,42 @@ import {
   Server, Map as MapIcon, Music2, Puzzle, Users, MessageSquare,
 } from "lucide-react";
 import { MinecraftBackdrop } from "./MinecraftBackdrop";
-import { LoginButton } from "./LoginButton";
+import { LoginButton, CloudflareGlyph } from "./LoginButton";
 import { useLoginError } from "./useLoginError";
 
 const SOUND_KEY = "mc_login_sound";
+
+/**
+ * Sign-in buttons. Google is always the primary action; Cloudflare appears as a
+ * secondary option only when the server has it configured, keeping one clear
+ * primary path (Hick's law) while still offering a second provider.
+ */
+function ProviderCtas({
+  soundOn,
+  cloudflareEnabled,
+}: {
+  soundOn: boolean;
+  cloudflareEnabled: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <span className="mc-cta-glow" aria-hidden />
+        <LoginButton soundOn={soundOn} />
+      </div>
+      {cloudflareEnabled && (
+        <LoginButton
+          soundOn={soundOn}
+          href="/auth/login/cloudflare"
+          label="Continue with Cloudflare"
+          icon={<CloudflareGlyph />}
+          variant="secondary"
+          testId="login-cta-cloudflare"
+        />
+      )}
+    </div>
+  );
+}
 
 /**
  * Login splash page — a visual, marketing-style landing with a single, highly
@@ -62,6 +94,22 @@ export function LoginPage() {
   useEffect(() => {
     try { localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off"); } catch { /* ignore */ }
   }, [soundOn]);
+
+  // Ask the server which login providers are configured so we only show the
+  // Cloudflare button when it will actually work.
+  const [cloudflareEnabled, setCloudflareEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/auth/providers", { credentials: "omit" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.cloudflare === "boolean") {
+          setCloudflareEnabled(data.cloudflare);
+        }
+      })
+      .catch(() => { /* leave the Cloudflare button hidden */ });
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <>
@@ -121,9 +169,8 @@ export function LoginPage() {
           </p>
 
           {/* Primary CTA — the focal point (glow + generous whitespace). */}
-          <div className="relative mt-9 w-full max-w-xs">
-            <span className="mc-cta-glow" aria-hidden />
-            <LoginButton soundOn={soundOn} />
+          <div className="mt-9 w-full max-w-xs">
+            <ProviderCtas soundOn={soundOn} cloudflareEnabled={cloudflareEnabled} />
           </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-meta">
@@ -194,9 +241,8 @@ export function LoginPage() {
                 Sign in with the Google account your admin invited.
               </p>
             </div>
-            <div className="relative w-full max-w-xs mx-auto">
-              <span className="mc-cta-glow" aria-hidden />
-              <LoginButton soundOn={soundOn} />
+            <div className="w-full max-w-xs mx-auto">
+              <ProviderCtas soundOn={soundOn} cloudflareEnabled={cloudflareEnabled} />
             </div>
             <p className="text-xs text-meta">
               By signing in you agree to our{" "}
