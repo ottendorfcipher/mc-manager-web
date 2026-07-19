@@ -69,6 +69,10 @@ pub struct Config {
     /// `COOKIE_SECURE`. Keep `true` in production; set `false` only for a local
     /// plain-HTTP run, where browsers would otherwise drop a Secure cookie.
     pub cookie_secure: bool,
+    /// Enables a temporary read-only "Continue as guest" login for bootstrapping
+    /// before OAuth is set up. Set via `GUEST_LOGIN`. Off by default, and also
+    /// auto-disables the first time a real OAuth user signs in.
+    pub guest_login: bool,
     // ── Discord bridge ─────────────────────────────────────────────────────────
     /// Discord bot token, webhook URL, and channel ID from env vars.
     /// These override any values stored in the database (useful for
@@ -135,6 +139,7 @@ impl Config {
             site_url: env_or("SITE_URL", "http://localhost:8787"),
             email_from: env_or("EMAIL_FROM", "redstoneCipher <onboarding@example.com>"),
             cookie_secure: env_parse("COOKIE_SECURE", true),
+            guest_login: env_parse("GUEST_LOGIN", false),
             discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),

@@ -42,6 +42,24 @@ pub async fn seed_bootstrap_admin(pool: &SqlitePool, email: &str) -> Result<()> 
     Ok(())
 }
 
+/// The synthetic account used by the temporary guest login. Always read-only.
+pub const GUEST_EMAIL: &str = "guest@guest.local";
+
+/// Ensures the read-only guest account exists at the `user` (read-only) role.
+/// Forces the role back to `user` on every call so a guest can never be silently
+/// elevated to something more powerful.
+pub async fn upsert_guest(pool: &SqlitePool) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO users (email, role, display_name, added_by)
+         VALUES (?, 'user', 'Guest', 'system')
+         ON CONFLICT(email) DO UPDATE SET role = 'user'",
+    )
+    .bind(GUEST_EMAIL)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, sqlx::FromRow)]
 #[ts(export)]
 pub struct User {

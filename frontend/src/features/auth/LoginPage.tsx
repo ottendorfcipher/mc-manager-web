@@ -14,9 +14,11 @@ const SOUND_KEY = "mc_login_sound";
 function ProviderCtas({
   soundOn,
   cloudflareEnabled,
+  guestEnabled,
 }: {
   soundOn: boolean;
   cloudflareEnabled: boolean;
+  guestEnabled: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -33,6 +35,15 @@ function ProviderCtas({
           variant="secondary"
           testId="login-cta-cloudflare"
         />
+      )}
+      {guestEnabled && (
+        <a
+          href="/auth/login/guest"
+          data-testid="login-cta-guest"
+          className="block text-xs text-meta underline hover:text-[#5B9BF0] transition-colors"
+        >
+          Continue as guest (read-only)
+        </a>
       )}
     </div>
   );
@@ -71,16 +82,17 @@ export function LoginPage() {
   // Ask the server which login providers are configured so we only show the
   // Cloudflare button when it will actually work.
   const [cloudflareEnabled, setCloudflareEnabled] = useState(false);
+  const [guestEnabled, setGuestEnabled] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/auth/providers", { credentials: "omit" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled && data && typeof data.cloudflare === "boolean") {
-          setCloudflareEnabled(data.cloudflare);
-        }
+        if (cancelled || !data) return;
+        if (typeof data.cloudflare === "boolean") setCloudflareEnabled(data.cloudflare);
+        if (typeof data.guest === "boolean") setGuestEnabled(data.guest);
       })
-      .catch(() => { /* leave the Cloudflare button hidden */ });
+      .catch(() => { /* leave the optional buttons hidden */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -145,7 +157,7 @@ export function LoginPage() {
 
         {/* Primary CTA, the focal point. */}
         <div className="mt-9 w-full max-w-xs">
-          <ProviderCtas soundOn={soundOn} cloudflareEnabled={cloudflareEnabled} />
+          <ProviderCtas soundOn={soundOn} cloudflareEnabled={cloudflareEnabled} guestEnabled={guestEnabled} />
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-meta">
