@@ -4,6 +4,22 @@ This guide takes you from nothing to a running server. The fastest path is Docke
 Compose, which runs the whole stack (web frontend, Rust backend, and a PaperMC
 server) in one command.
 
+## Fastest start
+
+Run the guided setup and follow the prompts:
+
+```bash
+./start-here.sh
+```
+
+It checks prerequisites, collects your settings (with an auto-generated session
+key), walks you through Google sign-in, writes `.env`, and brings the stack up
+with a live progress bar. Pick the console path to set everything in the
+terminal, or the web path to boot straight into a browser setup wizard. Re-run it
+any time to change values.
+
+The sections below do the same steps by hand.
+
 ## What you need
 
 Docker with the Compose plugin, and a Google account to create an OAuth client.
