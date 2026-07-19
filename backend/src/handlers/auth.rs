@@ -163,41 +163,7 @@ async fn finish_login(
     };
 
     record_login_event(state, headers, email);
-    // A successful real OAuth login means OAuth is established, which also
-    // disables the temporary guest login.
-    mark_oauth_established(state).await;
     issue_session(jar, token, state.config.cookie_secure)
-}
-
-/// DB settings key recording that a real OAuth login has succeeded at least once.
-const OAUTH_ESTABLISHED_KEY: &str = "oauth_established";
-
-/// True once any real OAuth (Google or Cloudflare) user has signed in.
-async fn oauth_established(state: &AppState) -> bool {
-    crate::db::settings::get(&state.pool, &state.config.settings_enc_key, OAUTH_ESTABLISHED_KEY)
-        .await
-        .ok()
-        .flatten()
-        .as_deref()
-        == Some("true")
-}
-
-/// Records that real OAuth works. This also disables the guest login.
-async fn mark_oauth_established(state: &AppState) {
-    let _ = crate::db::settings::set(
-        &state.pool,
-        &state.config.settings_enc_key,
-        OAUTH_ESTABLISHED_KEY,
-        "true",
-        "system",
-    )
-    .await;
-}
-
-/// The guest login is available only when explicitly enabled and no real OAuth
-/// login has happened yet.
-async fn guest_enabled(state: &AppState) -> bool {
-    state.config.guest_login && !oauth_established(state).await
 }
 
 /// Builds the `__session` cookie and redirects home. Shared by every login path.
@@ -288,35 +254,6 @@ pub async fn callback_cloudflare(
     finish_login(&state, jar, headers, &cfuser.email, None, None).await
 }
 
-// ── Guest login ──────────────────────────────────────────────────────────────
-
-/// GET /auth/login/guest — sign in as the read-only guest, when enabled.
-/// The guest is a temporary bootstrap account (role `user`, read-only). This is
-/// unavailable once a real OAuth login has succeeded.
-pub async fn login_guest(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    headers: axum::http::HeaderMap,
-) -> Response {
-    if !guest_enabled(&state).await {
-        return login_error(err_code::OAUTH_DENIED);
-    }
-    if let Err(e) = users::upsert_guest(&state.pool).await {
-        tracing::error!(error = %e, "failed to upsert guest user");
-        return AppError::from(e).into_response();
-    }
-    let token = match issue_jwt(users::GUEST_EMAIL, "user", &state.config.jwt_secret) {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to issue guest JWT");
-            return AppError::Internal(e).into_response();
-        }
-    };
-    record_login_event(&state, headers, users::GUEST_EMAIL);
-    // Note: the guest login deliberately does NOT mark OAuth as established.
-    issue_session(jar, token, state.config.cookie_secure)
-}
-
 /// Which login options are available. Public, so the login page can decide
 /// which buttons to show.
 #[derive(Debug, Serialize, TS)]
@@ -324,7 +261,6 @@ pub async fn login_guest(
 pub struct ProvidersResponse {
     pub google: bool,
     pub cloudflare: bool,
-    pub guest: bool,
 }
 
 /// GET /auth/providers
@@ -332,7 +268,6 @@ pub async fn providers(State(state): State<AppState>) -> Json<ProvidersResponse>
     Json(ProvidersResponse {
         google: true,
         cloudflare: state.config.cloudflare_enabled(),
-        guest: guest_enabled(&state).await,
     })
 }
 

@@ -4,4 +4,4 @@
  * Which login options are available. Public, so the login page can decide
  * which buttons to show.
  */
-export type ProvidersResponse = { google: boolean, cloudflare: boolean, guest: boolean, };
+export type ProvidersResponse = { google: boolean, cloudflare: boolean, };

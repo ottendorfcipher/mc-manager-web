@@ -43,7 +43,6 @@ fn test_cfg() -> Config {
         cloudflare_client_id: None,
         cloudflare_client_secret: None,
         cloudflare_redirect_uri: None,
-        guest_login: false,
         setup_token: None,
         budget_webhook_token: Some("test_budget_token".into()),
         gcloud_bin: PathBuf::from("/usr/bin/false"),
@@ -1697,50 +1696,3 @@ async fn users_list_allowed_for_member() {
     );
 }
 
-// ── Guest login gating ──────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn guest_login_off_by_default() {
-    let (srv, _) = server().await; // default cfg: guest_login = false
-    let body: serde_json::Value = srv.get("/auth/providers").await.json();
-    assert_eq!(body["guest"].as_bool(), Some(false), "guest must be off by default");
-    assert_eq!(body["google"].as_bool(), Some(true));
-    // The endpoint must not mint a session when disabled.
-    let res = srv.get("/auth/login/guest").await;
-    assert!(res.maybe_cookie(JWT_COOKIE).is_none(), "disabled guest login must not set a session");
-}
-
-#[tokio::test]
-async fn guest_login_on_when_enabled() {
-    let cfg = Config { guest_login: true, ..test_cfg() };
-    let srv = TestServer::new(test_router(test_state_with_cfg(cfg).await))
-        .expect("TestServer::new failed");
-    let body: serde_json::Value = srv.get("/auth/providers").await.json();
-    assert_eq!(body["guest"].as_bool(), Some(true), "guest must be on when GUEST_LOGIN=true");
-    // The endpoint mints a read-only session.
-    let res = srv.get("/auth/login/guest").await;
-    assert!(res.maybe_cookie(JWT_COOKIE).is_some(), "enabled guest login must set a session");
-}
-
-#[tokio::test]
-async fn guest_login_auto_disables_after_oauth() {
-    let cfg = Config { guest_login: true, ..test_cfg() };
-    let state = test_state_with_cfg(cfg).await;
-    // Simulate a real OAuth login having occurred.
-    redstonecipher_server::db::settings::set(
-        &state.pool,
-        &state.config.settings_enc_key,
-        "oauth_established",
-        "true",
-        "system",
-    )
-    .await
-    .expect("set oauth_established");
-    let srv = TestServer::new(test_router(state)).expect("TestServer::new failed");
-    let body: serde_json::Value = srv.get("/auth/providers").await.json();
-    assert_eq!(
-        body["guest"].as_bool(),
-        Some(false),
-        "guest must auto-disable after OAuth is established"
-    );
-}
