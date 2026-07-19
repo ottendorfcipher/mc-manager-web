@@ -130,14 +130,31 @@ pub async fn fifo_batch(cfg: &Config, commands: &[String]) -> Result<bool> {
 
 /// Fetch live metrics in a single SSH call (same script as Python app).
 pub async fn fetch_metrics(cfg: &Config) -> Result<MetricsSnapshot> {
-    let script = concat!(
-        "SVC=$(systemctl is-active minecraft 2>/dev/null || echo inactive); echo \"ACTIVE:$SVC\"; ",
-        "TS=$(systemctl show minecraft --property=ActiveEnterTimestamp 2>/dev/null | sed 's/ActiveEnterTimestamp=//'); echo \"UPTIME:$TS\"; ",
-        "P=$(ss -tn state established 2>/dev/null | grep -c ':25565 ' || echo 0); echo \"PLAYERS:$P\"; ",
-        "MEM=$(ps aux 2>/dev/null | grep '[s]erver.jar' | awk '{print $4}' | head -1); echo \"JAVAMEM:$MEM\"; ",
-        "IDLE=$(vmstat 1 2 2>/dev/null | tail -1 | awk '{print $15}'); ",
-        "if [ -n \"$IDLE\" ]; then CPU=$((100 - IDLE)); echo \"VMCPU:${CPU}%\"; else echo \"VMCPU:\"; fi"
-    );
+    // Works for both a systemd-managed host (remote) and a plain PaperMC process
+    // (the bundled container): try the minecraft service first, then fall back to
+    // the running server.jar. Uptime is emitted in systemd's timestamp format so
+    // the frontend parses it the same way in either case.
+    let script = r#"
+SVC=$(systemctl is-active minecraft 2>/dev/null || true)
+if [ "$SVC" = active ]; then
+  ACTIVE=active
+  TS=$(systemctl show minecraft --property=ActiveEnterTimestamp 2>/dev/null | sed 's/ActiveEnterTimestamp=//')
+else
+  PID=$(pgrep -f 'server.jar' 2>/dev/null | head -1)
+  if [ -n "$PID" ]; then
+    ACTIVE=active
+    EL=$(ps -o etimes= -p "$PID" 2>/dev/null | tr -d ' ')
+    TS=$(date -u -d "@$(( $(date +%s) - ${EL:-0} ))" '+%a %Y-%m-%d %H:%M:%S UTC' 2>/dev/null)
+  else
+    ACTIVE=inactive; TS=
+  fi
+fi
+echo "ACTIVE:$ACTIVE"; echo "UPTIME:$TS"
+P=$(ss -tn state established 2>/dev/null | grep -c ':25565 ' || echo 0); echo "PLAYERS:$P"
+MEM=$(ps aux 2>/dev/null | grep '[s]erver.jar' | awk '{print $4}' | head -1); echo "JAVAMEM:$MEM"
+IDLE=$(vmstat 1 2 2>/dev/null | tail -1 | awk '{print $15}')
+if [ -n "$IDLE" ]; then CPU=$((100 - IDLE)); echo "VMCPU:${CPU}%"; else echo "VMCPU:"; fi
+"#;
     let (out, _) = run_with_timeout(cfg, script, Duration::from_secs(30)).await?;
     Ok(MetricsSnapshot::parse(&out))
 }

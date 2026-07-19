@@ -23,24 +23,21 @@ pub struct ServerStatus {
 }
 
 pub async fn status(State(state): State<AppState>, _: AuthUser) -> Result<Json<ServerStatus>> {
-    let vm = instance::status(&state.config).await?;
-    let service = if vm.status == "RUNNING" {
-        match ssh::run(
-            &state.config,
-            "systemctl is-active minecraft 2>/dev/null || echo inactive",
-        )
-        .await
-        {
-            Ok((out, _)) => out,
-            Err(e) => {
-                tracing::warn!(error = %e, "SSH to VM failed when checking service status");
-                "unknown".into()
-            }
-        }
-    } else {
-        "stopped".into()
+    // Reach the Minecraft host and check whether the server is up. This works for
+    // both a systemd-managed host (remote) and the bundled container, and no
+    // longer depends on a cloud VM being present.
+    let metrics = ssh::fetch_metrics(&state.config).await.ok();
+    let (vm_status, service) = match &metrics {
+        Some(m) if m.service_active => ("RUNNING", "active"),
+        Some(_) => ("RUNNING", "inactive"),
+        None => ("UNREACHABLE", "unknown"),
     };
-    Ok(Json(ServerStatus { vm, service }))
+    let vm = instance::VmStatus {
+        status: vm_status.to_string(),
+        external_ip: None,
+        tailscale_ip: state.config.tailscale_ip.clone(),
+    };
+    Ok(Json(ServerStatus { vm, service: service.to_string() }))
 }
 
 /// POST /api/server/vm/:action  (start | stop | reset)
