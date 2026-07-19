@@ -120,7 +120,7 @@ write_env(){
     [ -n "$CF_ID" ]     && echo "CLOUDFLARE_CLIENT_ID=$CF_ID"
     [ -n "$CF_SECRET" ] && echo "CLOUDFLARE_CLIENT_SECRET=$CF_SECRET"
     [ -n "$GUEST_LOGIN" ] && echo "GUEST_LOGIN=$GUEST_LOGIN"
-    [ -n "${SETUP_MODE:-}" ] && echo "SETUP_MODE=$SETUP_MODE"
+    [ -n "${SETUP_TOKEN:-}" ] && echo "SETUP_TOKEN=$SETUP_TOKEN"
   } > "$ENV_FILE"
   say "$OK" "Wrote $ENV_FILE ${GRY}(secrets hidden, file is chmod 600)${R}"
 }
@@ -130,11 +130,13 @@ if [ "${LAUNCH_ONLY:-0}" != 1 ] && [ "$MODE" = 2 ]; then
   title "Web setup"
   [ -n "$JWT_SECRET" ] || JWT_SECRET="$(gen_secret)"
   SITE_URL="http://localhost:$WEB_PORT"; REDIRECT_URI="$SITE_URL/auth/callback"
-  COOKIE_SECURE="false"; SETUP_MODE="true"
-  GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-setup}"; GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-setup}"
+  COOKIE_SECURE="false"; SETUP_TOKEN="$(gen_secret)"
+  GOOGLE_CLIENT_ID="setup"; GOOGLE_CLIENT_SECRET="setup"
   BOOTSTRAP_ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}"
   write_env
-  say "$INFO" "The app will open a setup page in your browser before the login screen."
+  say "$INFO" "The app opens a setup page in your browser before the login screen."
+  say "$DO" "Setup token — paste it into the wizard when asked:"
+  paste_me "$SETUP_TOKEN"
 else
   # ── Console setup ────────────────────────────────────────────────────────────
   if [ "${LAUNCH_ONLY:-0}" != 1 ]; then

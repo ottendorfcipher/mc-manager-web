@@ -73,6 +73,9 @@ pub struct Config {
     /// before OAuth is set up. Set via `GUEST_LOGIN`. Off by default, and also
     /// auto-disables the first time a real OAuth user signs in.
     pub guest_login: bool,
+    /// Optional shared token that the first-run setup wizard requires before it
+    /// will save config. Set via `SETUP_TOKEN` for internet-exposed hosts.
+    pub setup_token: Option<String>,
     // ── Discord bridge ─────────────────────────────────────────────────────────
     /// Discord bot token, webhook URL, and channel ID from env vars.
     /// These override any values stored in the database (useful for
@@ -140,6 +143,7 @@ impl Config {
             email_from: env_or("EMAIL_FROM", "redstoneCipher <onboarding@example.com>"),
             cookie_secure: env_parse("COOKIE_SECURE", true),
             guest_login: env_parse("GUEST_LOGIN", false),
+            setup_token: opt_env("SETUP_TOKEN"),
             discord_bot_token: std::env::var("DISCORD_BOT_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),

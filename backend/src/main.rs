@@ -9,9 +9,13 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let cfg = lib::config::Config::from_env();
+    let mut cfg = lib::config::Config::from_env();
 
     let pool = lib::db::init(&cfg.database_url).await?;
+
+    // Overlay any config saved by the first-run setup wizard (stored in the DB).
+    let enc_key = cfg.settings_enc_key;
+    lib::setup::overlay(&mut cfg, &pool, &enc_key).await;
 
     // Sync any new .tar.gz archives from mc-server-1 that aren't yet in the DB.
     // Non-fatal: if mc-server-1 is offline at startup the service still starts.

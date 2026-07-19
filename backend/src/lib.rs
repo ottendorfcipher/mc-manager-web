@@ -15,6 +15,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod minecraft;
 pub mod notify;
+pub mod setup;
 pub mod state;
 pub mod validation;
 
@@ -465,6 +466,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/callback/cloudflare", get(handlers::auth::callback_cloudflare))
         .route("/auth/logout", get(handlers::auth::logout))
         .route("/auth/providers", get(handlers::auth::providers))
+        .route("/auth/setup/status", get(handlers::setup::status))
+        .route("/auth/setup", post(handlers::setup::save))
         .route("/internal/budget-alert", post(handlers::budget::webhook))
         .route(
             "/internal/player-joined",

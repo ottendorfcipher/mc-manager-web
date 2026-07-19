@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -15,6 +15,7 @@ import { BackupsPage }      from "@/features/backups/BackupsPage";
 import { MapPage }          from "@/features/map/MapPage";
 import { ConfigurePage }    from "@/features/configure/ConfigurePage";
 import { LoginPage }        from "@/features/auth/LoginPage";
+import { SetupWizard, type SetupStatus } from "@/features/setup/SetupWizard";
 import { AdminPage }        from "@/features/admin/AdminPage";
 import { ChatPage }         from "@/features/chat/ChatPage";
 import { MusicPage }        from "@/features/music/MusicPage";
@@ -158,12 +159,39 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── First-run setup gate ──────────────────────────────────────────────────────
+// Before anything else, ask the server whether it is configured. If not, show
+// the setup wizard instead of the app or login screen.
+
+function SetupGate({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<SetupStatus | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/auth/setup/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch(() => { if (!cancelled) setStatus(null); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (status === undefined) {
+    return (
+      <div className="h-screen flex items-center justify-center" role="status" aria-label="Loading">
+        <Loader2 className="w-8 h-8 text-[#5B9BF0] animate-spin" aria-hidden />
+      </div>
+    );
+  }
+  if (status && status.needs_setup) return <SetupWizard status={status} />;
+  return <>{children}</>;
+}
+
 // ── App root ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
+        <SetupGate>
         <BrowserRouter>
           <ToastContainer />
           <Routes>
@@ -201,6 +229,7 @@ export default function App() {
             } />
           </Routes>
         </BrowserRouter>
+        </SetupGate>
       </QueryClientProvider>
     </ErrorBoundary>
   );

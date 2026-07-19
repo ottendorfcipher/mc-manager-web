@@ -44,6 +44,7 @@ fn test_cfg() -> Config {
         cloudflare_client_secret: None,
         cloudflare_redirect_uri: None,
         guest_login: false,
+        setup_token: None,
         budget_webhook_token: Some("test_budget_token".into()),
         gcloud_bin: PathBuf::from("/usr/bin/false"),
         gcp_project: "test-project".into(),
