@@ -13,7 +13,10 @@
 name: redstonecipher
 
 services:
+  # The bundled Minecraft server. It lives in the "local" profile, so a remote
+  # deployment (docker-compose.remote.yml) simply does not start it.
   mc:
+    profiles: ["local"]
     build:
       context: .
       dockerfile: docker/mc/Dockerfile
@@ -40,8 +43,8 @@ services:
       - db:/opt/redstonecipher/data
       - map:/opt/redstonecipher/www/map
       - keys:/keys
-    depends_on:
-      - mc
+    # No depends_on mc: the entrypoint waits for the Minecraft host (local or
+    # remote) itself, and mc is profile-gated so it may not run here.
     restart: unless-stopped
 
   web:

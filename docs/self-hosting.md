@@ -20,6 +20,29 @@ any time to change values.
 
 The sections below do the same steps by hand.
 
+## Local or remote Minecraft
+
+Run the bundled Minecraft server, or point at your own.
+
+Local, the default, includes a managed PaperMC container:
+
+```bash
+docker compose --profile local up -d --build
+```
+
+Remote runs only the web and backend and controls your own server over SSH. Set
+`MC_HOST` to its host or IP, put an SSH key in `./secrets`, and add the public
+half to the server's `~/.ssh/authorized_keys`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build
+```
+
+`start-here.sh` walks through either choice, including generating the key and
+printing the exact line to add on a remote server. A Tailscale address for
+`MC_HOST` keeps the game port private; a plain IP works too, with key-only SSH.
+The remote server needs PaperMC and sshd, with RCON enabled.
+
 ## What you need
 
 Docker with the Compose plugin, and a Google account to create an OAuth client.

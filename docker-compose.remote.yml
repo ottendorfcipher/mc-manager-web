@@ -1,0 +1,21 @@
+# Remote Minecraft server.
+#
+# Runs only the web + backend containers; the backend controls your own Minecraft
+# host over SSH. The bundled mc service is in the "local" profile, so it does not
+# start here.
+#
+# Usage (start-here.sh does this for you when you pick "remote"):
+#   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build
+#
+# Requires, in .env:
+#   MC_HOST   the host or IP of your Minecraft server (a Tailscale IP, or a
+#             reachable address). The backend connects as root@MC_HOST over SSH.
+# And a keypair in ./secrets whose public half is in the server's
+# ~/.ssh/authorized_keys (start-here.sh generates it and prints the line to add).
+services:
+  backend:
+    environment:
+      TAILSCALE_IP: ${MC_HOST:?Set MC_HOST in .env to your Minecraft server host or IP}
+    volumes:
+      - ./secrets/mc_ssh_key:/keys/mc_ssh_key:ro
+      - ./secrets/mc_ssh_key.pub:/keys/mc_ssh_key.pub:ro

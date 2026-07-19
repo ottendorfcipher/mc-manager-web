@@ -99,8 +99,10 @@ GOOGLE_CLIENT_ID="$(read_env GOOGLE_CLIENT_ID)"; GOOGLE_CLIENT_SECRET="$(read_en
 BOOTSTRAP_ADMIN_EMAIL="$(read_env BOOTSTRAP_ADMIN_EMAIL)"; JWT_SECRET="$(read_env JWT_SECRET)"
 COOKIE_SECURE="$(read_env COOKIE_SECURE)"; CORS_ORIGINS="$(read_env CORS_ORIGINS)"
 CF_TEAM="$(read_env CLOUDFLARE_TEAM_DOMAIN)"; CF_ID="$(read_env CLOUDFLARE_CLIENT_ID)"; CF_SECRET="$(read_env CLOUDFLARE_CLIENT_SECRET)"
-GUEST_LOGIN="$(read_env GUEST_LOGIN)"
+GUEST_LOGIN="$(read_env GUEST_LOGIN)"; MC_HOST="$(read_env MC_HOST)"
 WEB_PORT="8080"
+MC_TARGET="local"; COMPOSE_ARGS=(--profile local)
+[ -n "$MC_HOST" ] && { MC_TARGET="remote"; COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.remote.yml); }
 
 write_env(){
   [ -f "$ENV_FILE" ] && cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%Y%m%d%H%M%S)"
@@ -121,9 +123,33 @@ write_env(){
     [ -n "$CF_SECRET" ] && echo "CLOUDFLARE_CLIENT_SECRET=$CF_SECRET"
     [ -n "$GUEST_LOGIN" ] && echo "GUEST_LOGIN=$GUEST_LOGIN"
     [ -n "${SETUP_TOKEN:-}" ] && echo "SETUP_TOKEN=$SETUP_TOKEN"
+    [ -n "$MC_HOST" ] && echo "MC_HOST=$MC_HOST"
   } > "$ENV_FILE"
   say "$OK" "Wrote $ENV_FILE ${GRY}(secrets hidden, file is chmod 600)${R}"
 }
+
+# ── Minecraft server: bundled (local) or your own (remote) ───────────────────
+if [ "${LAUNCH_ONLY:-0}" != 1 ]; then
+  title "Minecraft server"
+  printf "  ${DIM}1${R} ${B}Local${R}  ${GRY}bundled and managed for you, on this machine${R}\n"
+  printf "  ${DIM}2${R} ${B}Remote${R} ${GRY}your own server at an IP or Tailscale address${R}\n"
+  ask MCT "Choose" "1"
+  if [ "$MCT" = 2 ]; then
+    MC_TARGET="remote"; COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.remote.yml)
+    until [ -n "$MC_HOST" ]; do
+      ask MC_HOST "Server host or IP (a Tailscale IP keeps the game port private)" "$MC_HOST"
+    done
+    mkdir -p "$ROOT/secrets"
+    if [ ! -f "$ROOT/secrets/mc_ssh_key" ]; then
+      ssh-keygen -t ed25519 -N '' -f "$ROOT/secrets/mc_ssh_key" -C redstonecipher >/dev/null 2>&1
+      chmod 600 "$ROOT/secrets/mc_ssh_key"
+    fi
+    say "$DO" "On $MC_HOST, add this line to root's ~/.ssh/authorized_keys:"
+    paste_me "$(cat "$ROOT/secrets/mc_ssh_key.pub")"
+    hint "Your server needs PaperMC and sshd. Over Tailscale the game port stays private; over a plain IP, SSH is key-only."
+    until confirm "Added the key on $MC_HOST?"; do hint "Add it there, then confirm."; done
+  fi
+fi
 
 if [ "${LAUNCH_ONLY:-0}" != 1 ] && [ "$MODE" = 2 ]; then
   # ── Web setup: boot the app straight into its /setup wizard ──────────────────
@@ -180,7 +206,7 @@ fi
 # ── Launch ────────────────────────────────────────────────────────────────────
 title "Launch"
 say "$INFO" "Building images and starting the stack. First run pulls PaperMC and compiles the backend, so it takes a few minutes."
-( dc up -d --build ) >/tmp/rc-up.log 2>&1 &
+( dc "${COMPOSE_ARGS[@]}" up -d --build ) >/tmp/rc-up.log 2>&1 &
 UP_PID=$!
 spin "$UP_PID" "building + starting containers ${GRY}(tail: /tmp/rc-up.log)${R}"
 wait "$UP_PID"; UP_RC=$?
@@ -202,7 +228,8 @@ title "Ready"
 OPEN_URL="http://localhost:$WEB_PORT"
 [ "$MODE" = 2 ] && say "$DO" "Finish setup in the browser:" || say "$OK" "Open the portal:"
 paste_me "$OPEN_URL"
-hint "Minecraft: connect to  localhost:25565"
+if [ "$MC_TARGET" = remote ]; then hint "Minecraft: your server at $MC_HOST"
+else hint "Minecraft: connect to  localhost:25565"; fi
 hint "Manage:  edit .env or re-run ./start-here.sh   ·   stop: docker compose down"
 if command -v open >/dev/null 2>&1; then open "$OPEN_URL" 2>/dev/null || true
 elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$OPEN_URL" 2>/dev/null || true; fi
