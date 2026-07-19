@@ -18,15 +18,22 @@ ssh-keygen -A
 /usr/sbin/sshd
 echo "[mc] sshd started"
 
-# 2. Download PaperMC once (latest build for the pinned version).
+# 2. Download PaperMC once (latest stable build via the v3 Fill API).
 PAPER_VERSION="${PAPER_VERSION:-1.21.11}"
+UA="redstoneCipher/1.0 (self-hosted Minecraft manager)"
 if [ ! -f "$SRV/server.jar" ]; then
   echo "[mc] downloading PaperMC $PAPER_VERSION"
-  BUILD=$(curl -fsSL "https://api.papermc.io/v2/projects/paper/versions/$PAPER_VERSION/builds" \
-    | python3 -c 'import sys,json; print(json.load(sys.stdin)["builds"][-1]["build"])')
-  JAR="paper-$PAPER_VERSION-$BUILD.jar"
-  curl -fsSL -o "$SRV/server.jar" \
-    "https://api.papermc.io/v2/projects/paper/versions/$PAPER_VERSION/builds/$BUILD/downloads/$JAR"
+  URL=$(curl -fsSL -H "User-Agent: $UA" \
+      "https://fill.papermc.io/v3/projects/paper/versions/$PAPER_VERSION/builds" \
+    | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+builds = data["builds"] if isinstance(data, dict) and "builds" in data else data
+stable = [b for b in builds if b.get("channel") == "STABLE"] or builds
+best = max(stable, key=lambda b: b["id"])
+print(best["downloads"]["server:default"]["url"])
+')
+  curl -fsSL -H "User-Agent: $UA" -o "$SRV/server.jar" "$URL"
 fi
 
 # 3. First-run configuration.
@@ -47,12 +54,14 @@ motd=redstoneCipher
 EOF
 fi
 
-# 4. Console bridge: the backend writes commands into console.fifo over SSH, and
-#    we feed them to the server's stdin. A held-open writer stops tail from
-#    seeing EOF between commands.
+# 4. Console bridge: the backend writes commands into console.fifo over SSH. We
+#    open the fifo read-write on fd 3 (so it never sees EOF) and give it to the
+#    server as stdin, so each line written becomes a console command. This is
+#    more reliable than piping `tail`, which block-buffers small writes and never
+#    flushes them to the server.
 [ -p "$FIFO" ] || { rm -f "$FIFO"; mkfifo "$FIFO"; }
-( sleep infinity > "$FIFO" ) &
 
 cd "$SRV"
 echo "[mc] starting PaperMC"
-tail -f "$FIFO" | java -Xms1G -Xmx"${MC_MAX_MEMORY:-2G}" -jar server.jar --nogui
+exec 3<>"$FIFO"
+exec java -Xms1G -Xmx"${MC_MAX_MEMORY:-2G}" -jar server.jar --nogui <&3

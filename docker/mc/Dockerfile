@@ -5,7 +5,7 @@ FROM eclipse-temurin:21-jre-jammy
 
 # Tools the backend and its scripts invoke over SSH on this host.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      openssh-server rsync curl python3 ca-certificates gcc make \
+      openssh-server rsync curl python3 ca-certificates gcc make libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # mcrcon: the backup and world-switch scripts use it to flush the world safely.
