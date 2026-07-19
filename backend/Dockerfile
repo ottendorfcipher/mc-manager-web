@@ -8,6 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY backend/ ./backend/
 WORKDIR /app/backend
+# The release profile uses fat LTO + a single codegen unit, which needs a lot of
+# RAM to link and OOM-kills on small build machines. Disable LTO and parallelize
+# codegen for the Docker build so it succeeds on modest hardware; the runtime
+# difference is negligible for this I/O-bound server, and the CI production build
+# still uses full LTO.
+ENV CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN cargo build --release --locked
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
