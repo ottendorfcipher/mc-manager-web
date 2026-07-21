@@ -122,6 +122,10 @@ impl FromRequestParts<AppState> for AuthUser {
         if let Some(ref target) = target_email {
             // (a) Only admin (≥3) may use impersonation.
             if real_level < 3 {
+                tracing::warn!(
+                    actor = %real_email, target = %target,
+                    "impersonation denied: actor is not an admin",
+                );
                 return Err(AppError::Forbidden(
                     "Only admins may use impersonation".into(),
                 ));
@@ -158,6 +162,14 @@ impl FromRequestParts<AppState> for AuthUser {
                 .await
                 .map_err(|_| AppError::Unauthenticated)?;
 
+            // Intersect with the real admin's own permissions so impersonation
+            // can never grant a capability the admin does not personally hold.
+            let real_perms = permissions::effective_for(&state.pool, &real_email, &real_role)
+                .await
+                .map_err(|_| AppError::Unauthenticated)?;
+            let effective: HashSet<String> =
+                tgt_perms.intersection(&real_perms).cloned().collect();
+
             tracing::info!(
                 real = %real_email,
                 target = %target,
@@ -168,7 +180,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 email:            target.clone(),
                 role:             tgt_role,
                 level:            tgt_level,
-                permissions:      Arc::new(tgt_perms),
+                permissions:      Arc::new(effective),
                 real_email,
                 real_role,
                 real_level,
@@ -196,6 +208,10 @@ impl FromRequestParts<AppState> for AuthUser {
 
 pub fn require_perm(actor: &AuthUser, key: &str) -> crate::error::Result<()> {
     if !actor.has(key) {
+        tracing::warn!(
+            actor = %actor.audit_actor(), permission = %key, role = %actor.role,
+            "permission denied",
+        );
         return Err(AppError::Forbidden(format!(
             "Role '{}' lacks permission '{key}'",
             actor.role

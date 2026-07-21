@@ -15,6 +15,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod minecraft;
 pub mod notify;
+pub mod security;
 pub mod setup;
 pub mod state;
 pub mod validation;
@@ -32,6 +33,7 @@ use axum::{
 };
 use tower_governor::{
     governor::GovernorConfigBuilder,
+    key_extractor::SmartIpKeyExtractor,
     GovernorLayer,
 };
 use tower_http::{
@@ -45,9 +47,21 @@ use tracing::Level;
 fn cors_layer_origins(cfg: &crate::config::Config) -> Vec<axum::http::HeaderValue> {
     let mut origins: Vec<axum::http::HeaderValue> =
         cfg.cors_origins.iter().filter_map(|o| o.parse().ok()).collect();
-    for dev in ["https://localhost:5173", "http://localhost:5173"] {
-        if let Ok(value) = dev.parse() {
-            origins.push(value);
+    // Trust the local Vite dev server only in a development context: a plain-HTTP
+    // run (COOKIE_SECURE=false), a localhost SITE_URL, or an explicit opt-in. In
+    // production these are never added, so a page at localhost:5173 on a victim's
+    // machine cannot make credentialed cross-origin calls against the deployment.
+    let dev_context = !cfg.cookie_secure
+        || cfg.site_url.contains("localhost")
+        || cfg.site_url.contains("127.0.0.1")
+        || std::env::var("CORS_ALLOW_LOCALHOST")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+    if dev_context {
+        for dev in ["https://localhost:5173", "http://localhost:5173"] {
+            if let Ok(value) = dev.parse() {
+                origins.push(value);
+            }
         }
     }
     origins
@@ -63,6 +77,10 @@ pub fn build_router(state: AppState) -> Router {
     // rather than strict throttling.
     let governor_conf = std::sync::Arc::new(
         GovernorConfigBuilder::default()
+            // Key on the forwarded client IP (X-Forwarded-For / X-Real-IP set by
+            // nginx) instead of the peer socket, which behind the proxy is nginx
+            // itself — otherwise every external client shares one bucket.
+            .key_extractor(SmartIpKeyExtractor)
             .per_second(1)        // refill 1 token/second
             .burst_size(60)       // max burst: 60 requests
             .use_headers()        // return Retry-After + X-RateLimit-* headers
@@ -75,6 +93,7 @@ pub fn build_router(state: AppState) -> Router {
     // limiter, so both must allow the request.
     let sensitive_governor = std::sync::Arc::new(
         GovernorConfigBuilder::default()
+            .key_extractor(SmartIpKeyExtractor)
             .per_second(2)
             .burst_size(15)
             .use_headers()

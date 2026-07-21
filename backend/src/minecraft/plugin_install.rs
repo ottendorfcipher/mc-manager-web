@@ -123,7 +123,7 @@ async fn resolve_install(
                             "version_number": dep_ver.version_number,
                             "filename": primary_file(&dep_ver.files),
                             "url": primary_url(&dep_ver.files),
-                            "sha256": primary_sha256(&dep_ver.files),
+                            "sha512": primary_sha512(&dep_ver.files),
                         }));
                     }
                 }
@@ -141,7 +141,7 @@ async fn resolve_install(
             "version_number": main_ver.version_number,
             "filename": main_file_name,
             "url": main_url,
-            "sha256": primary_sha256(&main_ver.files),
+            "sha512": primary_sha512(&main_ver.files),
         },
         "deps": deps,
         "conflicts": conflicts,
@@ -244,37 +244,71 @@ async fn download_jars(
     // Ensure cache dir exists.
     tokio::fs::create_dir_all(PLUGIN_CACHE_DIR).await?;
 
-    // Build list of (url, filename, sha256) to download.
-    let mut downloads: Vec<(String, String)> = vec![];
+    // Build list of (url, filename, expected_sha512) to download.
+    let mut downloads: Vec<(String, String, String)> = vec![];
+
+    let read_entry = |entry: &serde_json::Value, default_name: &str| {
+        let url  = entry["url"].as_str().unwrap_or("").to_string();
+        let name = entry["filename"].as_str().unwrap_or(default_name).to_string();
+        // Field is "sha512"; accept the legacy "sha256" key for in-flight jobs.
+        let sha  = entry["sha512"].as_str()
+            .or_else(|| entry["sha256"].as_str())
+            .unwrap_or("")
+            .to_string();
+        (url, name, sha)
+    };
 
     if let Some(main) = plan.get("main") {
-        let url  = main["url"].as_str().unwrap_or("").to_string();
-        let name = main["filename"].as_str().unwrap_or("plugin.jar").to_string();
+        let (url, name, sha) = read_entry(main, "plugin.jar");
         if !url.is_empty() {
-            downloads.push((url, name));
+            downloads.push((url, name, sha));
         }
     }
 
     if let Some(deps) = plan.get("deps").and_then(|d| d.as_array()) {
         for dep in deps {
-            let url  = dep["url"].as_str().unwrap_or("").to_string();
-            let name = dep["filename"].as_str().unwrap_or("dep.jar").to_string();
+            let (url, name, sha) = read_entry(dep, "dep.jar");
             if !url.is_empty() {
-                downloads.push((url, name));
+                downloads.push((url, name, sha));
             }
         }
     }
 
+    // No cross-host redirects: a redirect could steer the fetch off Modrinth's
+    // CDN toward an internal address (SSRF) or an untrusted jar source.
     let client = reqwest::Client::builder()
         .user_agent("redstoneCipher/1.0 (self-hosted Minecraft manager)")
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
-    for (url, filename) in &downloads {
-        let cache_path = format!("{PLUGIN_CACHE_DIR}/{filename}");
-        // Skip if already cached.
-        if tokio::fs::metadata(&cache_path).await.is_ok() {
-            continue;
+    for (url, filename, expected_sha512) in &downloads {
+        // SSRF guard: the URL comes from the Modrinth API, but pin the host so a
+        // tampered response can't point us at an internal service.
+        if !is_modrinth_cdn(url) {
+            plugin_jobs::finish(pool, job.id, "failed",
+                Some(&format!("Refusing to download {filename} from a non-Modrinth host"))).await?;
+            return Ok(());
         }
+
+        let safe_name = match plugin_jar::safe_plugin_filename(filename) {
+            Ok(s)  => s,
+            Err(e) => {
+                plugin_jobs::finish(pool, job.id, "failed",
+                    Some(&format!("Unsafe plugin filename '{filename}': {e}"))).await?;
+                return Ok(());
+            }
+        };
+        let cache_path = format!("{PLUGIN_CACHE_DIR}/{safe_name}");
+
+        // Skip re-download only if the cached copy still matches the expected hash.
+        if let Ok(existing) = tokio::fs::read(&cache_path).await {
+            if !expected_sha512.is_empty()
+                && plugin_jar::sha512_hex(&existing).eq_ignore_ascii_case(expected_sha512)
+            {
+                continue;
+            }
+        }
+
         let resp = client.get(url)
             .timeout(Duration::from_secs(120))
             .send()
@@ -290,10 +324,26 @@ async fn download_jars(
         let bytes = resp.bytes().await
             .map_err(|e| anyhow::anyhow!("read bytes {filename}: {e}"))?;
 
+        // Integrity check: the jar is executed on the game host, so a tampered
+        // download (MITM/CDN/DNS) must never be installed. Verify it against the
+        // SHA-512 Modrinth published for this file before caching it.
+        if expected_sha512.is_empty() {
+            plugin_jobs::finish(pool, job.id, "failed",
+                Some(&format!("No published hash for {filename}; refusing to install unverified"))).await?;
+            return Ok(());
+        }
+        let actual = plugin_jar::sha512_hex(&bytes);
+        if !actual.eq_ignore_ascii_case(expected_sha512) {
+            warn!("plugin_install: SHA-512 mismatch for {filename}: expected {expected_sha512}, got {actual}");
+            plugin_jobs::finish(pool, job.id, "failed",
+                Some(&format!("Integrity check failed for {filename}"))).await?;
+            return Ok(());
+        }
+
         tokio::fs::write(&cache_path, &bytes).await
             .map_err(|e| anyhow::anyhow!("write cache {cache_path}: {e}"))?;
 
-        info!("plugin_install: downloaded {filename} ({} bytes)", bytes.len());
+        info!("plugin_install: downloaded + verified {safe_name} ({} bytes)", bytes.len());
     }
 
     // Advance to uploading.
@@ -334,8 +384,16 @@ async fn upload_jars(
     }
 
     for filename in &filenames {
-        let cache_path = format!("{PLUGIN_CACHE_DIR}/{filename}");
-        let dest = format!("root@{}:{PLUGINS_DIR}/{filename}", cfg.tailscale_ip);
+        let safe_name = match plugin_jar::safe_plugin_filename(filename) {
+            Ok(s)  => s,
+            Err(e) => {
+                plugin_jobs::finish(pool, job.id, "failed",
+                    Some(&format!("Unsafe plugin filename '{filename}': {e}"))).await?;
+                return Ok(());
+            }
+        };
+        let cache_path = format!("{PLUGIN_CACHE_DIR}/{safe_name}");
+        let dest = format!("root@{}:{PLUGINS_DIR}/{safe_name}", cfg.tailscale_ip);
 
         let status = tokio::process::Command::new("scp")
             .args([
@@ -351,21 +409,21 @@ async fn upload_jars(
             .map_err(|e| anyhow::anyhow!("scp spawn: {e}"))?;
 
         if !status.success() {
-            let msg = format!("SCP failed for {filename} (exit {:?})", status.code());
+            let msg = format!("SCP failed for {safe_name} (exit {:?})", status.code());
             plugin_jobs::finish(pool, job.id, "failed", Some(&msg)).await?;
             return Ok(());
         }
 
-        info!("plugin_install: uploaded {filename} to {PLUGINS_DIR}");
+        info!("plugin_install: uploaded {safe_name} to {PLUGINS_DIR}");
 
         // Insert / update installed_plugins record.
         if let Ok(jar_bytes) = tokio::fs::read(&cache_path).await {
             let meta = plugin_jar::read_plugin_meta(&jar_bytes).ok();
-            let sha_val = plugin_jar::sha1_hex(&jar_bytes);
+            let sha_val = plugin_jar::sha256_hex(&jar_bytes);
             let size    = jar_bytes.len() as i64;
             let _ = installed_plugins::upsert(
                 pool,
-                filename,
+                &safe_name,
                 job.project_key.as_deref(),
                 meta.as_ref().map(|m| m.name.as_str()),
                 meta.as_ref().map(|m| m.version.as_str()),
@@ -539,11 +597,14 @@ pub fn spawn_job_runner(pool: SqlitePool, cfg: Config) {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 fn primary_file(files: &[modrinth::ModrinthFile]) -> String {
-    files.iter()
+    let raw = files.iter()
         .find(|f| f.primary)
         .or_else(|| files.first())
         .map(|f| f.filename.clone())
-        .unwrap_or_else(|| "plugin.jar".into())
+        .unwrap_or_else(|| "plugin.jar".into());
+    // Keep the plan's filenames safe from creation; the download/upload steps
+    // re-check at their sinks as defense in depth.
+    plugin_jar::safe_plugin_filename(&raw).unwrap_or_else(|_| "plugin.jar".into())
 }
 
 fn primary_url(files: &[modrinth::ModrinthFile]) -> String {
@@ -554,10 +615,25 @@ fn primary_url(files: &[modrinth::ModrinthFile]) -> String {
         .unwrap_or_default()
 }
 
-fn primary_sha256(files: &[modrinth::ModrinthFile]) -> String {
+fn primary_sha512(files: &[modrinth::ModrinthFile]) -> String {
     files.iter()
         .find(|f| f.primary)
         .or_else(|| files.first())
-        .and_then(|f| f.hashes.sha512.clone().or_else(|| f.hashes.sha1.clone()))
+        .and_then(|f| f.hashes.sha512.clone())
         .unwrap_or_default()
+}
+
+/// Only fetch plugin jars from Modrinth's CDN. The URL comes from the Modrinth
+/// API, but pinning the host stops a tampered API response or a redirect from
+/// steering the download at an internal service (SSRF) or an untrusted origin.
+fn is_modrinth_cdn(url: &str) -> bool {
+    match reqwest::Url::parse(url) {
+        Ok(u) => {
+            u.scheme() == "https"
+                && u.host_str()
+                    .map(|h| h == "cdn.modrinth.com" || h.ends_with(".modrinth.com"))
+                    .unwrap_or(false)
+        }
+        Err(_) => false,
+    }
 }

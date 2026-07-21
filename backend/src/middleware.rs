@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{ConnectInfo, State},
+    extract::State,
     http::{Method, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -38,15 +38,15 @@ pub async fn security_headers(req: Request<Body>, next: Next) -> Response {
     // - frame-ancestors ‘none’: no framing by anyone (stronger than X-Frame-Options)
     headers.insert(
         "Content-Security-Policy",
-        "default-src ‘self’; \
-         script-src ‘self’; \
-         style-src ‘self’ ‘unsafe-inline’; \
-         connect-src ‘self’ https://api.modrinth.com; \
-         img-src ‘self’ data: blob: https://mc-heads.net https://cdn.modrinth.com https://lh3.googleusercontent.com; \
-         font-src ‘self’; \
-         frame-ancestors ‘none’; \
-         base-uri ‘self’; \
-         form-action ‘self’"
+        "default-src 'self'; \
+         script-src 'self'; \
+         style-src 'self' 'unsafe-inline'; \
+         connect-src 'self' https://api.modrinth.com; \
+         img-src 'self' data: blob: https://mc-heads.net https://cdn.modrinth.com https://lh3.googleusercontent.com; \
+         font-src 'self'; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'self'"
             .parse()
             .unwrap(),
     );

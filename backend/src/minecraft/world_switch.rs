@@ -74,11 +74,13 @@ pub async fn list_world_backup_files(
     world_slug: &str,
 ) -> Result<Vec<(String, String, i64, String)>> {
     let backup_dir = format!("/opt/minecraft/backups/{world_slug}/daily");
-    // Pick up both `.tar.gz` (fresh) and `.tar.xz` (archived).
+    // Pick up both `.tar.gz` (fresh) and `.tar.xz` (archived). Shell-quote the
+    // path (slugs are validated on creation; this is defense in depth).
     let cmd = format!(
-        "find '{backup_dir}' -maxdepth 1 -type f \
+        "find {dir} -maxdepth 1 -type f \
             \\( -name '*.tar.gz' -o -name '*.tar.xz' \\) \
-         -printf '%f\\t%s\\t%TY-%Tm-%TdT%TH:%TM:00Z\\n' 2>/dev/null || true"
+         -printf '%f\\t%s\\t%TY-%Tm-%TdT%TH:%TM:00Z\\n' 2>/dev/null || true",
+        dir = shell_quote(&backup_dir),
     );
     let (out, _) = ssh::run_with_timeout(cfg, &cmd, Duration::from_secs(20)).await?;
 
@@ -129,18 +131,18 @@ pub async fn restore_world_backup(cfg: &Config, archive_path: &str) -> Result<()
 /// Create the world storage and backup directory tree on mc-server-1.
 /// Called when a new world is created in the DB before it has ever been played.
 pub async fn ensure_world_dirs(cfg: &Config, world_slug: &str) -> Result<()> {
-    let safe_slug = shell_quote(world_slug);
-    let worlds_dir  = format!("/opt/minecraft/worlds/{world_slug}");
-    let backup_base = format!("/opt/minecraft/backups/{world_slug}");
+    // Shell-quote the full paths so an unexpected character in the slug can't
+    // break out of the command (slugs are validated on creation, so this is
+    // defense in depth — the previously-computed quote was being discarded).
+    let backup_base   = format!("/opt/minecraft/backups/{world_slug}");
+    let worlds_dir    = shell_quote(&format!("/opt/minecraft/worlds/{world_slug}"));
+    let daily         = shell_quote(&format!("{backup_base}/daily"));
+    let weekly        = shell_quote(&format!("{backup_base}/weekly"));
+    let backup_base_q = shell_quote(&backup_base);
     let cmd = format!(
-        "mkdir -p '{worlds_dir}' '{backup_base}/daily' '{backup_base}/weekly' && \
-         chown -R minecraft:minecraft '/opt/minecraft/worlds/{world_slug}' \
-                                      '/opt/minecraft/backups/{world_slug}' 2>/dev/null || true",
-        worlds_dir  = worlds_dir,
-        backup_base = backup_base,
+        "mkdir -p {worlds_dir} {daily} {weekly} && \
+         chown -R minecraft:minecraft {worlds_dir} {backup_base_q} 2>/dev/null || true"
     );
-    // safe_slug is only used for validation here — the paths are constructed directly
-    let _ = safe_slug;
     ssh::run(cfg, &cmd).await?;
     Ok(())
 }

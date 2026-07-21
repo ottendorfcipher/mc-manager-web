@@ -2,7 +2,7 @@
 
 use std::io::Read;
 
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 
 /// Metadata extracted from a plugin's plugin.yml.
 #[derive(Debug, Clone)]
@@ -158,14 +158,96 @@ fn parse_inline_list(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// Compute SHA-256 hex digest of bytes.
-/// Note: sha2 crate uses SHA-256 by default. We use this for integrity checks.
-/// (Plugin.yml uses SHA-1 via Modrinth metadata; we store hex for comparison.)
-pub fn sha1_hex(bytes: &[u8]) -> String {
-    // Use sha2 crate (available in Cargo.toml) with Sha256 as sha1 isn't available.
-    // We label it sha1_hex for interface compatibility but actually compute SHA-256.
-    // TODO: add sha1 crate for true SHA-1 if needed for Modrinth verification.
+/// SHA-256 hex digest of bytes — stored on the installed-plugin record as a
+/// content fingerprint (change detection), not a security verification.
+pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+/// SHA-512 hex digest — used to verify a downloaded plugin jar against the hash
+/// Modrinth publishes, before it is installed and executed on the game host.
+pub fn sha512_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha512::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Reduce an untrusted plugin filename to a safe basename.
+///
+/// The result is used directly in local filesystem paths and in an `scp` remote
+/// destination, so a value like `../../etc/x.jar` or `` `id`.jar `` must never
+/// pass through unchecked. Rules: basename only (path separators stripped), must
+/// end in `.jar`, may not start with `-` (scp/ssh would treat it as an option),
+/// may not contain `..`, and may only use `[A-Za-z0-9._-]`.
+pub fn safe_plugin_filename(raw: &str) -> Result<String, String> {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or("").trim();
+    if base.is_empty() {
+        return Err("empty filename".into());
+    }
+    if base.len() > 128 {
+        return Err("filename too long".into());
+    }
+    if !base.to_ascii_lowercase().ends_with(".jar") {
+        return Err(format!("'{base}' is not a .jar file"));
+    }
+    if base.starts_with('-') || base.contains("..") {
+        return Err(format!("unsafe filename '{base}'"));
+    }
+    if !base
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(format!(
+            "filename '{base}' has disallowed characters (allowed: letters, digits, . _ -)"
+        ));
+    }
+    Ok(base.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_plugin_filename;
+
+    #[test]
+    fn accepts_normal_names() {
+        assert_eq!(
+            safe_plugin_filename("EssentialsX-2.20.1.jar").unwrap(),
+            "EssentialsX-2.20.1.jar"
+        );
+    }
+
+    #[test]
+    fn strips_directory_components() {
+        assert_eq!(safe_plugin_filename("some/dir/Plugin.jar").unwrap(), "Plugin.jar");
+    }
+
+    #[test]
+    fn neutralizes_traversal_to_basename() {
+        assert_eq!(safe_plugin_filename("../../etc/evil.jar").unwrap(), "evil.jar");
+    }
+
+    #[test]
+    fn rejects_dotdot_in_basename() {
+        assert!(safe_plugin_filename("a..b.jar").is_err());
+    }
+
+    #[test]
+    fn rejects_shell_metacharacters() {
+        assert!(safe_plugin_filename("x`id`.jar").is_err());
+        assert!(safe_plugin_filename("x$(touch y).jar").is_err());
+        assert!(safe_plugin_filename("a b.jar").is_err());
+    }
+
+    #[test]
+    fn rejects_leading_dash() {
+        assert!(safe_plugin_filename("-oProxyCommand=x.jar").is_err());
+    }
+
+    #[test]
+    fn rejects_non_jar() {
+        assert!(safe_plugin_filename("evil.sh").is_err());
+        assert!(safe_plugin_filename("").is_err());
+    }
 }

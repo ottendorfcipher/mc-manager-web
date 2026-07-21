@@ -60,10 +60,21 @@ pub async fn save(
     if !setup::needs_setup(&state.config) {
         return Err(AppError::Forbidden("Setup is already complete".into()));
     }
-    if let Some(expected) = state.config.setup_token.as_deref() {
-        if form.setup_token.as_deref() != Some(expected) {
-            return Err(AppError::Forbidden("Invalid setup token".into()));
-        }
+    // Fail closed: a token is ALWAYS required to complete first-run setup, so an
+    // anonymous client that reaches an unconfigured instance cannot seize admin.
+    // When the operator didn't set SETUP_TOKEN, one is generated at startup and
+    // printed to the server log (see main.rs), so only someone who can read the
+    // log — the operator — can finish setup.
+    let expected = state.config.setup_token.as_deref().ok_or_else(|| {
+        AppError::Forbidden(
+            "Setup requires a setup token. Set SETUP_TOKEN (or use start-here.sh, which \
+             generates one) and read the value from the server log."
+                .into(),
+        )
+    })?;
+    let provided = form.setup_token.as_deref().unwrap_or("");
+    if !crate::security::constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+        return Err(AppError::Forbidden("Invalid setup token".into()));
     }
 
     // Validate at the boundary.

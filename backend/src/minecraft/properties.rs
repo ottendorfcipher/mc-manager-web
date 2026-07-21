@@ -13,6 +13,27 @@ fn remote_props(cfg: &Config) -> String {
     format!("{}/server.properties", cfg.mc_server_dir)
 }
 
+/// Reject control characters in any key or value.
+///
+/// A newline inside a value is decoded back to a real newline by the remote
+/// shell's `$'...'` handling and `printf`, which would inject additional
+/// property lines (e.g. `enable-rcon=true` with a known password, or
+/// `online-mode=false`) that bypass the locked-key guard in the handler. This
+/// is the choke point every property write passes through, so failing closed
+/// here protects all callers.
+fn reject_control_chars(updates: &HashMap<String, String>) -> Result<()> {
+    let has_control = |s: &str| s.contains('\n') || s.contains('\r') || s.contains('\0');
+    for (k, v) in updates {
+        if has_control(k) || has_control(v) {
+            return Err(crate::error::AppError::BadRequest(
+                "server.properties keys and values must not contain line breaks or control characters"
+                    .into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Fetch server.properties as a key-value map.
 pub async fn get_all(cfg: &Config) -> Result<HashMap<String, String>> {
     let path = remote_props(cfg);
@@ -24,6 +45,7 @@ pub async fn get_all(cfg: &Config) -> Result<HashMap<String, String>> {
 /// Only keys present in `updates` are modified; all others are preserved.
 pub async fn apply_updates(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
     let path = remote_props(cfg);
+    reject_control_chars(updates)?;
 
     // Read existing content
     let (existing, _) = ssh::run(cfg, &format!("cat {path}")).await?;
@@ -104,6 +126,7 @@ fn shell_escape(s: &str) -> String {
 /// pack URL) where a full service restart would unnecessarily kick all players.
 pub async fn apply_updates_no_restart(cfg: &Config, updates: &HashMap<String, String>) -> Result<()> {
     let path = remote_props(cfg);
+    reject_control_chars(updates)?;
     let (existing, _) = ssh::run(cfg, &format!("cat {path}")).await?;
     let new_content = merge_properties(&existing, updates);
     let write_cmd = format!(

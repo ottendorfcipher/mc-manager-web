@@ -64,6 +64,7 @@ pub async fn get(
     actor: AuthUser,
     Path(ign): Path<String>,
 ) -> Result<Json<CoordDisplayStatus>> {
+    crate::validation::validate_ign(&ign)?;
     check_perm(&state, &actor, &ign).await?;
 
     // Verify the player exists in our snapshots
@@ -92,6 +93,7 @@ pub async fn set(
     Path(ign): Path<String>,
     Json(body): Json<SetCoordDisplay>,
 ) -> Result<StatusCode> {
+    crate::validation::validate_ign(&ign)?;
     check_perm(&state, &actor, &ign).await?;
 
     // Verify the player exists

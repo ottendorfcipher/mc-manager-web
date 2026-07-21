@@ -19,6 +19,22 @@ use crate::{config::Config, error::{AppError, Result}, gcloud::ssh, minecraft::c
 /// The Minecraft namespace for our custom dimensions.
 pub const NAMESPACE: &str = "redstonecipher";
 
+/// Validate a dimension name before it is interpolated into remote shell paths
+/// and datapack filenames. Names are compile-time constants today (`lobby`,
+/// `arena`), so this is defense in depth against a future caller passing
+/// user-controlled input.
+fn validate_dim_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 48
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(AppError::BadRequest(format!(
+            "invalid dimension name '{name}'"
+        )));
+    }
+    Ok(())
+}
+
 // ── DimensionSpec ────────────────────────────────────────────────────────────
 
 /// Generator strategy for a custom dimension.
@@ -234,6 +250,7 @@ pub async fn deploy_dimension(cfg: &Config, spec: &DimensionSpec) -> Result<()> 
     let dimension_pretty = serde_json::to_string_pretty(&spec.dimension_json()).unwrap();
     let mcmeta_pretty    = serde_json::to_string_pretty(&pack_mcmeta).unwrap();
     let dim_name         = &spec.name;
+    validate_dim_name(dim_name)?;
 
     let script = format!(
         r#"set -e
@@ -269,6 +286,7 @@ echo DONE"#,
 /// Remove a previously-deployed dimension's datapack.  Caller is responsible
 /// for restarting MC if the dimension was already registered.
 pub async fn remove_dimension(cfg: &Config, name: &str) -> Result<()> {
+    validate_dim_name(name)?;
     let server_dir = &cfg.mc_server_dir;
     let pack_dir   = format!("{server_dir}/world/datapacks/rc_{name}");
     let script = format!("rm -rf '{pack_dir}' && echo DONE");
@@ -468,6 +486,10 @@ pub async fn build_lobby_platform(cfg: &Config, dimension_id: &str, radius: i64)
 
 /// Exclude a dimension from BlueMap so it doesn't appear on the live map.
 pub async fn exclude_from_bluemap(cfg: &Config, dim_name: &str) {
+    if validate_dim_name(dim_name).is_err() {
+        tracing::warn!(dim_name, "exclude_from_bluemap: invalid dimension name, skipping");
+        return;
+    }
     let server_dir = &cfg.mc_server_dir;
     let map_id = format!("{NAMESPACE}_{dim_name}");
     let conf_path = format!("{server_dir}/plugins/BlueMap/maps/{map_id}.conf");

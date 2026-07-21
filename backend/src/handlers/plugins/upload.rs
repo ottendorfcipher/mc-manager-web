@@ -47,11 +47,11 @@ pub async fn upload(
     let (bytes, original_name) = jar_bytes
         .ok_or_else(|| AppError::BadRequest("Missing multipart field 'jar'".into()))?;
 
-    if !original_name.to_lowercase().ends_with(".jar") {
-        return Err(AppError::BadRequest(
-            format!("'{}' is not a .jar file", original_name)
-        ));
-    }
+    // Sanitize the untrusted upload filename to a safe basename before it is
+    // used in any local path or the scp destination (guards path traversal,
+    // scp option injection, and shell metacharacters).
+    let filename = plugin_jar::safe_plugin_filename(&original_name)
+        .map_err(AppError::BadRequest)?;
 
     let meta = plugin_jar::read_plugin_meta(&bytes)
         .map_err(|e| AppError::BadRequest(format!("Cannot read plugin.yml: {e}")))?;
@@ -59,9 +59,8 @@ pub async fn upload(
     tokio::fs::create_dir_all(PLUGIN_CACHE_DIR).await
         .map_err(|e| AppError::ExternalCommand(format!("create cache dir: {e}")))?;
 
-    let sha_val  = plugin_jar::sha1_hex(&bytes);
+    let sha_val  = plugin_jar::sha256_hex(&bytes);
     let size     = bytes.len() as i64;
-    let filename = original_name.clone();
     let cache_path = format!("{PLUGIN_CACHE_DIR}/{filename}");
 
     tokio::fs::write(&cache_path, &bytes).await

@@ -85,6 +85,7 @@ pub async fn put(
         settings::set(pool, enc, "discord.bot_token", t, by).await?;
     }
     if let Some(w) = body.webhook_url.as_deref().filter(|s| !s.is_empty()) {
+        validate_discord_webhook(w)?;
         settings::set(pool, enc, "discord.webhook_url", w, by).await?;
     }
     if let Some(c) = body.channel_id.as_deref().filter(|s| !s.is_empty()) {
@@ -129,4 +130,26 @@ pub async fn put(
 
     tracing::info!(actor = %actor.email, "Discord settings updated");
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Only accept Discord webhook URLs. The stored URL is fetched server-side on
+/// every relayed message, so an arbitrary URL would be a (blind) SSRF vector.
+fn validate_discord_webhook(url: &str) -> Result<()> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| crate::error::AppError::BadRequest("webhook_url must be a valid URL".into()))?;
+    let host_ok = parsed
+        .host_str()
+        .map(|h| {
+            h == "discord.com"
+                || h == "discordapp.com"
+                || h.ends_with(".discord.com")
+                || h.ends_with(".discordapp.com")
+        })
+        .unwrap_or(false);
+    if parsed.scheme() != "https" || !host_ok {
+        return Err(crate::error::AppError::BadRequest(
+            "webhook_url must be an https://discord.com/... webhook URL".into(),
+        ));
+    }
+    Ok(())
 }

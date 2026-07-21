@@ -50,7 +50,12 @@ impl IntoResponse for AppError {
                 tracing::error!(error = %e, "Database error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
             }
-            AppError::ExternalCommand(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::ExternalCommand(msg) => {
+                // Log the raw command output/paths server-side; return a generic
+                // message so infrastructure detail never leaks to the client.
+                tracing::error!(detail = %msg, "External command failed");
+                (StatusCode::BAD_GATEWAY, "Upstream command failed".into())
+            }
             AppError::Io(e) => {
                 tracing::error!(error = %e, "IO error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "IO error".into())

@@ -66,7 +66,7 @@ pub async fn webhook(
         tracing::warn!("Budget webhook invoked but BUDGET_WEBHOOK_TOKEN is not configured");
         return (StatusCode::NOT_FOUND, "budget webhook disabled").into_response();
     };
-    if !constant_time_eq(q.token.as_bytes(), expected.as_bytes()) {
+    if !crate::security::constant_time_eq(q.token.as_bytes(), expected.as_bytes()) {
         return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
     }
 
@@ -119,52 +119,4 @@ pub async fn webhook(
     (StatusCode::NO_CONTENT, ()).into_response()
 }
 
-/// Constant-time byte comparison. A naive `==` would leak the secret via
-/// timing side-channels to any remote attacker who can measure our response.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::constant_time_eq;
-
-    #[test]
-    fn equal_slices_match() {
-        assert!(constant_time_eq(b"secret", b"secret"));
-    }
-
-    #[test]
-    fn different_content_does_not_match() {
-        assert!(!constant_time_eq(b"secret", b"SECRET"));
-    }
-
-    #[test]
-    fn different_length_does_not_match() {
-        assert!(!constant_time_eq(b"short", b"longer"));
-    }
-
-    #[test]
-    fn empty_slices_match() {
-        assert!(constant_time_eq(b"", b""));
-    }
-
-    #[test]
-    fn one_empty_does_not_match_nonempty() {
-        assert!(!constant_time_eq(b"", b"x"));
-        assert!(!constant_time_eq(b"x", b""));
-    }
-
-    #[test]
-    fn single_bit_difference_does_not_match() {
-        // Tokens that differ by exactly one bit in one byte
-        assert!(!constant_time_eq(b"\x00", b"\x01"));
-    }
-}
+// Token comparison uses the shared `crate::security::constant_time_eq`.

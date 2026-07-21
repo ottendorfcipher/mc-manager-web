@@ -74,8 +74,12 @@ pub async fn run_with_timeout(
 /// Write a Minecraft console command to the FIFO pipe.
 /// Returns true if APPLIED, false if OFFLINE/NOFIFO (not an error).
 ///
-/// Single quotes in `mc_cmd` are escaped with the POSIX `'\''` idiom so
-/// they cannot break out of the surrounding single-quoted shell string.
+/// Single quotes in `mc_cmd` are escaped with the POSIX `'\''` idiom so they
+/// cannot break out of the surrounding single-quoted shell string, and the
+/// command is written with `printf '%s\n'` rather than `echo` so a literal
+/// backslash sequence (e.g. the `\n` produced by JSON-encoding a Discord
+/// message) is not expanded into a real newline by a POSIX `echo`, which would
+/// inject a second console command. Real newlines are stripped as well.
 pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
     let safe_cmd = mc_cmd
         .replace('\'', r"'\''")
@@ -88,7 +92,7 @@ pub async fn fifo_command(cfg: &Config, mc_cmd: &str) -> Result<bool> {
     let script = format!(
         "FIFO=/opt/minecraft/console.fifo; \
          if [ -p \"$FIFO\" ]; then \
-           if echo '{safe_cmd}' | timeout 5 tee -a \"$FIFO\" > /dev/null; \
+           if printf '%s\\n' '{safe_cmd}' | timeout 5 tee -a \"$FIFO\" > /dev/null; \
              then echo APPLIED; \
            else echo NOFIFO; fi; \
          elif systemctl is-active minecraft > /dev/null 2>&1; then echo NOFIFO; \
@@ -112,7 +116,7 @@ pub async fn fifo_batch(cfg: &Config, commands: &[String]) -> Result<bool> {
             .replace('\n', " ")
             .replace('\r', "");
         echos.push_str(&format!(
-            "echo '{safe}' | timeout 5 tee -a \"$FIFO\" > /dev/null && "
+            "printf '%s\\n' '{safe}' | timeout 5 tee -a \"$FIFO\" > /dev/null && "
         ));
     }
     echos.push_str("echo APPLIED");

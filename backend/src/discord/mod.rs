@@ -114,8 +114,10 @@ impl EventHandler for DiscordHandler {
             return;
         }
 
-        let username = msg.author.name.clone();
-        let content  = msg.content.clone();
+        // Strip control characters so a newline can't be turned into a second
+        // in-game console command downstream, and to clean up the chat display.
+        let username = sanitize_relay_text(&msg.author.name);
+        let content  = sanitize_relay_text(&msg.content);
 
         // 1. Persist with source="discord" and broadcast to SSE subscribers.
         match chat::insert(&self.pool, "discord", &username, &username, &content).await {
@@ -228,6 +230,21 @@ pub fn spawn_manager(
 }
 
 // ── tellraw builder ───────────────────────────────────────────────────────────
+
+/// Collapse newlines and strip other control characters from relayed text.
+///
+/// A newline in a Discord message would be JSON-encoded into the tellraw payload
+/// and, on a POSIX `echo`, could inject a second console command; it also has no
+/// meaning in the single-line in-game chat display. Belt-and-braces with the
+/// `printf`-based FIFO writer in `gcloud::ssh`.
+fn sanitize_relay_text(s: &str) -> String {
+    s.chars()
+        .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
 
 /// Build a rich `tellraw @a` JSON payload for a Discord-originated message.
 ///

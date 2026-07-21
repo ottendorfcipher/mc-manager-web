@@ -140,7 +140,10 @@ async fn finish_login(
         None if !users::global_admin().is_empty() && email == users::global_admin() => {
             "global_admin".to_string()
         }
-        None => return login_error(err_code::NOT_INVITED),
+        None => {
+            tracing::warn!(email = %email, "sign-in denied: email is not invited");
+            return login_error(err_code::NOT_INVITED);
+        }
     };
 
     // Refresh identity. Google carries a subject id and avatar; other providers

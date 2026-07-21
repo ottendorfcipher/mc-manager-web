@@ -64,6 +64,22 @@ pub async fn invite(
 
     let role = body.role.unwrap_or_else(|| "member".to_string());
 
+    // Level gate: never let an inviter grant a role at or above their own level
+    // (mirrors POST /api/users). Without this, any `users.invite` holder could
+    // mint a global_admin. The seeded global admin is exempt.
+    let target_role = crate::db::roles::get(&state.pool, &role)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("Role '{role}' does not exist")))?;
+    if target_role.level >= actor.level() as i64 && actor.email != users::global_admin() {
+        return Err(AppError::Forbidden(format!(
+            "Cannot assign role '{}' (level {}) — you can only invite users to roles \
+             strictly below your own (level {}).",
+            target_role.name,
+            target_role.level,
+            actor.level()
+        )));
+    }
+
     let mut warnings: Vec<String> = Vec::new();
 
     // ── 1. Create / retrieve site user ───────────────────────────────────────
@@ -97,6 +113,7 @@ pub async fn invite(
     if let Some(ign) = &body.ign {
         let ign = ign.trim();
         if !ign.is_empty() {
+            crate::validation::validate_ign(ign)?;
             let mc_cmd = format!("whitelist add {ign}");
             match console::send(&state.config, &mc_cmd).await {
                 Ok(_) => {

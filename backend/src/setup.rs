@@ -67,3 +67,13 @@ pub async fn overlay(cfg: &mut Config, pool: &SqlitePool, enc_key: &[u8; 32]) {
         cfg.cloudflare_client_secret = Some(v);
     }
 }
+
+/// Generate a random one-time setup token (48 hex chars) for the first-run
+/// wizard when the operator did not set `SETUP_TOKEN`. Printed to the server log
+/// at startup so only someone who can read the log can complete setup.
+pub fn generate_setup_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}

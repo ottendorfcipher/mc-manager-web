@@ -17,6 +17,20 @@ async fn main() -> anyhow::Result<()> {
     let enc_key = cfg.settings_enc_key;
     lib::setup::overlay(&mut cfg, &pool, &enc_key).await;
 
+    // Fail-closed first-run setup: if the app is still unconfigured and the
+    // operator did not set SETUP_TOKEN, generate a one-time token and print it
+    // to the log. The setup wizard requires it, so an anonymous network client
+    // that reaches an unconfigured instance cannot seize admin — only someone
+    // who can read the server log (the operator) can complete setup.
+    if lib::setup::needs_setup(&cfg) && cfg.setup_token.is_none() {
+        let token = lib::setup::generate_setup_token();
+        tracing::warn!(
+            "First-run setup is unconfigured and no SETUP_TOKEN is set. Complete setup in \
+             the web wizard using this one-time token: {token}"
+        );
+        cfg.setup_token = Some(token);
+    }
+
     // Sync any new .tar.gz archives from mc-server-1 that aren't yet in the DB.
     // Non-fatal: if mc-server-1 is offline at startup the service still starts.
     let synced = lib::minecraft::backup::sync_into_db(&pool, &cfg).await;

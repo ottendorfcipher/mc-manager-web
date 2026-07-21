@@ -92,11 +92,18 @@ impl Config {
     pub fn from_env() -> Self {
         dotenvy::dotenv().ok();
 
+        // Load and harden the JWT secret first: it signs sessions AND (by
+        // default) derives the settings-encryption key, so a weak or
+        // placeholder value is a full-takeover risk. Fail fast if it's unsafe.
+        let jwt_secret = require_env("JWT_SECRET");
+        validate_jwt_secret(&jwt_secret);
+        let settings_enc_key = load_settings_key(&jwt_secret);
+
         Self {
             host: env_or("HOST", "127.0.0.1"),
             port: env_parse("PORT", 8787),
             database_url: require_env("DATABASE_URL"),
-            jwt_secret: require_env("JWT_SECRET"),
+            jwt_secret,
             google_client_id: require_env("GOOGLE_CLIENT_ID"),
             google_client_secret: require_env("GOOGLE_CLIENT_SECRET"),
             redirect_uri: env_or("REDIRECT_URI", "http://localhost:8787/auth/callback"),
@@ -149,11 +156,7 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .and_then(|s| s.parse::<u64>().ok()),
-            settings_enc_key: {
-                let jwt = std::env::var("JWT_SECRET")
-                    .unwrap_or_default();
-                crate::db::settings::derive_key(&jwt)
-            },
+            settings_enc_key,
         }
     }
 }
@@ -204,6 +207,56 @@ fn require_env(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| {
         panic!("Required environment variable '{key}' is not set. Check your .env file.")
     })
+}
+
+/// Reject a JWT secret that is the shipped placeholder, too short, or obviously
+/// low-entropy. The secret signs session cookies, so a weak or publicly-known
+/// value lets anyone forge an admin session. Fail fast at startup rather than
+/// run insecure (the repo is public, so the placeholder is public too).
+fn validate_jwt_secret(secret: &str) {
+    const PLACEHOLDER: &str = "replace_with_a_random_64_char_hex_string";
+    let s = secret.trim();
+    if s == PLACEHOLDER || s.eq_ignore_ascii_case("changeme") || s == "setup" {
+        panic!(
+            "JWT_SECRET is still a placeholder value. Generate a real one with: openssl rand -hex 32"
+        );
+    }
+    if s.len() < 32 {
+        panic!(
+            "JWT_SECRET is too short ({} chars); use at least 32. Generate one with: openssl rand -hex 32",
+            s.len()
+        );
+    }
+    let distinct = s.chars().collect::<std::collections::HashSet<char>>().len();
+    if distinct < 8 {
+        panic!(
+            "JWT_SECRET looks low-entropy (only {distinct} distinct characters). Generate one with: openssl rand -hex 32"
+        );
+    }
+}
+
+/// Load the AES-256-GCM settings-encryption key.
+///
+/// Prefers an independent `SETTINGS_ENC_KEY` (exactly 64 hex chars) so the
+/// at-rest key can be rotated separately from the JWT secret. Falls back to
+/// deriving it from `JWT_SECRET` (domain-separated SHA-256) so existing
+/// deployments keep decrypting their stored settings without any change.
+fn load_settings_key(jwt_secret: &str) -> [u8; 32] {
+    if let Some(raw) = opt_env("SETTINGS_ENC_KEY") {
+        let bytes = hex::decode(raw.trim()).unwrap_or_else(|_| {
+            panic!("SETTINGS_ENC_KEY must be hex. Generate one with: openssl rand -hex 32")
+        });
+        if bytes.len() != 32 {
+            panic!(
+                "SETTINGS_ENC_KEY must be exactly 32 bytes (64 hex chars); got {} bytes",
+                bytes.len()
+            );
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        return key;
+    }
+    crate::db::settings::derive_key(jwt_secret)
 }
 
 fn env_or(key: &str, default: &str) -> String {

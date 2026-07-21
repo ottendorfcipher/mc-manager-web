@@ -96,9 +96,19 @@ pub async fn export_csv(
     ))
 }
 
-/// RFC-4180 CSV field quoting: always quote, double any embedded quotes.
+/// RFC-4180 CSV field quoting with spreadsheet-formula neutralisation.
+///
+/// Always quotes and doubles embedded quotes. Additionally, a leading `=`, `+`,
+/// `-`, `@`, tab, or CR can be interpreted as a formula when the file is opened
+/// in Excel/Sheets, so such a field is prefixed with a single quote to force it
+/// to be treated as text.
 fn csv_field(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "\"\""))
+    let guarded = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        format!("'{s}")
+    } else {
+        s.to_string()
+    };
+    format!("\"{}\"", guarded.replace('"', "\"\""))
 }
 
 /// GET /api/me/audit-log  — any authenticated user, own entries only.

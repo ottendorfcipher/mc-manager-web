@@ -33,6 +33,22 @@ pub fn validate_ign(ign: &str) -> Result<&str> {
     Ok(ign)
 }
 
+/// Validate a player UUID: hex digits and dashes only (canonical dashed form or
+/// the 32-char undashed form). Keeps a client-supplied UUID from carrying shell
+/// metacharacters into the offline `give`/playerdata scripts.
+pub fn validate_uuid(uuid: &str) -> Result<&str> {
+    let u = uuid.trim();
+    if u.is_empty() || u.len() > 36 {
+        return Err(AppError::BadRequest("uuid must be 1–36 characters".into()));
+    }
+    if !u.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        return Err(AppError::BadRequest(
+            "uuid may only contain hex digits and dashes".into(),
+        ));
+    }
+    Ok(u)
+}
+
 // ── Email validation ──────────────────────────────────────────────────────────
 
 pub fn validate_email(email: &str) -> Result<&str> {
@@ -141,6 +157,15 @@ mod tests {
         assert!(validate_ign("waaaaaaaaaaaaaaay_too_long").is_err());
         assert!(validate_ign("bad name").is_err()); // space
         assert!(validate_ign("inject;rm").is_err()); // metacharacter
+    }
+
+    #[test]
+    fn uuid_rules() {
+        assert!(validate_uuid("069a79f4-44e9-4726-a5be-fca90e38aaf5").is_ok());
+        assert!(validate_uuid("069a79f444e94726a5befca90e38aaf5").is_ok());
+        assert!(validate_uuid("").is_err());
+        assert!(validate_uuid("'; rm -rf /").is_err()); // metacharacters
+        assert!(validate_uuid("nothex").is_err());
     }
 
     #[test]

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::{
     auth::middleware::AuthUser,
     db::player_snapshots,
-    error::{AppError, Result},
+    error::Result,
     minecraft::give_item,
     state::AppState,
     validation,
@@ -46,6 +46,7 @@ pub async fn give(
 
     // Use client-supplied UUID first; fall back to snapshot lookup.
     let uuid_owned: Option<String> = if let Some(u) = body.uuid.filter(|s| !s.is_empty()) {
+        validation::validate_uuid(&u)?;
         Some(u)
     } else {
         player_snapshots::get_by_ign(&state.pool, &ign)
