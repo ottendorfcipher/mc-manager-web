@@ -145,6 +145,24 @@ fn session_cookie(email: &str, role: &str) -> String {
     format!("{JWT_COOKIE}={token}")
 }
 
+/// Seed a `users` row for `email`/`role` (idempotent) and return a session
+/// cookie. A valid session now implies an existing user: the auth extractor
+/// re-reads the role from the DB so demotion/removal take effect immediately,
+/// so a test must seed the identity it authenticates as (the global admin is
+/// exempt and needs no row).
+async fn seeded_cookie(pool: &sqlx::SqlitePool, email: &str, role: &str) -> String {
+    sqlx::query(
+        "INSERT OR IGNORE INTO users (email, role, display_name, added_by) \
+         VALUES (?, ?, 'Test', 'test')",
+    )
+    .bind(email)
+    .bind(role)
+    .execute(pool)
+    .await
+    .expect("seed test user");
+    session_cookie(email, role)
+}
+
 // ── Auth / unauthenticated guard tests ───────────────────────────────────────
 
 #[tokio::test]
@@ -242,8 +260,8 @@ async fn audit_log_filter_and_csv_export() {
 
 #[tokio::test]
 async fn audit_log_export_requires_permission() {
-    let (srv, _) = server().await;
-    let cookie = session_cookie("member@example.com", "member");
+    let (srv, state) = server().await;
+    let cookie = seeded_cookie(&state.pool, "member@example.com", "member").await;
     let res = srv
         .get("/api/admin/audit-log/export")
         .add_header(header::COOKIE, cookie)
@@ -322,7 +340,7 @@ async fn global_search_finds_players_and_gates_users() {
     .unwrap();
 
     // A member (no users.view) sees the player hit but no user hits.
-    let cookie = session_cookie("member@example.com", "member");
+    let cookie = seeded_cookie(&state.pool, "member@example.com", "member").await;
     let res = srv
         .get("/api/search?q=Searchable")
         .add_header(header::COOKIE, cookie)
@@ -343,7 +361,7 @@ async fn activity_insights_tracks_sessions() {
     // A second open session (still online).
     redstonecipher_server::db::player_sessions::start(&state.pool, "Grinder").await.unwrap();
 
-    let cookie = session_cookie("member@example.com", "member");
+    let cookie = seeded_cookie(&state.pool, "member@example.com", "member").await;
     let res = srv
         .get("/api/players/insights?days=7")
         .add_header(header::COOKIE, cookie)
@@ -359,8 +377,8 @@ async fn activity_insights_tracks_sessions() {
 
 #[tokio::test]
 async fn activity_insights_requires_permission() {
-    let (srv, _) = server().await;
-    let cookie = session_cookie("nobody@example.com", "user"); // no nav.players
+    let (srv, state) = server().await;
+    let cookie = seeded_cookie(&state.pool, "nobody@example.com", "user").await; // no nav.players
     let res = srv
         .get("/api/players/insights")
         .add_header(header::COOKIE, cookie)
@@ -403,18 +421,18 @@ async fn notification_prefs_default_on_and_roundtrip() {
 
 #[tokio::test]
 async fn events_calendar_gating() {
-    let (srv, _) = server().await;
+    let (srv, state) = server().await;
     // member has events.status.view → 200 (empty list, no jobs seeded).
     let res = srv
         .get("/api/events/calendar?days=14")
-        .add_header(header::COOKIE, session_cookie("m@example.com", "member"))
+        .add_header(header::COOKIE, seeded_cookie(&state.pool, "m@example.com", "member").await)
         .await;
     assert_eq!(res.status_code(), StatusCode::OK);
     assert!(res.json::<serde_json::Value>().is_array());
     // a role without the perm → 403.
     let res = srv
         .get("/api/events/calendar")
-        .add_header(header::COOKIE, session_cookie("nobody@example.com", "nonexistent_role"))
+        .add_header(header::COOKIE, seeded_cookie(&state.pool, "nobody@example.com", "nonexistent_role").await)
         .await;
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
@@ -453,7 +471,7 @@ async fn sessions_list_and_revoke_all() {
 
 #[tokio::test]
 async fn music_playlist_create_add_and_list() {
-    let (srv, _) = server().await;
+    let (srv, state) = server().await;
     let cookie = session_cookie(ADMIN_EMAIL, "global_admin");
 
     // Create a playlist.
@@ -486,7 +504,7 @@ async fn music_playlist_create_add_and_list() {
     // Member without music.play can't manage playlists.
     let res = srv
         .get("/api/music/playlists")
-        .add_header(header::COOKIE, session_cookie("nobody@example.com", "nonexistent_role"))
+        .add_header(header::COOKIE, seeded_cookie(&state.pool, "nobody@example.com", "nonexistent_role").await)
         .await;
     assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 }
@@ -495,11 +513,11 @@ async fn music_playlist_create_add_and_list() {
 
 #[tokio::test]
 async fn kill_switch_get_requires_killswitch_view_permission() {
-    let (srv, _) = server().await;
+    let (srv, state) = server().await;
     // The AuthUser extractor validates the JWT and loads permissions by role.
     // A JWT whose role does not exist in role_permissions gets an empty set.
     // The require_perm("killswitch.view") guard then returns 403 Forbidden.
-    let cookie = session_cookie("nobody@example.com", "nonexistent_role");
+    let cookie = seeded_cookie(&state.pool, "nobody@example.com", "nonexistent_role").await;
     let res = srv
         .get("/api/kill-switch")
         .add_header(header::COOKIE, cookie)
@@ -944,9 +962,9 @@ async fn users_list_returns_seeded_global_admin() {
 
 #[tokio::test]
 async fn roles_list_requires_roles_view() {
-    let (srv, _) = server().await;
+    let (srv, state) = server().await;
     // Visitor has no roles.view — expect 403
-    let cookie = session_cookie("anon@example.com", "nonexistent_role");
+    let cookie = seeded_cookie(&state.pool, "anon@example.com", "nonexistent_role").await;
     let res = srv
         .get("/api/roles")
         .add_header(header::COOKIE, cookie)

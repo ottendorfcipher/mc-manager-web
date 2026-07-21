@@ -99,6 +99,14 @@ pub async fn update(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Role '{role_name}' not found")))?;
 
+    // Ceiling: cannot edit a role at or above your own level (stops a lower
+    // admin from re-labelling / re-levelling a peer or superior role).
+    if role.level >= actor.level() as i64 && actor.email != crate::db::users::global_admin() {
+        return Err(AppError::Forbidden(
+            "Cannot edit a role at or above your own level".into(),
+        ));
+    }
+
     // Level gate for custom roles: new level must be below actor's level.
     if let Some(new_level) = body.level {
         if new_level >= actor.level() as i64 {
@@ -203,6 +211,17 @@ pub async fn set_permissions(
     Json(body): Json<SetPermissionsBody>,
 ) -> Result<Json<RolePermissions>> {
     require_perm(&actor, "roles.edit")?;
+
+    // Ceiling: cannot rewrite the permissions of a role at or above your own
+    // level (stops stripping/re-permissioning a peer or superior role).
+    let role = roles::get(&state.pool, &role_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Role '{role_name}' not found")))?;
+    if role.level >= actor.level() as i64 && actor.email != crate::db::users::global_admin() {
+        return Err(AppError::Forbidden(
+            "Cannot edit permissions of a role at or above your own level".into(),
+        ));
+    }
 
     // Privilege escalation guard: actors cannot grant permissions they don't have,
     // unless they are global_admin (level 4).

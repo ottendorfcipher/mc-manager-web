@@ -41,7 +41,9 @@ pub async fn player_joined(
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
 
-    if token.is_empty() || provided != token {
+    if token.is_empty()
+        || !crate::security::constant_time_eq(provided.as_bytes(), token.as_bytes())
+    {
         return Err(AppError::Unauthenticated);
     }
 
@@ -102,7 +104,7 @@ pub async fn approve(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "pending_player_approve",
         Some(&ign),
         Some(&body.email),
@@ -124,7 +126,7 @@ pub async fn reject(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "pending_player_reject",
         Some(&ign),
         None,
@@ -155,7 +157,7 @@ pub async fn reinstate(
 
     audit::log(
         &state.pool,
-        &actor.email,
+        &actor.audit_actor(),
         "pending_player_reinstate",
         Some(&ign),
         None,

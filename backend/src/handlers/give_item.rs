@@ -57,7 +57,7 @@ pub async fn give(
 
     let online = body.online.unwrap_or(false);
 
-    give_item::give(&state.config, &ign, uuid, &body.item_id, body.count, online).await?;
+    give_item::give(&state.config, &ign, uuid, body.item_id.trim(), body.count, online).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

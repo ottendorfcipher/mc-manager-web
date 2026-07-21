@@ -307,14 +307,22 @@ pub async fn download_backup(
 ) -> Result<Response> {
     crate::auth::middleware::require_perm(&actor, "worlds.view")?;
 
-    // Confirm the backup belongs to this world
-    worlds::get(&state.pool, world_id)
+    // Confirm the backup actually belongs to this world: its stored path must
+    // live under the world's backup directory, so a backup_id can't be used to
+    // fetch another world's (or the global daily) archive.
+    let world = worlds::get(&state.pool, world_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("World {world_id} not found")))?;
 
     let run = backups::get(&state.pool, backup_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Backup {backup_id} not found")))?;
+
+    if !run.file_path.contains(&format!("/backups/{}/", world.slug)) {
+        return Err(AppError::NotFound(format!(
+            "Backup {backup_id} does not belong to world {world_id}"
+        )));
+    }
 
     let stream = backup::stream_file(&state.config, &run.file_path)?;
     let body = Body::from_stream(stream);

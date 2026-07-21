@@ -27,7 +27,7 @@ pub const SETTING_KEY: &str = "modrinth.pat";
 pub struct ModrinthStatus {
     /// Whether a PAT is stored.
     pub token_set:  bool,
-    /// First 10 chars of the token with the rest masked.
+    /// Last 4 chars of the token, for recognition only (never the prefix).
     pub token_hint: Option<String>,
     /// Whether the Modrinth API is reachable right now (live test).
     pub api_reachable: bool,
@@ -48,7 +48,8 @@ pub async fn get(
     let (token_set, token_hint) = match &stored {
         None    => (false, None),
         Some(t) => {
-            let hint = if t.len() > 10 { format!("{}…", &t[..10]) } else { t.clone() };
+            // Show only the last 4 chars — never the entropy-rich prefix.
+            let hint = if t.len() > 4 { format!("…{}", &t[t.len() - 4..]) } else { "…".to_string() };
             (true, Some(hint))
         }
     };

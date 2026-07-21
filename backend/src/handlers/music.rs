@@ -243,8 +243,21 @@ pub async fn add_custom_track(
 ) -> Result<StatusCode> {
     crate::auth::middleware::require_perm(&actor, "music.play")?;
 
-    if body.sound_id.trim().is_empty() || body.display_name.trim().is_empty() {
+    let sound_id = body.sound_id.trim();
+    if sound_id.is_empty() || body.display_name.trim().is_empty() {
         return Err(AppError::BadRequest("sound_id and display_name are required".into()));
+    }
+    // sound_id is later turned into an on-disk .ogg path, so reject traversal and
+    // any character outside the Minecraft namespaced-id charset.
+    if sound_id.len() > 128
+        || sound_id.contains("..")
+        || !sound_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'))
+    {
+        return Err(AppError::BadRequest(
+            "sound_id may only contain letters, digits, and . _ - : (no path separators)".into(),
+        ));
     }
     if body.duration_secs < 1 || body.duration_secs > 7200 {
         return Err(AppError::BadRequest("duration_secs must be 1–7200".into()));
@@ -252,7 +265,7 @@ pub async fn add_custom_track(
 
     music_queue::add_custom_track(
         &state.pool,
-        body.sound_id.trim(),
+        sound_id,
         body.display_name.trim(),
         body.artist.trim(),
         body.duration_secs,
@@ -979,6 +992,10 @@ pub async fn rebuild_resource_pack(
 ///   2. UUID-named file in the legacy public dir (transition compat)
 ///   3. Stem-named file in any known dir (very-old uploads)
 async fn find_track_ogg(storage_filename: &Option<String>, stem: &str) -> Option<Vec<u8>> {
+    // Refuse a stem that could traverse out of the uploads directory.
+    if stem.contains("..") || stem.contains('/') || stem.contains('\\') {
+        return None;
+    }
     // 1+2. UUID-named file.
     if let Some(ref sf) = storage_filename {
         for dir in [UPLOAD_DIR_MUSIC, LEGACY_PUBLIC_MUSIC] {

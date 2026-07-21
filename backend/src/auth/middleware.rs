@@ -97,11 +97,30 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let key    = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
         let claims = decode::<Claims>(&token, &key, &Validation::new(Algorithm::HS256))
-            .map_err(|_| AppError::Unauthenticated)?
+            .map_err(|e| {
+                tracing::debug!(error = %e, "session token rejected");
+                AppError::Unauthenticated
+            })?
             .claims;
 
         let real_email = claims.sub.clone();
-        let real_role  = claims.role.clone();
+
+        // Re-read the CURRENT role from the DB rather than trusting the JWT claim,
+        // and reject if the account no longer exists, so demotion and removal take
+        // effect on the next request instead of lingering until the token expires.
+        // The seeded global admin is allowed even if its row is briefly missing
+        // (mirrors finish_login) so it can never be locked out.
+        let real_role = match crate::db::users::get(&state.pool, &real_email).await {
+            Ok(Some(u)) => u.role,
+            Ok(None)
+                if !crate::db::users::global_admin().is_empty()
+                    && real_email == crate::db::users::global_admin() =>
+            {
+                "global_admin".to_string()
+            }
+            Ok(None) => return Err(AppError::Unauthenticated),
+            Err(e) => return Err(e.into()),
+        };
 
         // Reject tokens issued before a "sign out everywhere" cutoff for this user.
         if claims.iat < crate::db::login_events::tokens_valid_after(&state.pool, &real_email).await {
@@ -153,6 +172,10 @@ impl FromRequestParts<AppState> for AuthUser {
 
             // (d) Cannot impersonate a peer or superior.
             if tgt_level >= real_level {
+                tracing::warn!(
+                    actor = %real_email, target = %target,
+                    "impersonation denied: target at or above actor level",
+                );
                 return Err(AppError::Forbidden(
                     "Cannot impersonate a user at the same or higher role level".into(),
                 ));

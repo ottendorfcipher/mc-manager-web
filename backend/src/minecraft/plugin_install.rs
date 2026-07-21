@@ -368,22 +368,25 @@ async fn upload_jars(
         }
     };
 
-    let mut filenames: Vec<String> = vec![];
-
+    // (filename, expected_sha512) so the cached bytes can be re-verified here
+    // too: a crash/restart that resumes straight into "uploading" must not ship
+    // an unverified jar.
+    let mut entries: Vec<(String, String)> = vec![];
+    let read_name_sha = |e: &serde_json::Value| -> Option<(String, String)> {
+        let name = e["filename"].as_str()?.to_string();
+        let sha = e["sha512"].as_str().or_else(|| e["sha256"].as_str()).unwrap_or("").to_string();
+        Some((name, sha))
+    };
     if let Some(main) = plan.get("main") {
-        if let Some(name) = main["filename"].as_str() {
-            filenames.push(name.to_string());
-        }
+        if let Some(pair) = read_name_sha(main) { entries.push(pair); }
     }
     if let Some(deps) = plan.get("deps").and_then(|d| d.as_array()) {
         for dep in deps {
-            if let Some(name) = dep["filename"].as_str() {
-                filenames.push(name.to_string());
-            }
+            if let Some(pair) = read_name_sha(dep) { entries.push(pair); }
         }
     }
 
-    for filename in &filenames {
+    for (filename, expected_sha512) in &entries {
         let safe_name = match plugin_jar::safe_plugin_filename(filename) {
             Ok(s)  => s,
             Err(e) => {
@@ -393,6 +396,24 @@ async fn upload_jars(
             }
         };
         let cache_path = format!("{PLUGIN_CACHE_DIR}/{safe_name}");
+
+        // Re-verify the cached bytes against the expected hash before shipping.
+        if !expected_sha512.is_empty() {
+            match tokio::fs::read(&cache_path).await {
+                Ok(b) if plugin_jar::sha512_hex(&b).eq_ignore_ascii_case(expected_sha512) => {}
+                Ok(_) => {
+                    plugin_jobs::finish(pool, job.id, "failed",
+                        Some(&format!("Integrity re-check failed for {safe_name}"))).await?;
+                    return Ok(());
+                }
+                Err(e) => {
+                    plugin_jobs::finish(pool, job.id, "failed",
+                        Some(&format!("Cached jar missing for {safe_name}: {e}"))).await?;
+                    return Ok(());
+                }
+            }
+        }
+
         let dest = format!("root@{}:{PLUGINS_DIR}/{safe_name}", cfg.tailscale_ip);
 
         let status = tokio::process::Command::new("scp")
@@ -470,7 +491,10 @@ async fn remove_file(
         }
     };
 
-    let remote_path = format!("{PLUGINS_DIR}/{filename}");
+    // Guard against a stray `..` in the stored filename (defense in depth; the
+    // value comes from an installed_plugins row sanitized on insert).
+    let safe = plugin_jar::safe_plugin_filename(&filename).map_err(|e| anyhow::anyhow!(e))?;
+    let remote_path = format!("{PLUGINS_DIR}/{safe}");
     let cmd = format!("rm -f '{}'", remote_path.replace('\'', "'\\''"));
 
     if let Err(e) = crate::gcloud::ssh::run(cfg, &cmd).await {

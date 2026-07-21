@@ -157,8 +157,18 @@ pub async fn replace_players(
     Path(email): Path<String>,
     Json(body): Json<ReplacePlayersBody>,
 ) -> Result<StatusCode> {
-    if email != actor.email && !actor.can_manage_users() {
-        return Err(AppError::Forbidden("Forbidden".into()));
+    // Player links are an authorization principal (they gate access to a
+    // player's inventory/snapshot, alias, and gamemode), so only an admin may
+    // set them. Members are linked to their Minecraft account through the
+    // pending-join approval flow, not by self-assertion.
+    if !actor.can_manage_users() {
+        return Err(AppError::Forbidden(
+            "Only an admin can set player links. Join the server and ask an admin to approve your account."
+                .into(),
+        ));
+    }
+    for ign in &body.igns {
+        crate::validation::validate_ign(ign)?;
     }
     players::replace_all(&state.pool, &email, &body.igns).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -187,10 +197,26 @@ pub async fn set_player_gamemode(
     Path((email, ign)): Path<(String, String)>,
     Json(body): Json<SetGamemodeBody>,
 ) -> Result<Json<serde_json::Value>> {
-    // Members can set their own; admin+ can set anyone's
-    let allowed = email == actor.email || actor.can_manage_users();
-    if !allowed {
+    // Members can set their own; admin+ can set anyone's.
+    let is_admin = actor.can_manage_users();
+    if email != actor.email && !is_admin {
         return Err(AppError::Forbidden("Forbidden".into()));
+    }
+    // The path IGN is applied live in-game, so validate its format and confirm it
+    // is actually linked to `email`. Without this, a member could target `@a` or
+    // another player's IGN through their own email: the DB update is scoped to
+    // email+ign and would no-op, but the console command would still fire.
+    crate::validation::validate_ign(&ign)?;
+    if !is_admin {
+        let owns = players::list_for_user(&state.pool, &email)
+            .await?
+            .iter()
+            .any(|l| l.ign.eq_ignore_ascii_case(&ign));
+        if !owns {
+            return Err(AppError::Forbidden(
+                "That player is not linked to your account".into(),
+            ));
+        }
     }
     players::set_gamemode(&state.pool, &email, &ign, &body.gamemode).await?;
     // Apply live to the server (best-effort; ignore if offline)

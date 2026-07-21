@@ -46,6 +46,7 @@ pub async fn security_headers(req: Request<Body>, next: Next) -> Response {
          font-src 'self'; \
          frame-ancestors 'none'; \
          base-uri 'self'; \
+         object-src 'none'; \
          form-action 'self'"
             .parse()
             .unwrap(),

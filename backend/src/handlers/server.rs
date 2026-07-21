@@ -46,14 +46,20 @@ pub async fn vm_action(
     actor: AuthUser,
     Path(action): Path<String>,
 ) -> Result<StatusCode> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    // Each sub-action requires its own permission so a delegated role granted
+    // only "start" cannot also stop or hard-reset the VM.
+    let perm = match action.as_str() {
+        "start" => "server.vm.start",
+        "stop"  => "server.vm.stop",
+        "reset" => "server.vm.reset",
+        _ => return Err(AppError::BadRequest(format!("Unknown action: {action}"))),
+    };
+    crate::auth::middleware::require_perm(&actor, perm)?;
     match action.as_str() {
         "start" => instance::start(&state.config).await?,
         "stop" => instance::stop(&state.config).await?,
         "reset" => instance::reset(&state.config).await?,
-        _ => return Err(AppError::BadRequest(format!("Unknown action: {action}"))),
+        _ => unreachable!("action validated above"),
     }
     audit::log(&state.pool, &actor.audit_actor(), "vm_action", None, Some(&action)).await?;
     Ok(StatusCode::ACCEPTED)
@@ -65,13 +71,14 @@ pub async fn service_action(
     actor: AuthUser,
     Path(action): Path<String>,
 ) -> Result<StatusCode> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
-    let valid = ["start", "stop", "restart"];
-    if !valid.contains(&action.as_str()) {
-        return Err(AppError::BadRequest(format!("Unknown action: {action}")));
-    }
+    // Per-action permission (restart requires the ability to start it back up).
+    let perm = match action.as_str() {
+        "start"   => "server.service.start",
+        "stop"    => "server.service.stop",
+        "restart" => "server.service.start",
+        _ => return Err(AppError::BadRequest(format!("Unknown action: {action}"))),
+    };
+    crate::auth::middleware::require_perm(&actor, perm)?;
     ssh::run(&state.config, &format!("sudo systemctl {action} minecraft")).await?;
     audit::log(
         &state.pool,
@@ -95,11 +102,10 @@ pub async fn send_console(
     actor: AuthUser,
     Json(body): Json<ConsoleBody>,
 ) -> Result<Json<serde_json::Value>> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
-    // Raw console access is intentional (admin-only), but cap the length so a
-    // malformed client can't push an unbounded payload at the FIFO.
+    // Raw console = arbitrary RCON, so require the dedicated console permission
+    // rather than the coarse "can control the server" alias.
+    crate::auth::middleware::require_perm(&actor, "server.console.write")?;
+    // Cap the length so a malformed client can't push an unbounded payload.
     crate::validation::validate_text(&body.command, "command", 1024)?;
     let applied = console::send(&state.config, &body.command).await?;
     audit::log(
@@ -138,9 +144,7 @@ pub async fn set_gamerule(
     Path(rule): Path<String>,
     Json(body): Json<GameruleBody>,
 ) -> Result<Json<serde_json::Value>> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "server.gamerule.set")?;
     // `difficulty` is a special case: MC uses `/difficulty <level>` not `/gamerule`.
     // Validate (and normalise) both the rule name and value before they reach
     // the console command, and persist the normalised forms.
@@ -174,9 +178,7 @@ pub async fn set_time(
     actor: AuthUser,
     Json(body): Json<TimeBody>,
 ) -> Result<Json<serde_json::Value>> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "server.time.set")?;
     let applied = console::set_time(&state.config, body.ticks).await?;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }
@@ -192,9 +194,7 @@ pub async fn set_weather(
     actor: AuthUser,
     Json(body): Json<WeatherBody>,
 ) -> Result<Json<serde_json::Value>> {
-    if !actor.can_control_server() {
-        return Err(AppError::Forbidden("control_server required".into()));
-    }
+    crate::auth::middleware::require_perm(&actor, "server.weather.set")?;
     let applied = console::set_weather(&state.config, body.kind).await?;
     Ok(Json(serde_json::json!({ "applied": applied })))
 }

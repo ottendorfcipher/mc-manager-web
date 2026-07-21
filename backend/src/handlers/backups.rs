@@ -16,8 +16,9 @@ use crate::{
 
 pub async fn list(
     State(state): State<AppState>,
-    _: AuthUser,
+    actor: AuthUser,
 ) -> Result<Json<Vec<backups::BackupRun>>> {
+    crate::auth::middleware::require_perm(&actor, "nav.backups")?;
     Ok(Json(backups::list(&state.pool).await?))
 }
 

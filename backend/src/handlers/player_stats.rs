@@ -45,6 +45,8 @@ pub async fn get(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("No snapshot found for {ign}")))?;
 
+    // Defense in depth: the UUID is interpolated into a remote shell path.
+    crate::validation::validate_uuid(&snap.uuid)?;
     let stats = player_stats::read_stats(&state.config, &snap.uuid)
         .await?
         .unwrap_or_else(|| serde_json::json!({ "stats": {} }));
