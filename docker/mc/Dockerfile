@@ -8,6 +8,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-server rsync curl python3 ca-certificates gcc make libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Harden sshd: key-only root login, no password or interactive auth. The backend
+# authenticates with the control key the entrypoint installs at runtime, so
+# passwords are never needed and are refused outright.
+RUN mkdir -p /etc/ssh/sshd_config.d \
+    && printf '%s\n' \
+        'PermitRootLogin prohibit-password' \
+        'PasswordAuthentication no' \
+        'KbdInteractiveAuthentication no' \
+        'PubkeyAuthentication yes' \
+        'PermitEmptyPasswords no' \
+      > /etc/ssh/sshd_config.d/10-redstonecipher.conf
+
 # mcrcon: the backup and world-switch scripts use it to flush the world safely.
 RUN curl -fsSL https://github.com/Tiiffi/mcrcon/archive/refs/tags/v0.7.2.tar.gz -o /tmp/mcrcon.tgz \
     && tar -xzf /tmp/mcrcon.tgz -C /tmp \
