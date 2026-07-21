@@ -107,6 +107,12 @@ def call_backend(ign: str, uuid) -> str:
             return action
     except urllib.error.HTTPError as exc:
         log.error("Backend HTTP %s for %s: %s", exc.code, ign, exc.read())
+        # Fail closed on auth failures: a 401/403 means the watchdog and backend
+        # disagree on the shared token, so admitting the player would bypass the
+        # admission gate entirely. Other errors keep the fail-open availability
+        # tradeoff.
+        if exc.code in (401, 403):
+            return "kick"
         return "allow"
     except Exception as exc:
         log.error("Backend unreachable for %s: %s — defaulting to allow", ign, exc)
