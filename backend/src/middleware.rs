@@ -42,7 +42,7 @@ pub async fn security_headers(req: Request<Body>, next: Next) -> Response {
          script-src 'self'; \
          style-src 'self' 'unsafe-inline'; \
          connect-src 'self' https://api.modrinth.com; \
-         img-src 'self' data: blob: https://mc-heads.net https://cdn.modrinth.com https://lh3.googleusercontent.com; \
+         img-src 'self' data: blob: https://mc-heads.net https://cdn.modrinth.com https://cdn.jsdelivr.net https://lh3.googleusercontent.com; \
          font-src 'self'; \
          frame-ancestors 'none'; \
          base-uri 'self'; \
