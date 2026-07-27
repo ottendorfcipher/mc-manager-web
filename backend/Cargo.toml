@@ -49,7 +49,7 @@ sha2 = "0.10"
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
 
 # Secrets encryption (AES-256-GCM for at-rest settings storage)
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hex    = "0.4"
 
 # Pattern matching
