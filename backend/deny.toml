@@ -1,7 +1,8 @@
 # cargo-deny configuration — supply-chain policy layer for the Rust backend.
 #
-# This complements `cargo audit` (which gates on RUSTSEC CVEs) with policy
-# controls that catch a different class of supply-chain risk:
+# This complements osv-scanner (which gates on known vulnerabilities in
+# .github/workflows/security.yml) with policy controls that catch a different
+# class of supply-chain risk:
 #   • sources  — refuse any crate not from crates.io (blocks dependency
 #                confusion, rogue registries, and arbitrary git deps)
 #   • licenses — allowlist of acceptable licenses (a swapped-in dep carrying a
@@ -10,7 +11,7 @@
 #   • bans     — surface duplicate versions; deny crates as needed
 #
 # Run locally:  cargo deny --all-features check
-# Run in CI:    .github/workflows/security-audit.yml (rust-deny job)
+# Not run in CI: this policy check is a local step.
 
 [graph]
 all-features = true
@@ -20,7 +21,7 @@ all-features = true
 version = 2
 # A yanked crate in the lockfile is a red flag (pulled for a reason).
 yanked = "deny"
-# CVE severity gating is handled by `cargo audit`; cargo-deny's advisory db
+# Known-vulnerability gating is handled by osv-scanner; cargo-deny's advisory db
 # check still runs and reports. Add IDs here only to consciously waive one.
 ignore = [
     # The following all concern rustls-webpki 0.102.8, which now enters the tree

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Enable GitHub-native security features for the repo.
 #
-# NOTE (2026-06): GitHub native secret scanning + push protection is NOT
-# available on this PRIVATE repository without GitHub Advanced Security (paid).
-# Until then, secret scanning is provided by .github/workflows/secret-scan.yml
-# (gitleaks), which runs on every push/PR and weekly over full history.
+# NOTE (2026-11): the repo is public, so GitHub native secret scanning and
+# push protection are available and enabled. The gitleaks workflow
+# (secret-scan.yml) was removed; .gitleaks.toml is kept for local runs:
+#   gitleaks git . --config .gitleaks.toml --redact
 #
-# Run this script if the repo is ever made public, or once GHAS is enabled, to
-# turn on the native controls (defense-in-depth on top of the gitleaks job).
+# Run this script to re-apply the native controls, for example after the
+# repo changes visibility. On a private repo without GitHub Advanced
+# Security they are unavailable and no secret scan runs in CI.
 #
 # Requires: gh CLI authenticated with admin on the repo.
 set -euo pipefail
@@ -20,7 +21,7 @@ gh api -X PATCH "repos/${REPO}" \
   --jq '.security_and_analysis' \
   || {
     echo "WARNING: native secret scanning unavailable (private repo without GHAS)."
-    echo "         The gitleaks workflow remains the active secret-scanning control."
+    echo "         No secret scan runs in CI: run gitleaks locally (.gitleaks.toml)."
     exit 0
   }
 
